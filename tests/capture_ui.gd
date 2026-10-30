@@ -32,10 +32,24 @@ func _run() -> void:
 	await _save("characters")
 	home._open_knives()
 	await _save("knives")
+	home._spin_wheel()
+	await _save("wheel")
+	var w = home.overlay
+	if w:
+		w._spin()
+		await create_timer(4.2).timeout
+		await _save("wheel_result")
 	home._close_overlay()
 	gs.start_level(4)
 	await process_frame
 	await process_frame
 	await create_timer(0.5).timeout
 	await _save("level")
+	var lv = current_scene
+	# Force a takedown to capture the ring / gem fountain / +N pop.
+	lv.player_pos = lv.guards[0].pos + Vector2(20, 0)
+	lv.attack_cd = 0.0
+	lv._auto_attack()
+	await create_timer(0.18).timeout
+	await _save("level_kill")
 	quit()

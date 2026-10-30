@@ -263,14 +263,48 @@ func add_gems(n: int) -> void:
 func can_spin_wheel() -> bool:
 	return last_wheel_day != Time.get_date_string_from_system()
 
+## Lucky wheel: 8 segments, weighted. Rolling does not award; claiming does.
+const WHEEL_PRIZES := [
+	{"kind": "cash", "amount": 50, "weight": 22},
+	{"kind": "gems", "amount": 10, "weight": 18},
+	{"kind": "cash", "amount": 100, "weight": 18},
+	{"kind": "gems", "amount": 20, "weight": 12},
+	{"kind": "cash", "amount": 150, "weight": 12},
+	{"kind": "gems", "amount": 30, "weight": 8},
+	{"kind": "cash", "amount": 250, "weight": 7},
+	{"kind": "gems", "amount": 60, "weight": 3},
+]
+
+func roll_wheel() -> int:
+	var total := 0
+	for p in WHEEL_PRIZES:
+		total += int(p.weight)
+	var roll := randi() % maxi(1, total)
+	for i in range(WHEEL_PRIZES.size()):
+		roll -= int(WHEEL_PRIZES[i].weight)
+		if roll < 0:
+			return i
+	return 0
+
+func claim_wheel(index: int) -> Dictionary:
+	if not can_spin_wheel():
+		return {}
+	var i := clampi(index, 0, WHEEL_PRIZES.size() - 1)
+	var prize: Dictionary = WHEEL_PRIZES[i]
+	if String(prize.kind) == "gems":
+		gems += int(prize.amount)
+	else:
+		cash += int(prize.amount)
+	last_wheel_day = Time.get_date_string_from_system()
+	save_game()
+	return prize
+
+## Legacy helper kept so older callers still work.
 func spin_wheel() -> int:
 	if not can_spin_wheel():
 		return 0
-	last_wheel_day = Time.get_date_string_from_system()
-	var prize := 50 + randi() % 101
-	cash += prize
-	save_game()
-	return prize
+	var prize := claim_wheel(roll_wheel())
+	return int(prize.get("amount", 0)) if String(prize.get("kind", "")) == "cash" else 0
 
 func vibrate(ms: int) -> void:
 	if haptics_enabled and OS.has_feature("mobile"):

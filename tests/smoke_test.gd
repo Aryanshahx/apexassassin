@@ -43,6 +43,20 @@ func _run() -> void:
 	check(gs.buy_knife("apex"), "buy apex knife")
 	check(gs.player_damage() >= 4, "apex damage")
 	check(gs.select_knife("standard"), "select standard knife")
+	# Lucky wheel: weighted roll in range, single claim per day, balance credited.
+	gs.last_wheel_day = ""
+	check(gs.can_spin_wheel(), "wheel available")
+	var wi: int = gs.roll_wheel()
+	check(wi >= 0 and wi < gs.WHEEL_PRIZES.size(), "wheel roll in range")
+	var before_gems: int = gs.gems
+	var before_cash: int = gs.cash
+	var prize: Dictionary = gs.claim_wheel(wi)
+	check(not prize.is_empty(), "wheel prize claimed")
+	var credited: bool = (gs.gems > before_gems) if String(prize.kind) == "gems" else (gs.cash > before_cash)
+	check(credited, "wheel prize credited to balance")
+	check(not gs.can_spin_wheel(), "wheel locked after spin")
+	check(gs.claim_wheel(0).is_empty(), "second claim same day blocked")
+	gs.last_wheel_day = ""
 	gs.start_level(4)
 	await process_frame
 	await process_frame
@@ -70,5 +84,49 @@ func _run() -> void:
 	check(level.finished, "level finished")
 	check(gs.unlocked_level >= 5, "next level unlocked")
 	check(gs.best_stars.get("4", 0) >= 1, "stars saved")
+	# --- v0.5 mechanics ---
+	gs.start_level(6)
+	await process_frame
+	await process_frame
+	var lv2 = current_scene
+	check(lv2 != null and lv2.guards.size() >= 3, "level 6 loaded")
+	# Backstab: stand directly behind an unaware guard -> instant silent kill.
+	var g0: Dictionary = lv2.guards[0]
+	var facing := Vector2.from_angle(g0.face)
+	lv2.player_pos = g0.pos - facing * 20.0
+	g0.state = 0
+	lv2.attack_cd = 0.0
+	var kills_before: int = lv2.kills
+	lv2._auto_attack()
+	check(lv2.kills == kills_before + 1, "backstab kills unaware guard")
+	check(lv2.backstabs == 1, "backstab counted")
+	check(lv2.gems.size() >= 8, "backstab drops bonus gems")
+	# Level-wide alarm: a confirmed sighting sends patrolling guards to search.
+	var spotter: Dictionary = {}
+	for g in lv2.guards:
+		if g.alive:
+			spotter = g
+			break
+	if not spotter.is_empty():
+		var patrolling := 0
+		for g in lv2.guards:
+			if g.alive and g != spotter and g.state == 0:
+				patrolling += 1
+		lv2._alarm_others(spotter)
+		var searching := 0
+		for g in lv2.guards:
+			if g.alive and g != spotter and g.state == 3:
+				searching += 1
+		check(searching == patrolling, "alarm puts patrol guards into search")
+	# Drag steering re-paths toward the finger.
+	lv2.dragging = true
+	lv2.hunt_target = -1
+	lv2.drag_target = lv2._cell_center(int(lv2.data.spawn[0]), int(lv2.data.spawn[1]))
+	lv2.drag_repath = 0.0
+	lv2._path_to(lv2.drag_target)
+	check(lv2.player_path.size() > 0, "drag target path found")
+	# Depot environment textures are wired.
+	check(lv2.floor_details.size() > 0, "depot floor details placed")
+	check(lv2.CONTAINER_TEX.size() == 3, "3 container colours")
 	print("SMOKE %d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)

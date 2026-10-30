@@ -7,12 +7,25 @@ extends Node2D
 const CELL := 32.0
 const ORIGIN := Vector2(24, 140)
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
-const FLOOR := preload("res://assets/level/floor_tile.png")
-const CRATE_TEX := {
-	"blue": preload("res://assets/level/crate_blue.png"),
-	"olive": preload("res://assets/level/crate_olive.png"),
-	"gray": preload("res://assets/level/crate_gray.png"),
+const FLOOR := preload("res://assets/environment/depot/floor.png")
+const CONTAINER_TEX := {
+	"red": preload("res://assets/environment/depot/container_red.png"),
+	"blue": preload("res://assets/environment/depot/container_blue.png"),
+	"olive": preload("res://assets/environment/depot/container_olive.png"),
 }
+const CONTAINER_END := {
+	"red": preload("res://assets/environment/depot/container_red_end.png"),
+	"blue": preload("res://assets/environment/depot/container_blue_end.png"),
+	"olive": preload("res://assets/environment/depot/container_olive_end.png"),
+}
+const CRATE_TEX := {
+	"blue": preload("res://assets/environment/depot/crate_wood.png"),
+	"olive": preload("res://assets/environment/depot/crate_wood.png"),
+	"gray": preload("res://assets/environment/depot/crate_wood.png"),
+}
+const DRAIN_TEX := preload("res://assets/environment/depot/drain.png")
+const ARROW_TEX := preload("res://assets/environment/depot/arrow.png")
+const CONTAINER_KEYS := ["blue", "red", "olive"]
 const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
@@ -55,6 +68,14 @@ var hud: Control
 var hint: Label
 var hearts: Array[TextureRect] = []
 var rng := RandomNumberGenerator.new()
+var floor_details: Array[Dictionary] = []
+var shake := 0.0
+var hit_stop := 0.0
+var base_position := Vector2.ZERO
+var dragging := false
+var drag_target := Vector2.ZERO
+var drag_repath := 0.0
+var backstabs := 0
 var pause_btn: Button
 var target_icon: TextureRect
 var gem_icon: TextureRect
@@ -64,6 +85,7 @@ func _ready() -> void:
 	_load_level(GameState.current_level)
 	_build_grid()
 	_build_shadows()
+	_build_floor_details()
 	_build_guards()
 	_build_player()
 	_build_hud()
@@ -92,7 +114,15 @@ func _fit_world() -> void:
 	var pos := avail.position + (avail.size - map_size * s) * 0.5 - ORIGIN * s
 	scale = Vector2.ONE * s
 	position = pos
+	base_position = pos
 	queue_redraw()
+
+func _apply_shake(delta: float) -> void:
+	if shake > 0.0:
+		shake = maxf(0.0, shake - delta * 26.0)
+		position = base_position + Vector2(rng.randf_range(-shake, shake), rng.randf_range(-shake, shake))
+	elif position != base_position:
+		position = base_position
 
 func _layout_hud() -> void:
 	var safe := ScreenUtil.safe_rect(get_viewport())
@@ -164,6 +194,30 @@ func _build_shadows() -> void:
 		var s := Rect2(r.position + Vector2(6, 10), r.size + Vector2(10, 14))
 		shadow_rects.append(s)
 
+func _build_floor_details() -> void:
+	# Scatter drains/arrows on open floor only, using the level RNG for stability.
+	var tries := 0
+	var placed := 0
+	while placed < 9 and tries < 220:
+		tries += 1
+		var cx := rng.randi_range(1, int(data.width) - 2)
+		var cy := rng.randi_range(1, int(data.height) - 2)
+		var p := _cell_center(cx, cy)
+		if _solid(p) or in_shadow(p):
+			continue
+		var too_close := false
+		for d in floor_details:
+			if d.pos.distance_to(p) < 150:
+				too_close = true
+				break
+		if too_close:
+			continue
+		if placed % 3 == 0:
+			floor_details.append({"kind": "drain", "pos": p, "rot": 0.0})
+		else:
+			floor_details.append({"kind": "arrow", "pos": p, "rot": float(rng.randi_range(0, 3)) * PI / 2.0})
+		placed += 1
+
 func in_shadow(p: Vector2) -> bool:
 	for r in shadow_rects:
 		if r.has_point(p):
@@ -174,7 +228,7 @@ func _build_player() -> void:
 	player_rig = ActorRigScript.new()
 	player_rig.setup(GameState.selected_assassin, "player")
 	player_rig.set_knife(GameState.selected_knife)
-	player_rig.scale = Vector2.ONE * 0.78
+	player_rig.scale = Vector2.ONE * 0.92
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
 	add_child(player_rig)
@@ -187,7 +241,7 @@ func _build_guards() -> void:
 		var kind := "elite" if bool(g.get("elite", false)) else "guard"
 		var rig := ActorRigScript.new()
 		rig.setup(kind, "guard")
-		rig.scale = Vector2.ONE * (0.82 if kind == "elite" else 0.76)
+		rig.scale = Vector2.ONE * (0.98 if kind == "elite" else 0.92)
 		rig.position = _cell_center(g.x, g.y)
 		rig.rotation = deg_to_rad(float(g.face)) + PI / 2
 		add_child(rig)
@@ -292,10 +346,24 @@ func _update_counter() -> void:
 func _physics_process(delta: float) -> void:
 	if finished or overlay != null:
 		return
+	# Micro hit-stop makes each takedown feel weighty.
+	if hit_stop > 0.0:
+		hit_stop -= delta
+		_update_effects(delta)
+		_apply_shake(delta)
+		queue_redraw()
+		return
+	_apply_shake(delta)
 	elapsed += delta
 	invuln = maxf(0, invuln - delta)
 	attack_cd = maxf(0, attack_cd - delta)
 	repath = maxf(0, repath - delta)
+	# Continuous steering while dragging.
+	if dragging and hunt_target < 0:
+		drag_repath -= delta
+		if drag_repath <= 0.0:
+			drag_repath = 0.12
+			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
 	_auto_attack()
@@ -369,22 +437,32 @@ func _auto_attack() -> void:
 		return
 	var g: Dictionary = guards[best]
 	attack_cd = GameState.attack_cooldown()
+	# Behind the guard's facing arc => silent instant kill, no alert noise.
+	var to_player: Vector2 = (player_pos - g.pos).normalized()
+	var facing := Vector2.from_angle(g.face)
+	var from_behind := facing.dot(to_player) < -0.25
+	var unaware: bool = g.state != GState.ALERT
 	player_face = (g.pos - player_pos).angle()
 	player_rig.rotation = player_face + PI / 2
 	player_rig.play_anim("attack", true)
 	effects.append({"pos": g.pos, "t": 0.22, "max": 0.22, "kind": "slash", "angle": player_face})
 	Sfx.play("blade")
 	GameState.vibrate(18)
-	g.hp -= GameState.player_damage()
+	if from_behind and unaware:
+		g.hp = 0
+		backstabs += 1
+		effects.append({"pos": g.pos + Vector2(0, -34), "t": 0.8, "max": 0.8, "kind": "backstab"})
+	else:
+		g.hp -= GameState.player_damage()
 	if g.hp <= 0:
-		_kill_guard(best)
+		_kill_guard(best, from_behind and unaware)
 	else:
 		g.alert = 1.0
 		g.state = GState.ALERT
 		g.last_seen = player_pos
 		g.rig.play_anim("hurt", true)
 
-func _kill_guard(index: int) -> void:
+func _kill_guard(index: int, silent := false) -> void:
 	var g: Dictionary = guards[index]
 	g.alive = false
 	g.state = GState.DEAD
@@ -392,17 +470,34 @@ func _kill_guard(index: int) -> void:
 	kills += 1
 	_update_counter()
 	effects.append({"pos": g.pos, "t": 0.4, "max": 0.4, "kind": "poof"})
-	var drop := 2 if g.elite else 1
+	# Hunter-Assassin style takedown feedback: shock ring + gem fountain + counter pop.
+	effects.append({"pos": g.pos, "t": 0.45, "max": 0.45, "kind": "killring"})
+	var drop := (12 if g.elite else 8) if silent else (8 if g.elite else 5)
+	effects.append({"pos": g.pos + Vector2(0, -18), "t": 0.9, "max": 0.9, "kind": "gemtext", "amount": drop})
+	shake = maxf(shake, 5.0)
+	hit_stop = 0.055
 	for i in range(drop):
-		gems.append({"pos": g.pos + Vector2(rng.randf_range(-10, 10), rng.randf_range(-10, 10)),
-			"vel": Vector2(rng.randf_range(-60, 60), rng.randf_range(-60, 60)), "t": 0.0})
+		var a := TAU * float(i) / float(drop) + rng.randf_range(-0.3, 0.3)
+		var sp := rng.randf_range(90, 190)
+		gems.append({"pos": g.pos + Vector2.from_angle(a) * 6.0,
+			"vel": Vector2.from_angle(a) * sp, "t": 0.0})
 	# Nearby guards hear the takedown unless deep in shadow.
-	var noise := 70.0 if in_shadow(player_pos) else 130.0
+	var noise := 0.0 if silent else (70.0 if in_shadow(player_pos) else 130.0)
 	for other in guards:
 		if other.alive and other.pos.distance_to(g.pos) < noise and other.state == GState.PATROL:
 			_investigate(other, g.pos)
 	if hunt_target == index:
 		hunt_target = -1
+
+func _alarm_others(source: Dictionary) -> void:
+	# One confirmed sighting pulls the whole level into a search, like the reference.
+	for other in guards:
+		if other != source and other.alive and other.state == GState.PATROL:
+			other.state = GState.SEARCH
+			other.last_seen = player_pos
+			other.search_t = 4.0
+			other.alert = maxf(other.alert, 0.35)
+			other.path.clear()
 
 func _investigate(g: Dictionary, p: Vector2) -> void:
 	g.state = GState.INVESTIGATE
@@ -427,6 +522,7 @@ func _update_guards(delta: float) -> void:
 				if g.state != GState.ALERT:
 					Sfx.play("alert")
 					was_alerted = true
+					_alarm_others(g)
 				g.state = GState.ALERT
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
@@ -570,8 +666,8 @@ func _update_gems(delta: float) -> void:
 		gm.pos += gm.vel * delta
 		gm.vel = gm.vel.lerp(Vector2.ZERO, delta * 6)
 		var d: float = gm.pos.distance_to(player_pos)
-		if d < 90:
-			gm.pos = gm.pos.lerp(player_pos, delta * 10)
+		if d < 130:
+			gm.pos = gm.pos.lerp(player_pos, delta * 9)
 		if d < 22:
 			gems_collected += 1
 			gem_label.text = str(gems_collected)
@@ -602,28 +698,62 @@ func _update_stealth_hud() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if finished or overlay != null:
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var target := make_input_local(event).position as Vector2
-		# Tap a guard -> hunt it.
+	var local := Vector2.ZERO
+	var has_pos := false
+	if event is InputEventScreenTouch:
+		has_pos = true
+		local = make_input_local(event).position
+		dragging = event.pressed
+		if not event.pressed:
+			drag_repath = 0.0
+	elif event is InputEventScreenDrag:
+		has_pos = true
+		local = make_input_local(event).position
+		dragging = true
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		has_pos = true
+		local = make_input_local(event).position
+		dragging = event.pressed
+	elif event is InputEventMouseMotion and dragging:
+		has_pos = true
+		local = make_input_local(event).position
+	if has_pos:
+		drag_target = local
+		# Tap a guard -> hunt it. Otherwise path/steer to the finger.
 		var picked := -1
-		var pd := 40.0
+		var pd := 44.0
 		for i in range(guards.size()):
-			if guards[i].alive and guards[i].pos.distance_to(target) < pd:
-				pd = guards[i].pos.distance_to(target)
+			if guards[i].alive and guards[i].pos.distance_to(local) < pd:
+				pd = guards[i].pos.distance_to(local)
 				picked = i
 		if picked >= 0:
 			hunt_target = picked
 			repath = 0.0
+			dragging = false
 			effects.append({"pos": guards[picked].pos, "t": 0.4, "max": 0.4, "kind": "mark"})
 		else:
 			hunt_target = -1
-			_path_to(target)
+			_path_to(local)
+			drag_repath = 0.0
 	if event.is_action_pressed("ui_cancel"):
 		_pause()
 
 func _draw() -> void:
 	# Tiled floor, clipped to the map rectangle.
 	var map_rect := Rect2(ORIGIN, Vector2(data.width, data.height) * CELL)
+	# Surround: keep tiling concrete past the arena so tall phones never show
+	# black bars. Drawn darker so the playable arena still reads clearly.
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var sc := maxf(scale.x, 0.001)
+	var view_world := Rect2((safe.position - position) / sc, safe.size / sc)
+	var out_rect := view_world.grow(64)
+	var ox := floorf(out_rect.position.x / 64.0) * 64.0
+	while ox < out_rect.end.x:
+		var oy := floorf(out_rect.position.y / 64.0) * 64.0
+		while oy < out_rect.end.y:
+			draw_texture_rect(FLOOR, Rect2(ox, oy, 64, 64), false, Color(0.34, 0.36, 0.42))
+			oy += 64.0
+		ox += 64.0
 	var tw := 64.0
 	var th := 64.0
 	var x := ORIGIN.x
@@ -637,6 +767,14 @@ func _draw() -> void:
 				draw_texture_rect_region(FLOOR, vis, region)
 			y += th
 		x += tw
+	# Painted floor details, deterministic per level.
+	for d in floor_details:
+		if d.kind == "drain":
+			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(24, 18), Vector2(48, 36)), false, Color(1, 1, 1, 0.85))
+		else:
+			draw_set_transform(d.pos, d.rot, Vector2.ONE)
+			draw_texture_rect(ARROW_TEX, Rect2(-19, -19, 38, 38), false, Color(1, 1, 1, 0.42))
+			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	# Shadows.
 	for r in shadow_rects:
 		var sr := r.intersection(map_rect)
@@ -676,6 +814,31 @@ func _draw() -> void:
 			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 		elif e.kind == "poof":
 			draw_circle(e.pos, 30 * (1 - k), Color(0.9, 0.9, 0.9, k * 0.5))
+		elif e.kind == "killring":
+			var rr := 18.0 + (1.0 - k) * 62.0
+			draw_arc(e.pos, rr, 0, TAU, 40, Color(1.0, 0.35, 0.3, k * 0.9), 7.0 * k + 1.5)
+			draw_arc(e.pos, rr * 0.72, 0, TAU, 32, Color(1.0, 0.85, 0.5, k * 0.5), 3.0)
+		elif e.kind == "backstab":
+			var rise2 := (1.0 - k) * 26.0
+			var fv2 := FontVariation.new()
+			fv2.base_font = FONT
+			fv2.variation_embolden = 1.0
+			var t2 := "BACKSTAB!"
+			var w2 := fv2.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+			var p2: Vector2 = e.pos + Vector2(-w2 * 0.5, -rise2)
+			draw_string_outline(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0.06, 0.07, 0.1, k))
+			draw_string(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.55, 1.0, 0.65, k))
+		elif e.kind == "gemtext":
+			var rise := (1.0 - k) * 34.0
+			var txt := "+%d" % int(e.amount)
+			var fv := FontVariation.new()
+			fv.base_font = FONT
+			fv.variation_embolden = 1.0
+			var fs := 30
+			var tw2 := fv.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var tp: Vector2 = e.pos + Vector2(-tw2 * 0.5, -rise)
+			draw_string_outline(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 7, Color(0.06, 0.07, 0.1, k))
+			draw_string(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1.0, 0.89, 0.25, k))
 		elif e.kind == "spark" or e.kind == "muzzle":
 			draw_set_transform(e.pos, 0, Vector2.ONE * (0.6 + k))
 			draw_texture(SPARK_TEX, -SPARK_TEX.get_size() / 2, Color(1, 1, 1, k))
@@ -696,27 +859,55 @@ func _draw() -> void:
 			draw_circle(g.pos + Vector2(0, -34), 4, Color("ffd23f"))
 
 func _draw_wall(r: Rect2) -> void:
-	draw_rect(Rect2(r.position + Vector2(0, 4), r.size), Color(0, 0, 0, 0.35))
-	draw_rect(r, Color("3a2417"))
-	draw_rect(r.grow(-3), Color("8a5a33"))
-	draw_rect(Rect2(r.position + Vector2(3, 3), Vector2(r.size.x - 6, 4)), Color("a8703f"))
-	var n := int(max(r.size.x, r.size.y) / CELL)
-	for i in range(n):
-		var p := r.position + Vector2(8, 8)
-		if r.size.x > r.size.y:
-			p = r.position + Vector2(i * CELL + 16, 8)
-		else:
-			p = r.position + Vector2(8, i * CELL + 16)
-		draw_circle(p, 2, Color("5c3a20"))
-	var hz := Color("ff7a1a")
-	if r.size.x > r.size.y:
-		for e in [r.position.x + 5, r.end.x - 5]:
-			for k in range(3):
-				draw_circle(Vector2(e, r.position.y + 8 + k * 8), 2.5, hz)
+	# Shipping-container wall run: ribbed lid tiled along the long axis, hazard
+	# end caps, and a drop shadow so the block reads as a solid waist-high object.
+	var key: String = CONTAINER_KEYS[int(abs(r.position.x * 7 + r.position.y * 13)) % CONTAINER_KEYS.size()]
+	var lid: Texture2D = CONTAINER_TEX[key]
+	var cap: Texture2D = CONTAINER_END[key]
+	var horizontal := r.size.x >= r.size.y
+	var thick := minf(r.size.x, r.size.y)
+	var long := maxf(r.size.x, r.size.y)
+	# Ground shadow.
+	draw_rect(Rect2(r.position + Vector2(5, 8), r.size), Color(0, 0, 0, 0.32))
+	var cap_w := minf(thick * 0.42, 26.0)
+	if horizontal:
+		var body := Rect2(r.position + Vector2(cap_w, 0), Vector2(r.size.x - cap_w * 2, r.size.y))
+		_tile_container(lid, body, true)
+		draw_texture_rect(cap, Rect2(r.position, Vector2(cap_w, r.size.y)), false)
+		draw_texture_rect(cap, Rect2(Vector2(r.end.x - cap_w, r.position.y), Vector2(cap_w, r.size.y)), false)
 	else:
-		for e in [r.position.y + 5, r.end.y - 5]:
-			for k in range(3):
-				draw_circle(Vector2(r.position.x + 8 + k * 8, e), 2.5, hz)
+		var body := Rect2(r.position + Vector2(0, cap_w), Vector2(r.size.x, r.size.y - cap_w * 2))
+		_tile_container(lid, body, false)
+		# End caps rotated to face along Y.
+		draw_set_transform(Vector2(r.position.x, r.position.y), PI / 2.0, Vector2.ONE)
+		draw_texture_rect(cap, Rect2(Vector2(0, -r.size.x), Vector2(cap_w, r.size.x)), false)
+		draw_set_transform(Vector2(r.position.x, r.end.y - cap_w), PI / 2.0, Vector2.ONE)
+		draw_texture_rect(cap, Rect2(Vector2(0, -r.size.x), Vector2(cap_w, r.size.x)), false)
+		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+	# Dark outline last so runs read as discrete objects.
+	draw_rect(r, Color("14181f"), false, 3.0)
+
+func _tile_container(tex: Texture2D, area: Rect2, horizontal: bool) -> void:
+	if area.size.x <= 1 or area.size.y <= 1:
+		draw_texture_rect(tex, area, false)
+		return
+	# Draw the lid in fixed-size world segments so ribs never stretch.
+	var seg := 64.0
+	if horizontal:
+		var n := maxi(1, int(ceil(area.size.x / seg)))
+		var w := area.size.x / float(n)
+		for i in range(n):
+			var dst := Rect2(area.position + Vector2(i * w, 0), Vector2(w, area.size.y))
+			draw_texture_rect(tex, dst, false)
+	else:
+		var n := maxi(1, int(ceil(area.size.y / seg)))
+		var h := area.size.y / float(n)
+		for i in range(n):
+			# Rotate the horizontal lid art to run vertically.
+			var p := area.position + Vector2(0, i * h)
+			draw_set_transform(p + Vector2(area.size.x, 0), PI / 2.0, Vector2.ONE)
+			draw_texture_rect(tex, Rect2(Vector2.ZERO, Vector2(h, area.size.x)), false)
+			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
 func _draw_cone(g: Dictionary) -> void:
 	var pts := PackedVector2Array([g.pos])

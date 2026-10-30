@@ -4,6 +4,7 @@ const FONT := preload("res://assets/fonts/Baloo2.ttf")
 const W := 720.0
 const MIN_H := 1180.0
 const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
+const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 
 var canvas: Control
 var cash_label: Label
@@ -14,6 +15,8 @@ var start_button: Button
 var mission_nodes: Array[Control] = []
 var action_nodes: Array[Control] = []
 var design_h := 1280.0
+var wheel_button: TextureButton
+var wheel_badge_pos := Vector2.ZERO
 
 func _ready() -> void:
 	var bg := TextureRect.new()
@@ -38,14 +41,14 @@ func _fit() -> void:
 	design_h = maxf(MIN_H, safe.size.y / s)
 	canvas.scale = Vector2(s, s)
 	canvas.position = safe.position + (safe.size - Vector2(W, design_h) * s) * 0.5
-	var start_y := design_h - 176.0
+	var start_y := design_h - 250.0
 	if start_button:
 		start_button.position = Vector2(170, start_y)
 	var mission_bottom := start_y - 24.0
 	var mission_top := mission_bottom - (3 * 128 + 2 * 16)
 	for i in range(mission_nodes.size()):
 		mission_nodes[i].position = Vector2(36, mission_top + i * 144)
-	var action_y := maxf(300.0, mission_top - 170.0)
+	var action_y := maxf(286.0, mission_top - 178.0)
 	for n in action_nodes:
 		n.position.y = action_y
 
@@ -141,22 +144,24 @@ func _resource_pill(pos: Vector2, icon: Texture2D, value: String, cb: Callable, 
 	return p
 
 func _build_side_icons() -> void:
-	_icon_button(preload("res://assets/ui/vip.png"), Vector2(12, 110), 92, func(): _popup("VIP", "VIP is not enabled in this offline build."))
-	_icon_button(preload("res://assets/ui/noads.png"), Vector2(18, 214), 82, func(): _popup("No Ads", "This build has no ads. Enjoy!"))
-	_icon_button(preload("res://assets/ui/offer.png"), Vector2(22, 308), 82, func(): _popup("Offers", "Special offers are coming later."))
-	_badge(Vector2(78, 302))
-	_icon_button(preload("res://assets/ui/wheel.png"), Vector2(614, 110), 96, _spin_wheel)
-	_badge(Vector2(680, 104))
-	_icon_button(preload("res://assets/ui/shop.png"), Vector2(618, 222), 92, func(): _open_knives())
+	# VIP / No Ads / Offers removed. Wheel + shop only.
+	wheel_button = _icon_button(preload("res://assets/ui/wheel.png"), Vector2(606, 104), 104, _spin_wheel)
+	wheel_badge_pos = Vector2(678, 98)
+	if GameState.can_spin_wheel():
+		_badge(wheel_badge_pos)
+	_icon_button(preload("res://assets/ui/shop.png"), Vector2(612, 226), 98, func(): _open_knives())
 
 func _spin_wheel() -> void:
-	var prize := GameState.spin_wheel()
+	_close_overlay()
+	overlay = LuckyWheelScript.new()
+	add_child(overlay)
+	overlay.closed.connect(_on_wheel_closed)
+
+func _on_wheel_closed() -> void:
+	overlay = null
 	_refresh_values()
-	if prize > 0:
-		Sfx.play("upgrade")
-		_popup("Lucky Wheel", "You won %d cash!\nCome back tomorrow for another spin." % prize)
-	else:
-		_popup("Lucky Wheel", "Already spun today. Come back tomorrow!")
+	if wheel_button:
+		wheel_button.modulate = Color.WHITE if GameState.can_spin_wheel() else Color(0.72, 0.72, 0.78)
 
 func _build_action_cards() -> void:
 	var change := Button.new()

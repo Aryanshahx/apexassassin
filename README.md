@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.4.0 — phone-fit UI, 10 assassins, 17 special knives.
+v0.5.0 — Warehouse Depot environment, Hunter Assassin-style stealth, 10 assassins, 17 knives.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -110,3 +110,19 @@ This is an original game inspired by the stealth-action genre. It does not use H
 - 17 special knives with level unlocks or gem purchases. Equipped knife changes damage, attack speed, reach and the player blade sprite.
 - Save migration keeps existing progress and unlocks.
 - Visual capture helper: `APEX_CAPTURE_DIR=/tmp/apex-shots godot --path . --resolution 720x1600 --script tests/capture_ui.gd` (use a display/Xvfb).
+
+
+## v0.5 update
+
+- **Warehouse Depot environment** (chosen from three concepts): seamless concrete floor cropped
+  from the approved art, ribbed shipping-container walls in red/blue/olive with hazard end caps,
+  wooden crates, floor drains and painted arrows. Concrete extends past the arena so tall phones
+  never show black bars.
+- **Backstab stealth**: striking an unaware guard from behind is an instant silent kill, drops bonus
+  gems and makes no noise. Frontal attacks damage normally and raise the alarm.
+- **Level-wide alarm**: one confirmed sighting pulls every patrolling guard into a search.
+- **Drag steering**: hold and drag to walk continuously; tapping still auto-paths, tapping a guard hunts it.
+- **Takedown feedback**: shock ring, gem fountain, floating "+N", micro hit-stop and screen shake.
+- **Lucky Wheel** is a real spinning 8-segment wheel that decelerates onto the winning prize and
+  credits cash or gems once per day.
+- Home screen: VIP / No Ads / Offers removed, button stack raised.
