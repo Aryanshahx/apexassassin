@@ -12,6 +12,15 @@ const FLOOR := preload("res://assets/environment/depot/floor_real.png")
 const DEPOT := "res://assets/environment/depot/"
 const CONTAINER_KEYS := ["blue", "red", "olive"]
 const SRC_THICK := 91.0          # container width in the concept art
+## Night shift: the depot is darkened so guard flashlights read clearly.
+const GRADE_FLOOR := Color(0.34, 0.37, 0.46)
+const GRADE_OUTSIDE := Color(0.17, 0.19, 0.26)
+const GRADE_WALL := Color(0.62, 0.66, 0.78)
+const GRADE_CRATE := Color(0.66, 0.69, 0.80)
+const GRADE_PROP := Color(0.70, 0.73, 0.84)
+## Camera: how many grid cells are visible across the screen width.
+const CAM_VIEW_CELLS := 12.0
+var cam_scale := 1.0
 const FLOOR_TILE := 90.0         # 256px concept tile at world scale
 var _c_cap_a := {}
 var _c_cap_b := {}
@@ -117,16 +126,29 @@ func _fit_world() -> void:
 	if data.is_empty():
 		return
 	var safe := ScreenUtil.safe_rect(get_viewport())
-	var map_size := Vector2(float(data.width), float(data.height)) * CELL
-	var top := 140.0
-	var avail := Rect2(safe.position + Vector2(12, top), safe.size - Vector2(24, top + 24))
-	var s := minf(avail.size.x / map_size.x, avail.size.y / map_size.y)
-	s = maxf(0.1, s)
-	var pos := avail.position + (avail.size - map_size * s) * 0.5 - ORIGIN * s
-	scale = Vector2.ONE * s
-	position = pos
-	base_position = pos
+	# Zoom in on the player instead of shrinking the whole arena to fit.
+	cam_scale = maxf(0.1, safe.size.x / (CAM_VIEW_CELLS * CELL))
+	scale = Vector2.ONE * cam_scale
+	_update_camera(1.0)
 	queue_redraw()
+
+func _update_camera(delta: float) -> void:
+	if data.is_empty():
+		return
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var map_rect := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
+	# Keep the player a little below centre so the HUD does not cover them.
+	var focus := safe.position + Vector2(safe.size.x * 0.5, safe.size.y * 0.54)
+	var target := focus - player_pos * cam_scale
+	# Clamp so the arena always covers the screen; centre it if it is smaller.
+	var min_x := safe.end.x - map_rect.end.x * cam_scale
+	var max_x := safe.position.x - map_rect.position.x * cam_scale
+	target.x = (min_x + max_x) * 0.5 if min_x > max_x else clampf(target.x, min_x, max_x)
+	var min_y := safe.end.y - map_rect.end.y * cam_scale
+	var max_y := safe.position.y - map_rect.position.y * cam_scale
+	target.y = (min_y + max_y) * 0.5 if min_y > max_y else clampf(target.y, min_y, max_y)
+	base_position = base_position.lerp(target, minf(1.0, delta * 9.0))
+	position = base_position
 
 func _apply_shake(delta: float) -> void:
 	if shake > 0.0:
@@ -361,9 +383,11 @@ func _physics_process(delta: float) -> void:
 	if hit_stop > 0.0:
 		hit_stop -= delta
 		_update_effects(delta)
+		_update_camera(delta)
 		_apply_shake(delta)
 		queue_redraw()
 		return
+	_update_camera(delta)
 	_apply_shake(delta)
 	elapsed += delta
 	invuln = maxf(0, invuln - delta)
@@ -762,7 +786,7 @@ func _draw() -> void:
 	while ox < out_rect.end.x:
 		var oy := floorf(out_rect.position.y / FLOOR_TILE) * FLOOR_TILE
 		while oy < out_rect.end.y:
-			draw_texture_rect(FLOOR, Rect2(ox, oy, FLOOR_TILE, FLOOR_TILE), false, Color(0.36, 0.38, 0.44))
+			draw_texture_rect(FLOOR, Rect2(ox, oy, FLOOR_TILE, FLOOR_TILE), false, GRADE_OUTSIDE)
 			oy += FLOOR_TILE
 		ox += FLOOR_TILE
 	var tw := FLOOR_TILE
@@ -775,16 +799,16 @@ func _draw() -> void:
 			var vis := tile.intersection(map_rect)
 			if vis.size.x > 0 and vis.size.y > 0:
 				var region := Rect2((vis.position - tile.position) * (FLOOR.get_size() / Vector2(tw, th)), vis.size * (FLOOR.get_size() / Vector2(tw, th)))
-				draw_texture_rect_region(FLOOR, vis, region)
+				draw_texture_rect_region(FLOOR, vis, region, GRADE_FLOOR)
 			y += th
 		x += tw
 	# Painted floor details, deterministic per level.
 	for d in floor_details:
 		if d.kind == "drain":
-			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(20, 20), Vector2(40, 40)), false)
+			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(20, 20), Vector2(40, 40)), false, GRADE_PROP)
 		else:
 			draw_set_transform(d.pos, d.rot, Vector2.ONE)
-			draw_texture_rect(ARROW_TEX, Rect2(-23, -17, 46, 35), false)
+			draw_texture_rect(ARROW_TEX, Rect2(-23, -17, 46, 35), false, GRADE_PROP)
 			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	# Shadows.
 	for r in shadow_rects:
@@ -886,57 +910,69 @@ func _draw_wall(r: Rect2) -> void:
 	var dn := maxi(1, int(ceil(r.size.x / unit_d)))
 	var dw := r.size.x / float(dn)
 	for i in range(dn):
-		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y), Vector2(dw, depth_h)), false)
+		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y), Vector2(dw, depth_h)), false, GRADE_WALL)
 	if horizontal:
 		var mid_w := r.size.x - cap_a - cap_b
-		draw_texture_rect(_c_cap_l[key], Rect2(r.position, Vector2(cap_a, thick)), false)
-		draw_texture_rect(_c_cap_r[key], Rect2(Vector2(r.end.x - cap_b, r.position.y), Vector2(cap_b, thick)), false)
+		draw_texture_rect(_c_cap_l[key], Rect2(r.position, Vector2(cap_a, thick)), false, GRADE_WALL)
+		draw_texture_rect(_c_cap_r[key], Rect2(Vector2(r.end.x - cap_b, r.position.y), Vector2(cap_b, thick)), false, GRADE_WALL)
 		if mid_w > 1.0:
 			var tex: Texture2D = _c_mid_h[key]
 			var unit := float(tex.get_size().x) * sc
 			var n := maxi(1, int(ceil(mid_w / maxf(unit, 1.0))))
 			var seg := mid_w / float(n)
 			for i in range(n):
-				draw_texture_rect(tex, Rect2(Vector2(r.position.x + cap_a + i * seg, r.position.y), Vector2(seg, thick)), false)
+				draw_texture_rect(tex, Rect2(Vector2(r.position.x + cap_a + i * seg, r.position.y), Vector2(seg, thick)), false, GRADE_WALL)
 	else:
 		var mid_h := r.size.y - cap_a - cap_b
-		draw_texture_rect(_c_cap_a[key], Rect2(r.position, Vector2(thick, cap_a)), false)
-		draw_texture_rect(_c_cap_b[key], Rect2(Vector2(r.position.x, r.end.y - cap_b), Vector2(thick, cap_b)), false)
+		draw_texture_rect(_c_cap_a[key], Rect2(r.position, Vector2(thick, cap_a)), false, GRADE_WALL)
+		draw_texture_rect(_c_cap_b[key], Rect2(Vector2(r.position.x, r.end.y - cap_b), Vector2(thick, cap_b)), false, GRADE_WALL)
 		if mid_h > 1.0:
 			var tex: Texture2D = _c_mid[key]
 			var unit := float(tex.get_size().y) * sc
 			var n := maxi(1, int(ceil(mid_h / maxf(unit, 1.0))))
 			var seg := mid_h / float(n)
 			for i in range(n):
-				draw_texture_rect(tex, Rect2(Vector2(r.position.x, r.position.y + cap_a + i * seg), Vector2(thick, seg)), false)
+				draw_texture_rect(tex, Rect2(Vector2(r.position.x, r.position.y + cap_a + i * seg), Vector2(thick, seg)), false, GRADE_WALL)
 
 func _draw_crate(r: Rect2) -> void:
 	var dh := r.size.y * 0.24
 	draw_rect(Rect2(r.position + Vector2(5, 8), r.size + Vector2(0, dh)), Color(0, 0, 0, 0.30))
-	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y), Vector2(r.size.x, dh)), false)
-	draw_texture_rect(CRATE_TOP, r, false)
+	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y), Vector2(r.size.x, dh)), false, GRADE_CRATE)
+	draw_texture_rect(CRATE_TOP, r, false, GRADE_CRATE)
 
 func _draw_cone(g: Dictionary) -> void:
 	var pts := PackedVector2Array([g.pos])
-	var rays := 24
+	var rays := 40
 	var vision: float = g.vision
 	for i in range(rays + 1):
 		var a: float = g.face - deg_to_rad(30) + deg_to_rad(60) * i / rays
 		var dir := Vector2.from_angle(a)
 		var dist := vision
-		var steps := 32
+		var steps := 64
 		for s in range(1, steps + 1):
 			var p: Vector2 = g.pos + dir * (vision * s / steps)
 			if _solid(p):
 				dist = vision * (s - 1) / steps
 				break
 		pts.append(g.pos + dir * dist)
-	var col := Color(1, 0.95, 0.75, 0.22)
+	# Bright, layered flashlight beam so it reads clearly on the dark depot floor.
+	var col := Color(1.0, 0.93, 0.55, 0.30)
+	var edge := Color(1.0, 0.96, 0.70, 0.55)
 	if g.state == GState.ALERT:
-		col = Color(1, 0.35, 0.3, 0.3)
+		col = Color(1.0, 0.30, 0.26, 0.40)
+		edge = Color(1.0, 0.55, 0.45, 0.75)
 	elif g.state in [GState.INVESTIGATE, GState.SEARCH]:
-		col = Color(1, 0.8, 0.3, 0.25)
+		col = Color(1.0, 0.72, 0.22, 0.36)
+		edge = Color(1.0, 0.85, 0.45, 0.68)
 	draw_polygon(pts, PackedColorArray([col]))
+	# Hot inner core: same cone shrunk toward the guard.
+	var inner := PackedVector2Array([g.pos])
+	for i in range(1, pts.size()):
+		inner.append(g.pos + (pts[i] - g.pos) * 0.62)
+	draw_polygon(inner, PackedColorArray([Color(col.r, col.g, col.b, col.a * 0.75)]))
+	# Crisp outline along the beam edges.
+	draw_polyline(pts, edge, 2.0)
+	draw_circle(g.pos, 5.0, Color(edge.r, edge.g, edge.b, 0.85))
 
 # ---------------- End states ----------------
 func _win() -> void:

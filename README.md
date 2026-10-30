@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.5.1 — Warehouse Depot built from the approved concept art, Hunter Assassin-style stealth, 10 assassins, 17 knives.
+v0.5.2 — night-grade depot, bright vision cones, player-following zoom camera, Hunter Assassin-style stealth, 10 assassins, 17 knives.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -127,3 +127,15 @@ This is an original game inspired by the stealth-action genre. It does not use H
 - **Lucky Wheel** is a real spinning 8-segment wheel that decelerates onto the winning prize and
   credits cash or gems once per day.
 - Home screen: VIP / No Ads / Offers removed, button stack raised.
+
+
+## v0.5.2 update
+
+- **Night-grade depot**: floor, walls, crates and props are colour-graded down so guard
+  flashlight cones are clearly readable instead of washing out on bright concrete.
+- **Bright vision cones**: layered beam (outer wash + hot inner core + crisp edge outline),
+  colour-coded yellow / amber / red for patrol / searching / alert. Ray resolution raised to
+  40 rays x 64 steps so cone edges are smooth against cover.
+- **Player-following zoom camera**: the view now shows ~12 grid cells across the screen and
+  follows the assassin, clamped to the arena, instead of shrinking the whole map to fit.
+  The environment fills the entire phone screen and characters are much larger.
