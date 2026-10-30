@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.5.2 — night-grade depot, bright vision cones, player-following zoom camera, Hunter Assassin-style stealth, 10 assassins, 17 knives.
+v0.5.3 — wider player-following camera, night-grade depot, bright vision cones, Hunter Assassin-style stealth, 10 assassins, 17 knives.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -139,3 +139,13 @@ This is an original game inspired by the stealth-action genre. It does not use H
 - **Player-following zoom camera**: the view now shows ~12 grid cells across the screen and
   follows the assassin, clamped to the arena, instead of shrinking the whole map to fit.
   The environment fills the entire phone screen and characters are much larger.
+
+
+## v0.5.3 camera refinement
+
+- The player-following camera now shows **15 grid cells across** instead of 12: 25% more
+  visible world width, with actors 20% smaller. The phone's safe-area width determines zoom.
+- Existing arena-edge clamping, night lighting, real depot pixels and bright flashlight cones
+  are unchanged. Four camera checks bring the smoke suite to **244 checks**.
+- Character concepts are being reviewed separately; this patch does not change the existing
+  roster, character bonuses, save data or player/enemy animation rigs.

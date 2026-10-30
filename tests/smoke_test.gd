@@ -66,6 +66,23 @@ func _run() -> void:
 	check(level.player_rig.anim.has_animation("run"), "run animation")
 	check(level.player_rig.anim.has_animation("attack"), "attack animation")
 	check(level.player_rig.anim.has_animation("death"), "death animation")
+	# v0.5.3: wider follow camera. It must show 15 cells across, not shrink to fit the map.
+	var cam_safe := ScreenUtil.safe_rect(root)
+	check(level.CAM_VIEW_CELLS == 15.0, "camera shows 15 cells across")
+	check(absf(level.cam_scale - cam_safe.size.x / (15.0 * level.CELL)) < 0.001, "camera zoom uses viewport width")
+	var pre_camera_player: Vector2 = level.player_pos
+	level.player_pos = level._cell_center(int(level.data.width) / 2, int(level.data.height) / 2)
+	level._update_camera(1.0)
+	var screen_player: Vector2 = level.to_global(level.player_pos)
+	var cam_focus: Vector2 = cam_safe.position + Vector2(cam_safe.size.x * 0.5, cam_safe.size.y * 0.54)
+	check(screen_player.distance_to(cam_focus) < 1.0, "camera centres the player in open map")
+	level.player_pos = level._cell_center(0, 0)
+	level._update_camera(1.0)
+	var arena_top_left: Vector2 = level.to_global(level.ORIGIN)
+	check(arena_top_left.x <= cam_safe.position.x + 0.1 and arena_top_left.y <= cam_safe.position.y + 0.1, "camera clamps at arena edge")
+	level.player_pos = pre_camera_player
+	level._update_camera(1.0)
+
 	var target: Vector2 = level._cell_center(10, 20)
 	level._path_to(target)
 	check(level.player_path.size() > 0, "path found")

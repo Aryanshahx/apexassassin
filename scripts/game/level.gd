@@ -18,8 +18,9 @@ const GRADE_OUTSIDE := Color(0.17, 0.19, 0.26)
 const GRADE_WALL := Color(0.62, 0.66, 0.78)
 const GRADE_CRATE := Color(0.66, 0.69, 0.80)
 const GRADE_PROP := Color(0.70, 0.73, 0.84)
-## Camera: how many grid cells are visible across the screen width.
-const CAM_VIEW_CELLS := 12.0
+## Camera: visible grid cells across the width. 15 shows 25% more world
+## than the old 12-cell view (actors are 20% smaller), and still follows the player.
+const CAM_VIEW_CELLS := 15.0
 var cam_scale := 1.0
 const FLOOR_TILE := 90.0         # 256px concept tile at world scale
 var _c_cap_a := {}
