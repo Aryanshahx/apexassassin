@@ -20,6 +20,8 @@ var weapon: Node2D
 var muzzle: Sprite2D
 var anim: AnimationPlayer
 var _current := ""
+var knife_id := "standard"
+var knife_sprite: Sprite2D
 
 func setup(p_kind: String, p_role: String = "player") -> void:
 	kind = p_kind
@@ -72,7 +74,20 @@ func _build() -> void:
 		arm_l.rotation = -0.35
 		arm_r.rotation = 0.35
 	else:
-		weapon.add_child(_sprite("blade", Vector2(0, -22)))
+		knife_sprite = Sprite2D.new()
+		knife_sprite.name = "Knife"
+		knife_sprite.position = Vector2(0, -24)
+		knife_sprite.scale = Vector2.ONE * 0.30
+		weapon.add_child(knife_sprite)
+		set_knife(knife_id)
+
+func set_knife(id: String) -> void:
+	knife_id = id
+	if knife_sprite == null:
+		return
+	var path := "res://assets/knives/%s.png" % id
+	if ResourceLoader.exists(path):
+		knife_sprite.texture = load(path)
 
 func _draw() -> void:
 	# Soft contact shadow.

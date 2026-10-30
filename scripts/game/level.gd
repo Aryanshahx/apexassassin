@@ -30,7 +30,7 @@ var shadow_rects: Array[Rect2] = []
 var player_pos := Vector2.ZERO
 var player_face := -PI / 2
 var player_path := PackedVector2Array()
-var player_hp := 1
+var player_hp := 3.0
 var invuln := 0.0
 var attack_cd := 0.0
 var hunt_target := -1
@@ -55,6 +55,9 @@ var hud: Control
 var hint: Label
 var hearts: Array[TextureRect] = []
 var rng := RandomNumberGenerator.new()
+var pause_btn: Button
+var target_icon: TextureRect
+var gem_icon: TextureRect
 
 func _ready() -> void:
 	rng.seed = 9000 + GameState.current_level
@@ -66,12 +69,52 @@ func _ready() -> void:
 	_build_hud()
 	player_hp = GameState.max_health()
 	_build_hearts()
+	get_viewport().size_changed.connect(_fit_world)
+	get_viewport().size_changed.connect(_layout_hud)
+	_fit_world()
+	_layout_hud()
 	if GameState.current_level == 1:
 		hint.text = "Tap to move  •  Tap a guard to hunt  •  Stay out of the light"
 		var tw := create_tween()
 		tw.tween_interval(5.0)
 		tw.tween_property(hint, "modulate:a", 0.0, 0.8)
 	queue_redraw()
+
+func _fit_world() -> void:
+	if data.is_empty():
+		return
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var map_size := Vector2(float(data.width), float(data.height)) * CELL
+	var top := 140.0
+	var avail := Rect2(safe.position + Vector2(12, top), safe.size - Vector2(24, top + 24))
+	var s := minf(avail.size.x / map_size.x, avail.size.y / map_size.y)
+	s = maxf(0.1, s)
+	var pos := avail.position + (avail.size - map_size * s) * 0.5 - ORIGIN * s
+	scale = Vector2.ONE * s
+	position = pos
+	queue_redraw()
+
+func _layout_hud() -> void:
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	if target_icon:
+		target_icon.position = safe.position + Vector2(28, 24)
+	if counter:
+		counter.position = safe.position + Vector2(100, 20)
+	if gem_icon:
+		gem_icon.position = safe.position + Vector2(250, 32)
+	if gem_label:
+		gem_label.position = safe.position + Vector2(300, 30)
+	if status_label:
+		status_label.position = safe.position + Vector2(30, 96)
+	if pause_btn:
+		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
+	var spacing := minf(30.0, safe.size.x * 0.42 / maxf(1.0, hearts.size()))
+	for i in range(hearts.size()):
+		hearts[i].size = Vector2(spacing - 2, spacing - 2)
+		hearts[i].position = Vector2(safe.end.x - 24 - (hearts.size() - i) * spacing, safe.position.y + 96)
+	if hint:
+		hint.position = Vector2(safe.position.x, safe.end.y - 50)
+		hint.size = Vector2(safe.size.x, 40)
 
 func _load_level(n: int) -> void:
 	var f := FileAccess.open("res://data/levels/levels.json", FileAccess.READ)
@@ -130,6 +173,7 @@ func in_shadow(p: Vector2) -> bool:
 func _build_player() -> void:
 	player_rig = ActorRigScript.new()
 	player_rig.setup(GameState.selected_assassin, "player")
+	player_rig.set_knife(GameState.selected_knife)
 	player_rig.scale = Vector2.ONE * 0.78
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
@@ -167,6 +211,7 @@ func _build_hud() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cl.add_child(hud)
 	var icon := TextureRect.new()
+	target_icon = icon
 	icon.texture = TARGET_TEX
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.position = Vector2(28, 24)
@@ -178,6 +223,7 @@ func _build_hud() -> void:
 	hud.add_child(counter)
 	_update_counter()
 	var gi := TextureRect.new()
+	gem_icon = gi
 	gi.texture = GEM_TEX
 	gi.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	gi.position = Vector2(250, 32)
@@ -194,6 +240,7 @@ func _build_hud() -> void:
 	status_label.text = "HIDDEN"
 	hud.add_child(status_label)
 	var pause := Button.new()
+	pause_btn = pause
 	pause.text = "II"
 	pause.position = Vector2(636, 24)
 	pause.size = Vector2(60, 60)
@@ -212,7 +259,7 @@ func _build_hud() -> void:
 	hud.add_child(hint)
 
 func _build_hearts() -> void:
-	for i in range(GameState.max_health()):
+	for i in range(int(ceil(GameState.max_health()))):
 		var h := TextureRect.new()
 		h.texture = HEART_TEX
 		h.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -309,7 +356,7 @@ func _auto_attack() -> void:
 	if attack_cd > 0:
 		return
 	var best := -1
-	var best_d := 54.0
+	var best_d := GameState.attack_range()
 	for i in range(guards.size()):
 		var g: Dictionary = guards[i]
 		if not g.alive:
@@ -321,7 +368,7 @@ func _auto_attack() -> void:
 	if best < 0:
 		return
 	var g: Dictionary = guards[best]
-	attack_cd = 0.32
+	attack_cd = GameState.attack_cooldown()
 	player_face = (g.pos - player_pos).angle()
 	player_rig.rotation = player_face + PI / 2
 	player_rig.play_anim("attack", true)
@@ -496,7 +543,7 @@ func _update_bullets(delta: float) -> void:
 			hit = true
 			effects.append({"pos": b.pos, "t": 0.15, "max": 0.15, "kind": "spark"})
 		elif invuln <= 0 and _segment_circle(old, b.pos, player_pos, 14):
-			player_hp -= 1
+			player_hp -= 1.0
 			damage_taken += 1
 			invuln = 0.9
 			_update_hearts()
@@ -556,7 +603,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if finished or overlay != null:
 		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		var target := event.position as Vector2
+		var target := make_input_local(event).position as Vector2
 		# Tap a guard -> hunt it.
 		var picked := -1
 		var pd := 40.0

@@ -2,13 +2,18 @@ extends Control
 
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
 const W := 720.0
-const H := 1280.0
+const MIN_H := 1180.0
+const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
 
 var canvas: Control
 var cash_label: Label
 var gems_label: Label
 var card_art: TextureRect
 var overlay: Control
+var start_button: Button
+var mission_nodes: Array[Control] = []
+var action_nodes: Array[Control] = []
+var design_h := 1280.0
 
 func _ready() -> void:
 	var bg := TextureRect.new()
@@ -17,24 +22,32 @@ func _ready() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
-
 	canvas = Control.new()
-	canvas.custom_minimum_size = Vector2(W, H)
 	add_child(canvas)
 	get_viewport().size_changed.connect(_fit)
-	_fit()
-
 	_build_resources()
 	_build_side_icons()
 	_build_action_cards()
 	_build_missions()
 	_build_start()
+	_fit()
 
 func _fit() -> void:
-	var vs := get_viewport_rect().size
-	var s := minf(vs.x / W, vs.y / H)
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var s := minf(safe.size.x / W, safe.size.y / MIN_H)
+	design_h = maxf(MIN_H, safe.size.y / s)
 	canvas.scale = Vector2(s, s)
-	canvas.position = (vs - Vector2(W, H) * s) * 0.5
+	canvas.position = safe.position + (safe.size - Vector2(W, design_h) * s) * 0.5
+	var start_y := design_h - 176.0
+	if start_button:
+		start_button.position = Vector2(170, start_y)
+	var mission_bottom := start_y - 24.0
+	var mission_top := mission_bottom - (3 * 128 + 2 * 16)
+	for i in range(mission_nodes.size()):
+		mission_nodes[i].position = Vector2(36, mission_top + i * 144)
+	var action_y := maxf(300.0, mission_top - 170.0)
+	for n in action_nodes:
+		n.position.y = action_y
 
 func _font(size: int, outline: int = 0) -> Label:
 	var l := Label.new()
@@ -73,32 +86,29 @@ func _icon_button(tex: Texture2D, pos: Vector2, size: float, cb: Callable) -> Te
 	return b
 
 func _badge(parent_pos: Vector2) -> void:
-	var l := _font(20, 3)
-	l.text = "!"
-	l.add_theme_color_override("font_color", Color.WHITE)
-	l.position = parent_pos
-	l.size = Vector2(26, 26)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var p := Panel.new()
 	p.add_theme_stylebox_override("panel", _box(Color("e63946"), Color("ffffff"), 13, 2))
 	p.position = parent_pos
 	p.size = Vector2(26, 26)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(p)
+	var l := _font(20, 3)
+	l.text = "!"
+	l.add_theme_color_override("font_color", Color.WHITE)
 	l.position = Vector2(0, -3)
 	l.size = Vector2(26, 26)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	p.add_child(l)
 
-# ---------------- Resources ----------------
 func _build_resources() -> void:
-	var gem_pill := _resource_pill(Vector2(30, 88), preload("res://assets/ui/gem.png"), str(GameState.gems), Color("ff5a6e"), func(): _popup("Gems", "Guards drop gems. Collect them to unlock Nova."), 190)
+	var gem_pill := _resource_pill(Vector2(30, 24), preload("res://assets/ui/gem.png"), str(GameState.gems), func(): _popup("Gems", "Guards drop gems. Unlock assassins and special knives."), 190)
 	gems_label = gem_pill.get_meta("value_label")
-	var cash_pill := _resource_pill(Vector2(252, 88), preload("res://assets/ui/cash.png"), str(GameState.cash), Color("7CFC7C"), func(): _popup("Cash", "Earn cash by completing levels and missions."), 196)
+	var cash_pill := _resource_pill(Vector2(252, 24), preload("res://assets/ui/cash.png"), str(GameState.cash), func(): _popup("Cash", "Earn cash by completing levels and missions."), 196)
 	cash_label = cash_pill.get_meta("value_label")
-	_icon_button(preload("res://assets/ui/gear.png"), Vector2(618, 80), 76, _open_settings)
-	_badge(Vector2(672, 74))
+	_icon_button(preload("res://assets/ui/gear.png"), Vector2(618, 16), 76, _open_settings)
+	_badge(Vector2(672, 10))
 
-func _resource_pill(pos: Vector2, icon: Texture2D, value: String, _c: Color, cb: Callable, width: float = 212) -> Panel:
+func _resource_pill(pos: Vector2, icon: Texture2D, value: String, cb: Callable, width: float = 212) -> Panel:
 	var p := Panel.new()
 	p.position = pos
 	p.size = Vector2(width, 58)
@@ -130,15 +140,14 @@ func _resource_pill(pos: Vector2, icon: Texture2D, value: String, _c: Color, cb:
 	p.add_child(plus)
 	return p
 
-# ---------------- Side icons ----------------
 func _build_side_icons() -> void:
-	_icon_button(preload("res://assets/ui/vip.png"), Vector2(12, 168), 92, func(): _popup("VIP", "VIP is not enabled in this offline build."))
-	_icon_button(preload("res://assets/ui/noads.png"), Vector2(18, 272), 82, func(): _popup("No Ads", "This build has no ads. Enjoy!"))
-	_icon_button(preload("res://assets/ui/offer.png"), Vector2(22, 366), 82, func(): _popup("Offers", "Special offers are coming later."))
-	_badge(Vector2(78, 360))
-	_icon_button(preload("res://assets/ui/wheel.png"), Vector2(614, 168), 96, _spin_wheel)
-	_badge(Vector2(680, 162))
-	_icon_button(preload("res://assets/ui/shop.png"), Vector2(618, 280), 92, func(): _popup("Shop", "The shop is coming in a later update."))
+	_icon_button(preload("res://assets/ui/vip.png"), Vector2(12, 110), 92, func(): _popup("VIP", "VIP is not enabled in this offline build."))
+	_icon_button(preload("res://assets/ui/noads.png"), Vector2(18, 214), 82, func(): _popup("No Ads", "This build has no ads. Enjoy!"))
+	_icon_button(preload("res://assets/ui/offer.png"), Vector2(22, 308), 82, func(): _popup("Offers", "Special offers are coming later."))
+	_badge(Vector2(78, 302))
+	_icon_button(preload("res://assets/ui/wheel.png"), Vector2(614, 110), 96, _spin_wheel)
+	_badge(Vector2(680, 104))
+	_icon_button(preload("res://assets/ui/shop.png"), Vector2(618, 222), 92, func(): _open_knives())
 
 func _spin_wheel() -> void:
 	var prize := GameState.spin_wheel()
@@ -149,7 +158,6 @@ func _spin_wheel() -> void:
 	else:
 		_popup("Lucky Wheel", "Already spun today. Come back tomorrow!")
 
-# ---------------- Action cards ----------------
 func _build_action_cards() -> void:
 	var change := Button.new()
 	change.position = Vector2(36, 430)
@@ -159,6 +167,7 @@ func _build_action_cards() -> void:
 	change.add_theme_stylebox_override("pressed", _box(Color("7e35cf"), Color("2a0a4a"), 20, 4))
 	change.pressed.connect(_open_assassins)
 	canvas.add_child(change)
+	action_nodes.append(change)
 	var ct := _font(36, 5)
 	ct.text = "Change\nAssassin"
 	ct.add_theme_color_override("font_color", Color.WHITE)
@@ -174,15 +183,15 @@ func _build_action_cards() -> void:
 	art.size = Vector2(230, 180)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	change.add_child(art)
-
 	var up := Button.new()
 	up.position = Vector2(520, 430)
 	up.size = Vector2(164, 150)
 	up.add_theme_stylebox_override("normal", _box(Color("9a45ee"), Color("2a0a4a"), 20, 4))
 	up.add_theme_stylebox_override("hover", _box(Color("a855f7"), Color("2a0a4a"), 20, 4))
 	up.add_theme_stylebox_override("pressed", _box(Color("7e35cf"), Color("2a0a4a"), 20, 4))
-	up.pressed.connect(_open_upgrades)
+	up.pressed.connect(_open_knives)
 	canvas.add_child(up)
+	action_nodes.append(up)
 	var ua := TextureRect.new()
 	ua.texture = preload("res://assets/home/card_upgrade.png")
 	ua.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -192,7 +201,7 @@ func _build_action_cards() -> void:
 	ua.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	up.add_child(ua)
 	var ut := _font(28, 4)
-	ut.text = "Upgrade"
+	ut.text = "Knives"
 	ut.add_theme_color_override("font_color", Color.WHITE)
 	ut.position = Vector2(0, 100)
 	ut.size = Vector2(164, 40)
@@ -200,27 +209,20 @@ func _build_action_cards() -> void:
 	ut.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	up.add_child(ut)
 
-# ---------------- Missions ----------------
 func _build_missions() -> void:
-	_mission_card(Vector2(36, 600), "Eliminate 30 targets", "%d / 30" % mini(GameState.total_kills, 30), 150,
-		GameState.total_kills >= 30, GameState.mission1_claimed, _claim_mission.bind(1))
-	_mission_card(Vector2(36, 744), "Free supply drop", "Offline bonus", 200,
-		true, GameState.mission2_claimed, _claim_mission.bind(2))
-	_mission_card(Vector2(36, 888), "Complete a level with\nno damage taken", "%d / 1" % mini(GameState.flawless_count, 1), 200,
-		GameState.flawless_count >= 1, GameState.mission3_claimed, _claim_mission.bind(3))
+	mission_nodes.append(_mission_card(Vector2(36, 600), "Eliminate 30 targets", "%d / 30" % mini(GameState.total_kills, 30), 150,
+		GameState.total_kills >= 30, GameState.mission1_claimed, _claim_mission.bind(1)))
+	mission_nodes.append(_mission_card(Vector2(36, 744), "Free supply drop", "Offline bonus", 200,
+		true, GameState.mission2_claimed, _claim_mission.bind(2)))
+	mission_nodes.append(_mission_card(Vector2(36, 888), "Complete a level with\nno damage taken", "%d / 1" % mini(GameState.flawless_count, 1), 200,
+		GameState.flawless_count >= 1, GameState.mission3_claimed, _claim_mission.bind(3)))
 
-func _mission_card(pos: Vector2, title: String, progress: String, prize: int, complete: bool, claimed: bool, cb: Callable) -> void:
+func _mission_card(pos: Vector2, title: String, progress: String, prize: int, complete: bool, claimed: bool, cb: Callable) -> Panel:
 	var p := Panel.new()
 	p.position = pos
 	p.size = Vector2(648, 128)
 	p.add_theme_stylebox_override("panel", _box(Color("6a6d85"), Color("23252e"), 16, 4))
 	canvas.add_child(p)
-	var inner := Panel.new()
-	inner.position = Vector2(6, 6)
-	inner.size = Vector2(636, 116)
-	inner.add_theme_stylebox_override("panel", _box(Color(0, 0, 0, 0), Color(0.75, 0.78, 0.9, 0.35), 12, 2))
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_child(inner)
 	var t := _font(26, 4)
 	t.text = title
 	t.add_theme_color_override("font_color", Color.WHITE)
@@ -235,7 +237,6 @@ func _mission_card(pos: Vector2, title: String, progress: String, prize: int, co
 	pr.position = Vector2(22, 88)
 	pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(pr)
-
 	var btn := Button.new()
 	btn.position = Vector2(432, 14)
 	btn.size = Vector2(200, 100)
@@ -245,48 +246,27 @@ func _mission_card(pos: Vector2, title: String, progress: String, prize: int, co
 		btn.disabled = true
 	elif claimable:
 		btn.add_theme_stylebox_override("normal", _box(Color("4caf20"), Color("1d5a10"), 14, 3))
-		btn.add_theme_stylebox_override("hover", _box(Color("5ccf3a"), Color("1d5a10"), 14, 3))
 	else:
 		btn.add_theme_stylebox_override("normal", _box(Color("9aa0b4"), Color("23252e"), 14, 3))
-		btn.add_theme_stylebox_override("hover", _box(Color("aab0c4"), Color("23252e"), 14, 3))
 	btn.pressed.connect(cb)
 	p.add_child(btn)
-
-	if claimable:
-		var cl := _font(30, 4)
-		cl.text = "Claim"
-		cl.add_theme_color_override("font_color", Color("ffe23f"))
-		cl.position = Vector2(60, 8)
-		cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(cl)
-	else:
-		var tg := TextureRect.new()
-		tg.texture = preload("res://assets/ui/target.png")
-		tg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tg.position = Vector2(12, 26)
-		tg.size = Vector2(48, 48)
-		tg.modulate = Color(1, 1, 1, 0.85) if not claimed else Color(0.6, 0.6, 0.6, 0.6)
-		tg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(tg)
-		var pz := _font(26, 4)
-		pz.text = "Done" if claimed else "Prize"
-		pz.add_theme_color_override("font_color", Color("3fc6ff") if not claimed else Color("8a8fa3"))
-		pz.position = Vector2(66, 6)
-		pz.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		btn.add_child(pz)
-	var ci := TextureRect.new()
-	ci.texture = preload("res://assets/ui/cash.png")
-	ci.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ci.position = Vector2(66, 52)
-	ci.size = Vector2(36, 36)
-	ci.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(ci)
-	var amt := _font(26, 4)
+	var lbl := _font(28, 4)
+	lbl.text = "Done" if claimed else ("Claim" if claimable else "Prize")
+	lbl.add_theme_color_override("font_color", Color("ffe23f") if claimable else Color.WHITE)
+	lbl.position = Vector2(0, 12)
+	lbl.size = Vector2(200, 40)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(lbl)
+	var amt := _font(24, 4)
 	amt.text = str(prize)
 	amt.add_theme_color_override("font_color", Color.WHITE)
-	amt.position = Vector2(106, 50)
+	amt.position = Vector2(0, 54)
+	amt.size = Vector2(200, 36)
+	amt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	amt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(amt)
+	return p
 
 func _claim_mission(index: int) -> void:
 	var reward := 0
@@ -307,9 +287,9 @@ func _claim_mission(index: int) -> void:
 	else:
 		_toast("Mission not completed yet.")
 
-# ---------------- Start ----------------
 func _build_start() -> void:
 	var b := Button.new()
+	start_button = b
 	b.position = Vector2(170, 1064)
 	b.size = Vector2(380, 140)
 	b.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 22, 5))
@@ -334,12 +314,249 @@ func _build_start() -> void:
 	lv.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(lv)
 
-# ---------------- Overlays ----------------
 func _refresh_values() -> void:
 	if cash_label:
 		cash_label.text = str(GameState.cash)
 	if gems_label:
 		gems_label.text = str(GameState.gems)
+
+func _refresh_card() -> void:
+	if card_art:
+		card_art.texture = load("res://assets/home/card_%s.png" % GameState.selected_assassin)
+
+# ---------------- Full-screen collection screens ----------------
+func _screen_base(title: String) -> VBoxContainer:
+	_close_overlay()
+	overlay = Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0.05, 0.07, 0.16, 0.96)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(dim)
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var margin := MarginContainer.new()
+	margin.position = safe.position + Vector2(16, 12)
+	margin.size = safe.size - Vector2(32, 24)
+	overlay.add_child(margin)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _box(Color("1b2f8a"), Color("0d1440"), 22, 4))
+	margin.add_child(panel)
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 18)
+	m.add_theme_constant_override("margin_right", 18)
+	m.add_theme_constant_override("margin_top", 14)
+	m.add_theme_constant_override("margin_bottom", 14)
+	panel.add_child(m)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	m.add_child(box)
+	var head := HBoxContainer.new()
+	box.add_child(head)
+	var t := _font(38, 5)
+	t.text = title
+	t.add_theme_color_override("font_color", Color.WHITE)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	var close := Button.new()
+	close.text = "X"
+	close.custom_minimum_size = Vector2(64, 64)
+	close.add_theme_stylebox_override("normal", _box(Color("e63946"), Color("7a1020"), 14, 3))
+	close.add_theme_font_size_override("font_size", 30)
+	close.pressed.connect(_close_overlay)
+	head.add_child(close)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	box.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 14)
+	scroll.add_child(content)
+	return content
+
+func _open_assassins() -> void:
+	var box := _screen_base("Change Assassin")
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(grid)
+	for id in GameState.CHARACTER_ORDER:
+		grid.add_child(_character_card(id))
+
+func _character_card(id: String) -> Control:
+	var c: Dictionary = GameState.CHARACTERS[id]
+	var unlocked := GameState.is_unlocked(id)
+	var selected := GameState.selected_assassin == id
+	var card := Button.new()
+	card.custom_minimum_size = Vector2(0, 250)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bg := Color("8a8f98") if not unlocked else Color("6a6d85")
+	var border := Color("ffc93c") if selected else Color("23252e")
+	card.add_theme_stylebox_override("normal", _box(bg, border, 18, 4))
+	card.add_theme_stylebox_override("hover", _box(bg.lightened(0.08), border, 18, 4))
+	card.add_theme_stylebox_override("pressed", _box(bg.darkened(0.08), border, 18, 4))
+	card.pressed.connect(func(): _on_character_pressed(id))
+	var vb := VBoxContainer.new()
+	vb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vb.offset_left = 10
+	vb.offset_right = -10
+	vb.offset_top = 8
+	vb.offset_bottom = -8
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(vb)
+	var art := TextureRect.new()
+	art.texture = load("res://assets/home/card_%s.png" % id)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.custom_minimum_size = Vector2(0, 140)
+	art.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not unlocked:
+		art.modulate = Color(0.6, 0.6, 0.65, 0.9)
+	vb.add_child(art)
+	var bonus := "Standard"
+	var col := Color.WHITE
+	if float(c.speed_bonus) > 0:
+		bonus = "+%d%% Speed" % int(float(c.speed_bonus) * 100)
+		col = Color("3fc6ff")
+	elif float(c.health_bonus) > 0:
+		bonus = "+%d%% Health" % int(float(c.health_bonus) * 100)
+		col = Color("4caf20")
+	var bl := _font(26, 4)
+	bl.text = bonus
+	bl.add_theme_color_override("font_color", col)
+	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(bl)
+	var status := _font(20, 3)
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if selected:
+		status.text = "Selected"
+		status.add_theme_color_override("font_color", Color("ffe23f"))
+	elif unlocked:
+		status.text = c.name
+		status.add_theme_color_override("font_color", Color.WHITE)
+	else:
+		status.text = "Unlock %d gems" % int(c.cost)
+		status.add_theme_color_override("font_color", Color("ffd23f"))
+	vb.add_child(status)
+	return card
+
+func _on_character_pressed(id: String) -> void:
+	if GameState.is_unlocked(id):
+		GameState.select_character(id)
+		Sfx.play("upgrade")
+		_refresh_card()
+		_open_assassins()
+	elif GameState.unlock_character(id):
+		Sfx.play("upgrade")
+		_refresh_values()
+		_refresh_card()
+		_open_assassins()
+		_toast("%s unlocked!" % GameState.CHARACTERS[id].name)
+	else:
+		_toast("Need %d gems." % int(GameState.CHARACTERS[id].cost))
+
+func _open_knives() -> void:
+	var box := _screen_base("Special Knives")
+	var count := _font(28, 4)
+	count.text = "%d / %d" % [GameState.knife_count(), GameState.KNIFE_ORDER.size()]
+	count.add_theme_color_override("font_color", Color.WHITE)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(count)
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 12)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(grid)
+	for id in GameState.KNIFE_ORDER:
+		grid.add_child(_knife_card(id))
+	var stats := Button.new()
+	stats.text = "Stat Upgrades"
+	stats.custom_minimum_size = Vector2(0, 56)
+	stats.pressed.connect(_open_upgrades)
+	box.add_child(stats)
+
+func _knife_card(id: String) -> Control:
+	var k: Dictionary = GameState.KNIVES[id]
+	var unlocked := GameState.is_knife_unlocked(id)
+	var selected := GameState.selected_knife == id
+	var wrap := VBoxContainer.new()
+	wrap.custom_minimum_size = Vector2(0, 210)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var icon_btn := Button.new()
+	icon_btn.custom_minimum_size = Vector2(0, 140)
+	icon_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bg := Color("ff9d2e")
+	if int(k.unlock_level) > 1 and not unlocked:
+		bg = Color("6a6d85")
+	if selected:
+		bg = Color("1f6fb2")
+	icon_btn.add_theme_stylebox_override("normal", _box(bg, Color("7CFC7C") if selected else Color("23252e"), 16, 4))
+	icon_btn.pressed.connect(func(): _on_knife_pressed(id))
+	var icon := TextureRect.new()
+	icon.texture = load("res://assets/knives/%s.png" % id)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 12
+	icon.offset_right = -12
+	icon.offset_top = 10
+	icon.offset_bottom = -10
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not unlocked:
+		icon.modulate = Color(0.45, 0.45, 0.5, 0.9)
+	icon_btn.add_child(icon)
+	if not unlocked:
+		var lock := TextureRect.new()
+		lock.texture = preload("res://assets/ui/lock.png")
+		lock.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		lock.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		lock.position = Vector2(6, 6)
+		lock.size = Vector2(30, 30)
+		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon_btn.add_child(lock)
+	wrap.add_child(icon_btn)
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(0, 52)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 12, 3))
+	btn.add_theme_font_size_override("font_size", 20)
+	btn.add_theme_color_override("font_color", Color("14161f"))
+	if selected:
+		btn.text = "Equipped"
+		btn.disabled = true
+	elif unlocked:
+		btn.text = "Equip"
+	elif int(k.unlock_level) > 1:
+		btn.text = "Level %d" % int(k.unlock_level)
+		btn.disabled = true
+	else:
+		btn.text = "Buy %d" % int(k.cost)
+	btn.pressed.connect(func(): _on_knife_pressed(id))
+	wrap.add_child(btn)
+	return wrap
+
+func _on_knife_pressed(id: String) -> void:
+	var k: Dictionary = GameState.KNIVES[id]
+	if GameState.is_knife_unlocked(id):
+		GameState.select_knife(id)
+		Sfx.play("upgrade")
+		_open_knives()
+	elif int(k.unlock_level) > 1:
+		_toast("Reach level %d to unlock." % int(k.unlock_level))
+	elif GameState.buy_knife(id):
+		Sfx.play("upgrade")
+		_refresh_values()
+		_open_knives()
+		_toast("%s unlocked!" % k.name)
+	else:
+		_toast("Need %d gems." % int(k.cost))
 
 func _open_settings() -> void:
 	var box := _popup_base("Settings")
@@ -368,93 +585,15 @@ func _open_settings() -> void:
 	box.add_child(levels)
 	_add_close(box)
 
-func _open_assassins() -> void:
-	var box := _popup_base("Change Assassin")
-	var preview := Control.new()
-	preview.custom_minimum_size = Vector2(420, 220)
-	box.add_child(preview)
-	var rig := preload("res://scripts/game/actor_rig.gd").new()
-	rig.setup(GameState.selected_assassin, "player")
-	rig.scale = Vector2.ONE * 2.6
-	rig.position = Vector2(210, 120)
-	preview.add_child(rig)
-	var anim_row := HBoxContainer.new()
-	anim_row.add_theme_constant_override("separation", 8)
-	box.add_child(anim_row)
-	for a in ["idle", "run", "attack"]:
-		var ab := Button.new()
-		ab.text = a.capitalize()
-		ab.custom_minimum_size = Vector2(128, 44)
-		ab.pressed.connect(func(): rig.play_anim(a, true))
-		anim_row.add_child(ab)
-	for id in GameState.CHARACTERS:
-		var c: Dictionary = GameState.CHARACTERS[id]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		var portrait := TextureRect.new()
-		portrait.texture = load("res://assets/home/card_%s.png" % id)
-		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		portrait.custom_minimum_size = Vector2(72, 72)
-		row.add_child(portrait)
-		var info := VBoxContainer.new()
-		info.custom_minimum_size = Vector2(210, 0)
-		var nm := _font(26, 3)
-		nm.text = c.name + ("  ✓" if GameState.selected_assassin == id else "")
-		nm.add_theme_color_override("font_color", Color.WHITE)
-		info.add_child(nm)
-		var st := _font(18, 0)
-		st.text = "Speed %d   HP %d" % [int(c.speed), int(c.health)]
-		st.add_theme_color_override("font_color", Color("aab0c4"))
-		info.add_child(st)
-		row.add_child(info)
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(130, 56)
-		if GameState.selected_assassin == id:
-			b.text = "Selected"
-			b.disabled = true
-		elif GameState.is_unlocked(id):
-			b.text = "Select"
-			b.pressed.connect(func():
-				GameState.select_character(id)
-				Sfx.play("upgrade")
-				_close_overlay()
-				_open_assassins()
-				_refresh_card())
-		else:
-			b.text = "%d gems" % int(c.cost)
-			b.disabled = GameState.gems < int(c.cost)
-			b.pressed.connect(func():
-				if GameState.unlock_character(id):
-					Sfx.play("upgrade")
-					_close_overlay()
-					_open_assassins()
-					_refresh_values()
-					_refresh_card()
-					_toast("%s unlocked!" % c.name))
-		row.add_child(b)
-		box.add_child(row)
-	var blurb := _font(20, 0)
-	blurb.text = GameState.character().blurb
-	blurb.add_theme_color_override("font_color", Color("aab0c4"))
-	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	blurb.custom_minimum_size = Vector2(420, 40)
-	box.add_child(blurb)
-	_add_close(box)
-
-func _refresh_card() -> void:
-	if card_art:
-		card_art.texture = load("res://assets/home/card_%s.png" % GameState.selected_assassin)
-
 func _open_upgrades() -> void:
-	var box := _popup_base("Upgrade")
-	var kinds := [["health", "Health (+1 heart)"], ["damage", "Damage (+1)"], ["speed", "Speed (+18)"]]
+	var box := _popup_base("Stat Upgrades")
+	var kinds := [["health", "Health (+1)"], ["damage", "Damage (+1)"], ["speed", "Speed (+14)"]]
 	for k in kinds:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
 		var l := _font(24, 0)
 		l.text = "%s  Lv %d" % [k[1], int(GameState.upgrades[k[0]])]
-		l.custom_minimum_size = Vector2(300, 50)
+		l.custom_minimum_size = Vector2(260, 50)
 		row.add_child(l)
 		var b := Button.new()
 		var maxed: bool = int(GameState.upgrades[k[0]]) >= 5
@@ -510,8 +649,10 @@ func _popup_base(title: String) -> VBoxContainer:
 	dim.color = Color(0, 0, 0, 0.6)
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.add_child(dim)
+	var safe := ScreenUtil.safe_rect(get_viewport())
 	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.position = safe.position
+	center.size = safe.size
 	overlay.add_child(center)
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", _box(Color("2b2f45"), Color("14161f"), 20, 4))

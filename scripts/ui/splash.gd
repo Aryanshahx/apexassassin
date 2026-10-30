@@ -1,6 +1,7 @@
 extends Control
 
 var bar: ProgressBar
+var safe := Rect2()
 
 func _ready() -> void:
 	var bg := TextureRect.new()
@@ -27,8 +28,16 @@ func _ready() -> void:
 	bar.add_theme_stylebox_override("background", bg_style)
 	bar.add_theme_stylebox_override("fill", fill)
 	add_child(bar)
+	get_viewport().size_changed.connect(_fit)
+	_fit()
 
 	var tween := create_tween()
 	tween.tween_property(bar, "value", 100.0, 1.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	tween.tween_interval(0.3)
 	tween.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/home/home.tscn"))
+
+func _fit() -> void:
+	var r := ScreenUtil.safe_rect(get_viewport())
+	var w := minf(360.0, r.size.x * 0.65)
+	bar.size = Vector2(w, 26)
+	bar.position = Vector2(r.position.x + (r.size.x - w) * 0.5, r.end.y - 96)

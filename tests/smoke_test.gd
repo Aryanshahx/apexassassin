@@ -23,15 +23,26 @@ func _run() -> void:
 	for lv in levels:
 		check(lv.guards.size() >= 3, "level %d guards" % lv.id)
 		check(lv.spawn.size() == 2, "spawn")
-	gs.gems = 100
+	gs.gems = 1000
 	gs.cash = 1000
+	gs.upgrades = {"health": 0, "damage": 0, "speed": 0}
 	gs.unlocked_assassins = {"ronin": true}
 	gs.selected_assassin = "ronin"
+	gs.unlocked_knives = {"standard": true}
+	gs.selected_knife = "standard"
 	check(gs.unlock_character("nova"), "unlock nova")
 	check(gs.selected_assassin == "nova", "nova selected")
 	check(gs.player_speed() > 200, "nova faster")
 	check(gs.select_character("ronin"), "select ronin")
 	check(gs.buy_upgrade("speed"), "buy speed upgrade")
+	check(gs.CHARACTER_ORDER.size() == 10, "10 characters")
+	check(gs.KNIFE_ORDER.size() == 17, "17 knives")
+	check(gs.unlock_character("oni"), "unlock oni")
+	check(gs.max_health() > 4.0, "oni health bonus")
+	check(gs.select_character("ronin"), "select ronin again")
+	check(gs.buy_knife("apex"), "buy apex knife")
+	check(gs.player_damage() >= 4, "apex damage")
+	check(gs.select_knife("standard"), "select standard knife")
 	gs.start_level(4)
 	await process_frame
 	await process_frame

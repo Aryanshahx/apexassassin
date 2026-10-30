@@ -1,5 +1,7 @@
 # Apex Assassin
 
+v0.4.0 — phone-fit UI, 10 assassins, 17 special knives.
+
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
 ## What is in this build
@@ -99,3 +101,12 @@ tools/               art/level generators + GitHub publish helper
 ## Notes
 
 This is an original game inspired by the stealth-action genre. It does not use Hunter Assassin assets, code, or branding.
+
+
+## v0.4 update
+
+- Edge-to-edge phone layout with safe-area support; home, collections, HUD and levels reflow for tall/wide screens.
+- 10 assassins: Ronin, Sable, Nova, Aegis, Dash, Sentinel, Sage, Crimson, Fiesta, Oni. Speed/health bonuses apply in gameplay.
+- 17 special knives with level unlocks or gem purchases. Equipped knife changes damage, attack speed, reach and the player blade sprite.
+- Save migration keeps existing progress and unlocks.
+- Visual capture helper: `APEX_CAPTURE_DIR=/tmp/apex-shots godot --path . --resolution 720x1600 --script tests/capture_ui.gd` (use a display/Xvfb).
