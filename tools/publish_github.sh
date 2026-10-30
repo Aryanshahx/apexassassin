@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REMOTE="https://github.com/Aryanshahx/apexassassin.git"
 BRANCH="main"
-MSG="${1:-Apex Assassin v0.5.3: wider player-following camera (15 cells)}"
+MSG="${1:-Apex Assassin v0.5.5: twelve reference characters and new actor motion}"
 
 if ! command -v git >/dev/null 2>&1; then
   echo "git is required: sudo apt install git" >&2; exit 1

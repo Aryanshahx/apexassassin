@@ -13,6 +13,32 @@ func check(cond: bool, msg: String) -> void:
 		failures += 1
 		printerr("FAIL: ", msg)
 
+# v0.5.4: Compare the centre-based walkability grid before/after cover growth.
+# This checks every cell of every level; paths must not become blocked merely
+# because the existing cover art and matching LOS/bullet bounds are larger.
+func cover_grid_matches_v53(lv: Dictionary, cell: float, origin: Vector2, grow: float) -> bool:
+	var before: Array[Rect2] = []
+	var after: Array[Rect2] = []
+	for item in lv.walls + lv.crates:
+		var r := Rect2(origin + Vector2(item[0], item[1]) * cell, Vector2(item[2], item[3]) * cell)
+		before.append(r.grow(4.0))
+		after.append(r.grow(4.0 + grow))
+	for y in range(int(lv.height)):
+		for x in range(int(lv.width)):
+			var centre := origin + Vector2(x + 0.5, y + 0.5) * cell
+			var was_solid := false
+			var now_solid := false
+			for i in range(before.size()):
+				if before[i].has_point(centre):
+					was_solid = true
+					now_solid = true
+					break
+				if after[i].has_point(centre):
+					now_solid = true
+			if was_solid != now_solid:
+				return false
+	return true
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
@@ -35,7 +61,7 @@ func _run() -> void:
 	check(gs.player_speed() > 200, "nova faster")
 	check(gs.select_character("ronin"), "select ronin")
 	check(gs.buy_upgrade("speed"), "buy speed upgrade")
-	check(gs.CHARACTER_ORDER.size() == 10, "10 characters")
+	check(gs.CHARACTER_ORDER.size() == 22 and gs.REFERENCE_ORDER.size() == 12, "12 reference and 10 legacy characters")
 	check(gs.KNIFE_ORDER.size() == 17, "17 knives")
 	check(gs.unlock_character("oni"), "unlock oni")
 	check(gs.max_health() > 4.0, "oni health bonus")
@@ -63,6 +89,29 @@ func _run() -> void:
 	await process_frame
 	var level = current_scene
 	check(level != null and level.total == 5, "level 4 has 5 guards")
+	# Slightly larger physical cover must not scale actors, the camera or the grid.
+	check(level.OBSTACLE_GROW == 3.0, "cover expands by 3 world units per edge")
+	var wd: Array = level.data.walls[0]
+	var wall_original := Rect2(level.ORIGIN + Vector2(wd[0], wd[1]) * level.CELL, Vector2(wd[2], wd[3]) * level.CELL)
+	var wall_expanded := wall_original.grow(level.OBSTACLE_GROW)
+	check(level.wall_rects[0].position.distance_to(wall_expanded.position) < 0.001 and level.wall_rects[0].size.distance_to(wall_expanded.size) < 0.001, "wall geometry enlarged")
+	var cd: Array = level.data.crates[0]
+	var crate_original := Rect2(level.ORIGIN + Vector2(cd[0], cd[1]) * level.CELL, Vector2(cd[2], cd[3]) * level.CELL)
+	var crate_expanded := crate_original.grow(level.OBSTACLE_GROW)
+	check(level.crate_rects[0].position.distance_to(crate_expanded.position) < 0.001 and level.crate_rects[0].size.distance_to(crate_expanded.size) < 0.001, "crate geometry enlarged")
+	var original_key: String = level.CONTAINER_KEYS[int(abs(wall_original.position.x * 7 + wall_original.position.y * 13)) % level.CONTAINER_KEYS.size()]
+	check(level._wall_colour(level.wall_rects[0]) == original_key, "container colour unchanged")
+	var outer_probe := Vector2(wall_original.get_center().x, wall_original.position.y - 5.0)
+	check(not wall_original.grow(4.0).has_point(outer_probe) and level._solid(outer_probe), "larger cover blocks sight and bullets at its new edge")
+	check(level.player_rig.scale.is_equal_approx(Vector2.ONE * 0.92), "player size unchanged")
+	var guard_scales_ok := true
+	for g in level.guards:
+		var expected_guard_scale := 0.98 if bool(g.elite) else 0.92
+		if not g.rig.scale.is_equal_approx(Vector2.ONE * expected_guard_scale):
+			guard_scales_ok = false
+	check(guard_scales_ok, "enemy sizes unchanged")
+	for lv in levels:
+		check(cover_grid_matches_v53(lv, level.CELL, level.ORIGIN, level.OBSTACLE_GROW), "level %d walkability grid unchanged" % int(lv.id))
 	check(level.player_rig.anim.has_animation("run"), "run animation")
 	check(level.player_rig.anim.has_animation("attack"), "attack animation")
 	check(level.player_rig.anim.has_animation("death"), "death animation")

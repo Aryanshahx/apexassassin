@@ -181,7 +181,7 @@ func _build_action_cards() -> void:
 	change.add_child(ct)
 	var art := TextureRect.new()
 	card_art = art
-	art.texture = load("res://assets/home/card_%s.png" % GameState.selected_assassin)
+	art.texture = _character_portrait(GameState.selected_assassin)
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	art.position = Vector2(238, -18)
@@ -325,12 +325,15 @@ func _refresh_values() -> void:
 	if gems_label:
 		gems_label.text = str(GameState.gems)
 
+func _character_portrait(id: String) -> Texture2D:
+	return load("res://assets/reference/characters/%02d.png" % GameState.reference_art_index(id))
+
 func _refresh_card() -> void:
 	if card_art:
-		card_art.texture = load("res://assets/home/card_%s.png" % GameState.selected_assassin)
+		card_art.texture = _character_portrait(GameState.selected_assassin)
 
 # ---------------- Full-screen collection screens ----------------
-func _screen_base(title: String) -> VBoxContainer:
+func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	_close_overlay()
 	overlay = Control.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -345,7 +348,8 @@ func _screen_base(title: String) -> VBoxContainer:
 	margin.size = safe.size - Vector2(32, 24)
 	overlay.add_child(margin)
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", _box(Color("1b2f8a"), Color("0d1440"), 22, 4))
+	var panel_colour := Color("74169d") if reference_palette else Color("1b2f8a")
+	panel.add_theme_stylebox_override("panel", _box(panel_colour, Color("0d1440"), 22, 4))
 	margin.add_child(panel)
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", 18)
@@ -381,21 +385,71 @@ func _screen_base(title: String) -> VBoxContainer:
 	return content
 
 func _open_assassins() -> void:
-	var box := _screen_base("Change Assassin")
+	var box := _screen_base("Change Assassin", true)
+	box.get_parent().name = "AssassinScroll"
 	var grid := GridContainer.new()
+	grid.name = "ReferenceGrid"
 	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 14)
-	grid.add_theme_constant_override("v_separation", 14)
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 8)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(grid)
-	for id in GameState.CHARACTER_ORDER:
-		grid.add_child(_character_card(id))
+	# All twelve user-selected reference characters are selectable immediately.
+	for id in GameState.REFERENCE_ORDER:
+		grid.add_child(_reference_character_card(id))
+	# Keep every previously earned character and bonus for existing saves.
+	var legacy_title := _font(24, 3)
+	legacy_title.text = "Previously available assassins"
+	legacy_title.add_theme_color_override("font_color", Color.WHITE)
+	box.add_child(legacy_title)
+	var legacy_grid := GridContainer.new()
+	legacy_grid.name = "LegacyGrid"
+	legacy_grid.columns = 2
+	legacy_grid.add_theme_constant_override("h_separation", 14)
+	legacy_grid.add_theme_constant_override("v_separation", 14)
+	legacy_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(legacy_grid)
+	for id in GameState.LEGACY_ORDER:
+		legacy_grid.add_child(_character_card(id))
+
+func _reference_character_card(id: String) -> Control:
+	var index := GameState.reference_art_index(id)
+	var card := Button.new()
+	card.name = "ReferenceCard%02d" % index
+	card.flat = true
+	card.custom_minimum_size = Vector2(0, 180)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.tooltip_text = String(GameState.CHARACTERS[id].name)
+	card.pressed.connect(func(): _on_character_pressed(id))
+	var image := TextureRect.new()
+	image.name = "ScreenshotCard"
+	image.texture = load("res://assets/reference/cards/%02d.png" % index)
+	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(image)
+	if GameState.selected_assassin == id:
+		var frame := Panel.new()
+		frame.name = "SelectedFrame"
+		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		frame.add_theme_stylebox_override("panel", _box(Color(0,0,0,0), Color("ffe06a"), 18, 4))
+		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(frame)
+		var label := _font(18, 3)
+		label.text = "Selected"
+		label.add_theme_color_override("font_color", Color("ffe06a"))
+		label.position = Vector2(12, 5)
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(label)
+	return card
 
 func _character_card(id: String) -> Control:
 	var c: Dictionary = GameState.CHARACTERS[id]
 	var unlocked := GameState.is_unlocked(id)
 	var selected := GameState.selected_assassin == id
 	var card := Button.new()
+	card.name = "LegacyCard_" + id
 	card.custom_minimum_size = Vector2(0, 250)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var bg := Color("8a8f98") if not unlocked else Color("6a6d85")
@@ -413,7 +467,7 @@ func _character_card(id: String) -> Control:
 	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(vb)
 	var art := TextureRect.new()
-	art.texture = load("res://assets/home/card_%s.png" % id)
+	art.texture = _character_portrait(id)
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	art.custom_minimum_size = Vector2(0, 140)
@@ -451,17 +505,30 @@ func _character_card(id: String) -> Control:
 	vb.add_child(status)
 	return card
 
+func _reopen_assassins_preserving_scroll() -> void:
+	# Selecting a lower-row character should not jump the collection back to top.
+	var prior_scroll := 0
+	if is_instance_valid(overlay):
+		var previous := overlay.find_child("AssassinScroll", true, false) as ScrollContainer
+		if previous:
+			prior_scroll = previous.scroll_vertical
+	_open_assassins()
+	var refreshed := overlay.find_child("AssassinScroll", true, false) as ScrollContainer
+	await get_tree().process_frame
+	if is_instance_valid(refreshed):
+		refreshed.scroll_vertical = prior_scroll
+
 func _on_character_pressed(id: String) -> void:
 	if GameState.is_unlocked(id):
 		GameState.select_character(id)
 		Sfx.play("upgrade")
 		_refresh_card()
-		_open_assassins()
+		_reopen_assassins_preserving_scroll()
 	elif GameState.unlock_character(id):
 		Sfx.play("upgrade")
 		_refresh_values()
 		_refresh_card()
-		_open_assassins()
+		_reopen_assassins_preserving_scroll()
 		_toast("%s unlocked!" % GameState.CHARACTERS[id].name)
 	else:
 		_toast("Need %d gems." % int(GameState.CHARACTERS[id].cost))

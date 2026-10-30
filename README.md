@@ -1,15 +1,18 @@
 # Apex Assassin
 
-v0.5.3 — wider player-following camera, night-grade depot, bright vision cones, Hunter Assassin-style stealth, 10 assassins, 17 knives.
+v0.5.5 — 12 screenshot-derived characters, new approximate player/enemy motion, larger depot cover and the 15-cell follow camera.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
 ## What is in this build
 
-- **Two original playable assassins**
-  - **Ronin** — raven-hood blade specialist, balanced speed.
-  - **Nova** — teal-hood twin-blade runner, faster, unlock with gems.
-- **Real node-based animations**: idle, run, attack, shoot, hurt, death.
+- **12 reference characters**, immediately available in the character selector, with the
+  speed/health bonuses shown in the supplied screenshot. You play as one at a time.
+- **10 legacy character IDs**, costs, bonuses, selected state and unlocks remain supported.
+  Their visuals now use the reference art style.
+- **17 knives**, with their existing damage, speed, reach and unlock rules.
+- **New approximate node-based motion**: idle, run, attack, shoot, hurt and death.
+  These animations are recreated from still images, not the original animation frames.
 - **Hunter Assassin-style core loop**
   - Tap floor to move.
   - Tap a guard to hunt it.
@@ -17,7 +20,7 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   - Guard vision cones, patrols, investigation, alert/chase, gunfire, search.
   - Walls and crates block sight and bullets.
   - Shadows slow detection.
-  - Kills drop gems; collect them to unlock Nova.
+  - Kills drop gems; collect them to unlock legacy assassins and special knives.
   - Clear all guards to finish the level.
 - **100 validated levels** with increasing guard counts and cover density.
 - Home screen, character select, upgrades, missions, daily wheel, level select, stars, local save.
@@ -45,8 +48,12 @@ Stay out of flashlight cones. Use crates and walls as cover. Shadows make you ha
 ## Tests
 
 ```bash
-godot --headless --path . --editor --quit
-godot --headless --path . --script tests/smoke_test.gd
+godot --headless --path . --import
+# Tests write save files; always use isolated, temporary user-data directories.
+SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"
+XDG_DATA_HOME="$SMOKE_DATA" godot --headless --path . --script tests/smoke_test.gd
+XDG_DATA_HOME="$REF_DATA" godot --headless --path . --script tests/reference_test.gd
+rm -rf "$SMOKE_DATA" "$REF_DATA"
 ```
 
 ## Push to GitHub + build APK
@@ -80,13 +87,17 @@ The game ships with generated PNGs and levels, so these are optional:
 python3 -m pip install pillow cairosvg
 python3 tools/build_art.py
 python3 tools/generate_levels.py
+# Optional: rebuild the shipped screenshot-derived player and guard images.
+python3 -m pip install pillow numpy opencv-python
+python3 tools/build_reference_assets.py
 ```
 
 ## Project layout
 
 ```text
 assets/characters/   original modular character parts
-assets/home/         character card portraits
+assets/home/         home artwork
+assets/reference/    screenshot-derived player/guard poses and selectable cards
 assets/level/        floor, walls, crates
 assets/fx/           slash, spark, gem
 art_source/          editable SVG sources
@@ -100,7 +111,11 @@ tools/               art/level generators + GitHub publish helper
 
 ## Notes
 
-This is an original game inspired by the stealth-action genre. It does not use Hunter Assassin assets, code, or branding.
+The gameplay code is an original project inspired by the stealth-action genre.
+The v0.5.5 character and guard images are derived from user-supplied game
+screenshots, and the original rights are not established. Review
+`ASSETS_LICENSE.md` and obtain any required permissions before publication or
+distribution. No original source animation frames were supplied.
 
 
 ## v0.4 update
@@ -149,3 +164,38 @@ This is an original game inspired by the stealth-action genre. It does not use H
   are unchanged. Four camera checks bring the smoke suite to **244 checks**.
 - Character concepts are being reviewed separately; this patch does not change the existing
   roster, character bonuses, save data or player/enemy animation rigs.
+
+
+## v0.5.4 — larger depot cover, unchanged actors
+
+- Walls and crates grow by **3 world units on each edge**. A one-cell-wide
+  obstacle grows from 32 to 38 units (18.75% thicker); larger rectangles
+  receive the same modest 3-unit expansion per edge. The approved depot pixels,
+  original colour assignment, night grade and vision-cone styling are retained.
+- The 15-cell follow camera, player and enemy rig scales, actor animations and
+  speeds remain unchanged. Shadows and line-of-sight/bullet blocking use the
+  enlarged cover. Because the 7-unit maximum margin is below half a grid cell,
+  the centre-based walkability grid stays unchanged; all 100 levels are tested.
+- Reference character selection is separate; this patch does not change the
+  roster or claim to reproduce the reference animations.
+
+
+## v0.5.5 — all 12 reference characters
+
+- All 12 reference characters are immediately selectable without spending gems.
+  Their cards show the supplied screenshot art with the lock icons retouched,
+  and their speed/health bonuses match the reference. Only one is active at a time.
+- All 10 previous character IDs, stats, unlocks and save progress remain. Their
+  gameplay and home portraits map to the new reference visual style.
+- Player and both guard appearances use screenshot-derived pixels. Their idle,
+  running, attack, shooting, hurt and death motion is newly approximated from
+  one still pose each; it is not the original animation. All 17 knives retain
+  their existing mechanics and display when equipped.
+- The existing 15-cell follow camera and player/guard root scales are retained.
+  Screenshot-art bounds are capped at 55 world units for the player and 60 for
+  guards; enlarged cover, depot pixels, night grade and cones are unchanged.
+- Two isolated suites cover the game plus all 12 characters, both guards, all
+  knives, UI selection, animation playback and v2/v3 save migration.
+- The screenshots may contain third-party game artwork. Review `ASSETS_LICENSE.md`
+  and confirm distribution rights. The Android workflow exports a **debug APK
+  only**, not a release build.

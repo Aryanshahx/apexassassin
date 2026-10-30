@@ -1,0 +1,289 @@
+{
+  "source_filename": "Screenshot_2026-10-30-14-12-54-05_3ad738f9fdc738a4f63d4eac87dae390.jpg",
+  "source_sha256": "7d398826293cf2e2f607f8bd9866b66c58e11003abef06d3653cad0965bceeb1",
+  "source_size": [
+    1278,
+    1837
+  ],
+  "notes": "The gallery cards listed by this metadata are unchanged crops. The shipped playable cards remove the locks. Transparent sprites reuse source RGB pixels with a computed alpha mask. They are static screenshot-derived poses, not original animation assets.",
+  "characters": [
+    {
+      "number": 1,
+      "description": "Bandaged",
+      "shown_bonus": "+10% Speed",
+      "card_crop": [
+        45,
+        2,
+        620,
+        303
+      ],
+      "sprite_source_crop": [
+        198,
+        50,
+        446,
+        206
+      ],
+      "sprite_size": [
+        248,
+        156
+      ],
+      "card": "cards/01.png",
+      "sprite": "sprites/01.png"
+    },
+    {
+      "number": 2,
+      "description": "Orange beast",
+      "shown_bonus": "+10% Health",
+      "card_crop": [
+        645,
+        2,
+        1220,
+        303
+      ],
+      "sprite_source_crop": [
+        792,
+        42,
+        1048,
+        198
+      ],
+      "sprite_size": [
+        256,
+        156
+      ],
+      "card": "cards/02.png",
+      "sprite": "sprites/02.png"
+    },
+    {
+      "number": 3,
+      "description": "Yellow goggles",
+      "shown_bonus": "+15% Speed",
+      "card_crop": [
+        45,
+        317,
+        620,
+        604
+      ],
+      "sprite_source_crop": [
+        204,
+        355,
+        439,
+        512
+      ],
+      "sprite_size": [
+        235,
+        157
+      ],
+      "card": "cards/03.png",
+      "sprite": "sprites/03.png"
+    },
+    {
+      "number": 4,
+      "description": "Blue beast",
+      "shown_bonus": "+15% Health",
+      "card_crop": [
+        645,
+        309,
+        1220,
+        611
+      ],
+      "sprite_source_crop": [
+        802,
+        358,
+        1048,
+        508
+      ],
+      "sprite_size": [
+        246,
+        150
+      ],
+      "card": "cards/04.png",
+      "sprite": "sprites/04.png"
+    },
+    {
+      "number": 5,
+      "description": "Green visor",
+      "shown_bonus": "+20% Speed",
+      "card_crop": [
+        45,
+        617,
+        620,
+        918
+      ],
+      "sprite_source_crop": [
+        209,
+        659,
+        445,
+        816
+      ],
+      "sprite_size": [
+        236,
+        157
+      ],
+      "card": "cards/05.png",
+      "sprite": "sprites/05.png"
+    },
+    {
+      "number": 6,
+      "description": "Purple outfit",
+      "shown_bonus": "+20% Health",
+      "card_crop": [
+        645,
+        617,
+        1220,
+        918
+      ],
+      "sprite_source_crop": [
+        798,
+        656,
+        1048,
+        813
+      ],
+      "sprite_size": [
+        250,
+        157
+      ],
+      "card": "cards/06.png",
+      "sprite": "sprites/06.png"
+    },
+    {
+      "number": 7,
+      "description": "Festive bird",
+      "shown_bonus": "+25% Speed",
+      "card_crop": [
+        45,
+        924,
+        620,
+        1225
+      ],
+      "sprite_source_crop": [
+        201,
+        963,
+        445,
+        1128
+      ],
+      "sprite_size": [
+        244,
+        165
+      ],
+      "card": "cards/07.png",
+      "sprite": "sprites/07.png"
+    },
+    {
+      "number": 8,
+      "description": "Clown",
+      "shown_bonus": "+25% Health",
+      "card_crop": [
+        645,
+        924,
+        1220,
+        1225
+      ],
+      "sprite_source_crop": [
+        818,
+        960,
+        1047,
+        1125
+      ],
+      "sprite_size": [
+        229,
+        165
+      ],
+      "card": "cards/08.png",
+      "sprite": "sprites/08.png"
+    },
+    {
+      "number": 9,
+      "description": "Green creature",
+      "shown_bonus": "+30% Speed",
+      "card_crop": [
+        45,
+        1231,
+        620,
+        1532
+      ],
+      "sprite_source_crop": [
+        212,
+        1272,
+        445,
+        1442
+      ],
+      "sprite_size": [
+        233,
+        170
+      ],
+      "card": "cards/09.png",
+      "sprite": "sprites/09.png"
+    },
+    {
+      "number": 10,
+      "description": "Boxer",
+      "shown_bonus": "+30% Health",
+      "card_crop": [
+        645,
+        1231,
+        1220,
+        1532
+      ],
+      "sprite_source_crop": [
+        799,
+        1256,
+        1046,
+        1426
+      ],
+      "sprite_size": [
+        247,
+        170
+      ],
+      "card": "cards/10.png",
+      "sprite": "sprites/10.png"
+    },
+    {
+      "number": 11,
+      "description": "Blonde and pink",
+      "shown_bonus": "+35% Speed",
+      "card_crop": [
+        45,
+        1539,
+        620,
+        1837
+      ],
+      "sprite_source_crop": [
+        206,
+        1580,
+        445,
+        1736
+      ],
+      "sprite_size": [
+        239,
+        156
+      ],
+      "card": "cards/11.png",
+      "sprite": "sprites/11.png"
+    },
+    {
+      "number": 12,
+      "description": "Green shell",
+      "shown_bonus": "+35% Health",
+      "card_crop": [
+        645,
+        1539,
+        1220,
+        1837
+      ],
+      "sprite_source_crop": [
+        797,
+        1573,
+        1048,
+        1734
+      ],
+      "sprite_size": [
+        251,
+        161
+      ],
+      "card": "cards/12.png",
+      "sprite": "sprites/12.png"
+    }
+  ],
+  "guard_source_filename": "IMG-20261030-WA0001.jpg",
+  "guard_source_sha256": "902a1887d1d3e668c28397d975f55d0aa73e761c9aacd43bd888bef05b241d49"
+}

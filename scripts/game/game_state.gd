@@ -17,8 +17,27 @@ const CHARACTERS := {
 	"crimson": {"name": "Crimson", "cost": 180, "speed_bonus": 0.0, "health_bonus": 0.30, "blurb": "+30% health red hood."},
 	"fiesta": {"name": "Fiesta", "cost": 220, "speed_bonus": 0.40, "health_bonus": 0.0, "blurb": "+40% speed festival mask."},
 	"oni": {"name": "Oni", "cost": 260, "speed_bonus": 0.0, "health_bonus": 0.40, "blurb": "+40% health demon mask."},
+	# The twelve user-selected screenshot characters are immediately selectable.
+	# Their bonuses match the screenshot; the older roster and its bonuses remain.
+	"ref01": {"name": "Bandaged", "cost": 0, "speed_bonus": 0.10, "health_bonus": 0.0, "blurb": "+10% speed"},
+	"ref02": {"name": "Orange Beast", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.10, "blurb": "+10% health"},
+	"ref03": {"name": "Yellow Goggles", "cost": 0, "speed_bonus": 0.15, "health_bonus": 0.0, "blurb": "+15% speed"},
+	"ref04": {"name": "Blue Beast", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.15, "blurb": "+15% health"},
+	"ref05": {"name": "Green Visor", "cost": 0, "speed_bonus": 0.20, "health_bonus": 0.0, "blurb": "+20% speed"},
+	"ref06": {"name": "Purple Outfit", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.20, "blurb": "+20% health"},
+	"ref07": {"name": "Festive Bird", "cost": 0, "speed_bonus": 0.25, "health_bonus": 0.0, "blurb": "+25% speed"},
+	"ref08": {"name": "Clown", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.25, "blurb": "+25% health"},
+	"ref09": {"name": "Green Creature", "cost": 0, "speed_bonus": 0.30, "health_bonus": 0.0, "blurb": "+30% speed"},
+	"ref10": {"name": "Boxer", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.30, "blurb": "+30% health"},
+	"ref11": {"name": "Blonde and Pink", "cost": 0, "speed_bonus": 0.35, "health_bonus": 0.0, "blurb": "+35% speed"},
+	"ref12": {"name": "Green Shell", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.35, "blurb": "+35% health"},
 }
-const CHARACTER_ORDER := ["ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
+const REFERENCE_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12"]
+const LEGACY_ORDER := ["ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
+const CHARACTER_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12", "ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
+# Give previously saved assassins the approved visual style without changing
+# their IDs, bonuses, selected state, unlocks or save schema.
+const LEGACY_ART_INDEX := {"ronin": 1, "sable": 2, "nova": 3, "aegis": 4, "dash": 5, "sentinel": 6, "sage": 7, "crimson": 8, "fiesta": 9, "oni": 10}
 
 const KNIVES := {
 	"standard": {"name": "Standard", "unlock_level": 1, "cost": 0, "damage": 1, "cooldown": 0.32, "range": 54.0},
@@ -104,7 +123,7 @@ func load_game() -> void:
 			if CHARACTERS.has(k) and bool(unlocked[k]):
 				unlocked_assassins[k] = true
 	unlocked_assassins["ronin"] = true
-	if not unlocked_assassins.has(selected_assassin):
+	if not is_unlocked(selected_assassin):
 		selected_assassin = "ronin"
 	selected_knife = String(p.get("selected_knife", "standard"))
 	if not KNIVES.has(selected_knife):
@@ -196,8 +215,18 @@ func buy_upgrade(kind: String) -> bool:
 	save_game()
 	return true
 
+func is_reference_character(id: String) -> bool:
+	return REFERENCE_ORDER.has(id)
+
+func reference_art_index(id: String) -> int:
+	var index := REFERENCE_ORDER.find(id)
+	if index >= 0:
+		return index + 1
+	return int(LEGACY_ART_INDEX.get(id, 1))
+
 func is_unlocked(id: String) -> bool:
-	return bool(unlocked_assassins.get(id, false))
+	# The user selected every screenshot design; make all twelve available now.
+	return is_reference_character(id) or bool(unlocked_assassins.get(id, false))
 
 func unlock_character(id: String) -> bool:
 	if not CHARACTERS.has(id) or is_unlocked(id):

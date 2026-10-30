@@ -82,7 +82,12 @@ jobs:
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
           "$GODOT" --headless --path . --import
-          "$GODOT" --headless --path . --script tests/smoke_test.gd
+          # Both suites exercise save migration; never write to an existing save.
+          TEST_DATA="$(mktemp -d)"
+          trap 'rm -rf "$TEST_DATA"' EXIT
+          mkdir -p "$TEST_DATA/smoke" "$TEST_DATA/reference"
+          XDG_DATA_HOME="$TEST_DATA/smoke" timeout 120 "$GODOT" --headless --path . --script tests/smoke_test.gd
+          XDG_DATA_HOME="$TEST_DATA/reference" timeout 120 "$GODOT" --headless --path . --script tests/reference_test.gd
 
       - name: Export debug APK
         run: |

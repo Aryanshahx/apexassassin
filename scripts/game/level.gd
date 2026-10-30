@@ -5,6 +5,11 @@ extends Node2D
 ## Cover blocks sight/bullets; shadows slow detection. Kills drop gems.
 
 const CELL := 32.0
+## Enlarge cover on all sides without changing player/guard or camera scale.
+## A one-cell obstacle becomes 38 instead of 32 units (18.75% thicker).
+## 3 + the existing 4-unit collision margin is less than half a cell, so
+## centre-based AStar walkable cells stay the same across all levels.
+const OBSTACLE_GROW := 3.0
 const ORIGIN := Vector2(24, 140)
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
 const FLOOR := preload("res://assets/environment/depot/floor_real.png")
@@ -40,7 +45,7 @@ const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const HEART_TEX := preload("res://assets/ui/heart.png")
-const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
+const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 
 enum GState { PATROL, INVESTIGATE, ALERT, SEARCH, DEAD }
 
@@ -190,9 +195,9 @@ func _load_level(n: int) -> void:
 	data = levels[clampi(n - 1, 0, levels.size() - 1)]
 	player_pos = _cell_center(data.spawn[0], data.spawn[1])
 	for w in data.walls:
-		wall_rects.append(Rect2(ORIGIN + Vector2(w[0], w[1]) * CELL, Vector2(w[2], w[3]) * CELL))
+		wall_rects.append(Rect2(ORIGIN + Vector2(w[0], w[1]) * CELL, Vector2(w[2], w[3]) * CELL).grow(OBSTACLE_GROW))
 	for c in data.crates:
-		crate_rects.append(Rect2(ORIGIN + Vector2(c[0], c[1]) * CELL, Vector2(c[2], c[3]) * CELL))
+		crate_rects.append(Rect2(ORIGIN + Vector2(c[0], c[1]) * CELL, Vector2(c[2], c[3]) * CELL).grow(OBSTACLE_GROW))
 
 func _cell_center(x: int, y: int) -> Vector2:
 	return ORIGIN + Vector2(x + 0.5, y + 0.5) * CELL
@@ -892,10 +897,15 @@ func _draw() -> void:
 		elif g.state in [GState.INVESTIGATE, GState.SEARCH]:
 			draw_circle(g.pos + Vector2(0, -34), 4, Color("ffd23f"))
 
+func _wall_colour(r: Rect2) -> String:
+	# Use the original pre-growth origin to keep every container's colour stable.
+	var original_pos := r.position + Vector2.ONE * OBSTACLE_GROW
+	return CONTAINER_KEYS[int(abs(original_pos.x * 7 + original_pos.y * 13)) % CONTAINER_KEYS.size()]
+
 func _draw_wall(r: Rect2) -> void:
 	# 9-slice the real container art: fixed hazard caps + tiled ribbed middle,
 	# then the original depth face along the bottom edge.
-	var key: String = CONTAINER_KEYS[int(abs(r.position.x * 7 + r.position.y * 13)) % CONTAINER_KEYS.size()]
+	var key := _wall_colour(r)
 	var horizontal := r.size.x > r.size.y
 	var thick := minf(r.size.x, r.size.y)
 	var sc := thick / SRC_THICK
