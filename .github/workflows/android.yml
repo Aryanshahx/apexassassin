@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
-          "$GODOT" --headless --path . --editor --quit
+          "$GODOT" --headless --path . --import
           "$GODOT" --headless --path . --script tests/smoke_test.gd
 
       - name: Export debug APK
@@ -96,6 +96,7 @@ jobs:
           export ANDROID_HOME="$ANDROID_SDK"
           export ANDROID_SDK_ROOT="$ANDROID_SDK"
           mkdir -p "$HOME/.android" "$HOME/.config/godot" build/android
+          adb start-server >/dev/null 2>&1 || true
           DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
           if [ ! -f "$DEBUG_KEYSTORE" ]; then
             keytool -genkeypair -keystore "$DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
