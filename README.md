@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.5.0 — Warehouse Depot environment, Hunter Assassin-style stealth, 10 assassins, 17 knives.
+v0.5.1 — Warehouse Depot built from the approved concept art, Hunter Assassin-style stealth, 10 assassins, 17 knives.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -114,10 +114,11 @@ This is an original game inspired by the stealth-action genre. It does not use H
 
 ## v0.5 update
 
-- **Warehouse Depot environment** (chosen from three concepts): seamless concrete floor cropped
-  from the approved art, ribbed shipping-container walls in red/blue/olive with hazard end caps,
-  wooden crates, floor drains and painted arrows. Concrete extends past the arena so tall phones
-  never show black bars.
+- **Warehouse Depot environment — the approved concept art itself.** Every container lid, hazard
+  cap, corner casting, side face, crate, drain, arrow and floor tile is cut directly out of
+  `art_source/environment/depot_concept.png` by `tools/extract_depot_art.py`. Nothing is redrawn.
+  Containers are 9-sliced (fixed caps + tiled ribbed middle + real depth face) so runs of any
+  length keep the original shading. Concrete extends past the arena so tall phones show no bars.
 - **Backstab stealth**: striking an unaware guard from behind is an instant silent kill, drops bonus
   gems and makes no noise. Frontal attacks damage normally and raise the alarm.
 - **Level-wide alarm**: one confirmed sighting pulls every patrolling guard into a search.

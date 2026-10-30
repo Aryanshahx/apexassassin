@@ -127,6 +127,7 @@ func _run() -> void:
 	check(lv2.player_path.size() > 0, "drag target path found")
 	# Depot environment textures are wired.
 	check(lv2.floor_details.size() > 0, "depot floor details placed")
-	check(lv2.CONTAINER_TEX.size() == 3, "3 container colours")
+	check(lv2.CONTAINER_KEYS.size() == 3, "3 container colours")
+	check(lv2._c_mid.size() == 3 and lv2._c_depth.size() == 3, "real container strips loaded")
 	print("SMOKE %d checks, %d failures" % [checks, failures])
 	quit(1 if failures > 0 else 0)

@@ -7,25 +7,24 @@ extends Node2D
 const CELL := 32.0
 const ORIGIN := Vector2(24, 140)
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
-const FLOOR := preload("res://assets/environment/depot/floor.png")
-const CONTAINER_TEX := {
-	"red": preload("res://assets/environment/depot/container_red.png"),
-	"blue": preload("res://assets/environment/depot/container_blue.png"),
-	"olive": preload("res://assets/environment/depot/container_olive.png"),
-}
-const CONTAINER_END := {
-	"red": preload("res://assets/environment/depot/container_red_end.png"),
-	"blue": preload("res://assets/environment/depot/container_blue_end.png"),
-	"olive": preload("res://assets/environment/depot/container_olive_end.png"),
-}
-const CRATE_TEX := {
-	"blue": preload("res://assets/environment/depot/crate_wood.png"),
-	"olive": preload("res://assets/environment/depot/crate_wood.png"),
-	"gray": preload("res://assets/environment/depot/crate_wood.png"),
-}
-const DRAIN_TEX := preload("res://assets/environment/depot/drain.png")
-const ARROW_TEX := preload("res://assets/environment/depot/arrow.png")
+const FLOOR := preload("res://assets/environment/depot/floor_real.png")
+## Real pixels cut from the approved depot concept (tools/extract_depot_art.py).
+const DEPOT := "res://assets/environment/depot/"
 const CONTAINER_KEYS := ["blue", "red", "olive"]
+const SRC_THICK := 91.0          # container width in the concept art
+const FLOOR_TILE := 90.0         # 256px concept tile at world scale
+var _c_cap_a := {}
+var _c_cap_b := {}
+var _c_cap_l := {}
+var _c_cap_r := {}
+var _c_mid := {}
+var _c_mid_h := {}
+var _c_depth := {}
+var _c_depth_h := {}
+const CRATE_TOP := preload("res://assets/environment/depot/crate_real_top.png")
+const CRATE_DEPTH := preload("res://assets/environment/depot/crate_real_depth.png")
+const DRAIN_TEX := preload("res://assets/environment/depot/drain_real.png")
+const ARROW_TEX := preload("res://assets/environment/depot/arrow_real.png")
 const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
@@ -80,7 +79,19 @@ var pause_btn: Button
 var target_icon: TextureRect
 var gem_icon: TextureRect
 
+func _load_depot() -> void:
+	for k in CONTAINER_KEYS:
+		_c_cap_a[k] = load(DEPOT + "c_%s_cap_a.png" % k)
+		_c_cap_b[k] = load(DEPOT + "c_%s_cap_b.png" % k)
+		_c_cap_l[k] = load(DEPOT + "c_%s_cap_l.png" % k)
+		_c_cap_r[k] = load(DEPOT + "c_%s_cap_r.png" % k)
+		_c_mid[k] = load(DEPOT + "c_%s_mid.png" % k)
+		_c_mid_h[k] = load(DEPOT + "c_%s_mid_h.png" % k)
+		_c_depth[k] = load(DEPOT + "c_%s_depth.png" % k)
+		_c_depth_h[k] = load(DEPOT + "c_%s_depth_h.png" % k)
+
 func _ready() -> void:
+	_load_depot()
 	rng.seed = 9000 + GameState.current_level
 	_load_level(GameState.current_level)
 	_build_grid()
@@ -747,15 +758,15 @@ func _draw() -> void:
 	var sc := maxf(scale.x, 0.001)
 	var view_world := Rect2((safe.position - position) / sc, safe.size / sc)
 	var out_rect := view_world.grow(64)
-	var ox := floorf(out_rect.position.x / 64.0) * 64.0
+	var ox := floorf(out_rect.position.x / FLOOR_TILE) * FLOOR_TILE
 	while ox < out_rect.end.x:
-		var oy := floorf(out_rect.position.y / 64.0) * 64.0
+		var oy := floorf(out_rect.position.y / FLOOR_TILE) * FLOOR_TILE
 		while oy < out_rect.end.y:
-			draw_texture_rect(FLOOR, Rect2(ox, oy, 64, 64), false, Color(0.34, 0.36, 0.42))
-			oy += 64.0
-		ox += 64.0
-	var tw := 64.0
-	var th := 64.0
+			draw_texture_rect(FLOOR, Rect2(ox, oy, FLOOR_TILE, FLOOR_TILE), false, Color(0.36, 0.38, 0.44))
+			oy += FLOOR_TILE
+		ox += FLOOR_TILE
+	var tw := FLOOR_TILE
+	var th := FLOOR_TILE
 	var x := ORIGIN.x
 	while x < map_rect.end.x:
 		var y := ORIGIN.y
@@ -770,10 +781,10 @@ func _draw() -> void:
 	# Painted floor details, deterministic per level.
 	for d in floor_details:
 		if d.kind == "drain":
-			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(24, 18), Vector2(48, 36)), false, Color(1, 1, 1, 0.85))
+			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(20, 20), Vector2(40, 40)), false)
 		else:
 			draw_set_transform(d.pos, d.rot, Vector2.ONE)
-			draw_texture_rect(ARROW_TEX, Rect2(-19, -19, 38, 38), false, Color(1, 1, 1, 0.42))
+			draw_texture_rect(ARROW_TEX, Rect2(-23, -17, 46, 35), false)
 			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 	# Shadows.
 	for r in shadow_rects:
@@ -790,9 +801,7 @@ func _draw() -> void:
 	# Crates.
 	for i in range(crate_rects.size()):
 		var c: Array = data.crates[i]
-		var tex: Texture2D = CRATE_TEX.get(c[4], CRATE_TEX.gray)
-		var r: Rect2 = crate_rects[i]
-		draw_texture_rect(tex, r, false)
+		_draw_crate(crate_rects[i])
 	# Gems.
 	for gm in gems:
 		var bob := sin(gm.t * 6) * 3
@@ -859,55 +868,53 @@ func _draw() -> void:
 			draw_circle(g.pos + Vector2(0, -34), 4, Color("ffd23f"))
 
 func _draw_wall(r: Rect2) -> void:
-	# Shipping-container wall run: ribbed lid tiled along the long axis, hazard
-	# end caps, and a drop shadow so the block reads as a solid waist-high object.
+	# 9-slice the real container art: fixed hazard caps + tiled ribbed middle,
+	# then the original depth face along the bottom edge.
 	var key: String = CONTAINER_KEYS[int(abs(r.position.x * 7 + r.position.y * 13)) % CONTAINER_KEYS.size()]
-	var lid: Texture2D = CONTAINER_TEX[key]
-	var cap: Texture2D = CONTAINER_END[key]
-	var horizontal := r.size.x >= r.size.y
+	var horizontal := r.size.x > r.size.y
 	var thick := minf(r.size.x, r.size.y)
-	var long := maxf(r.size.x, r.size.y)
-	# Ground shadow.
-	draw_rect(Rect2(r.position + Vector2(5, 8), r.size), Color(0, 0, 0, 0.32))
-	var cap_w := minf(thick * 0.42, 26.0)
+	var sc := thick / SRC_THICK
+	var cap_a := 21.0 * sc
+	var cap_b := 22.0 * sc
+	var dt: Texture2D = _c_depth_h[key] if horizontal else _c_depth[key]
+	var depth_h := float(dt.get_size().y) * sc
+	# Cast shadow (down-right, like the concept).
+	draw_rect(Rect2(r.position + Vector2(6, 9) * maxf(sc, 0.5), r.size + Vector2(2, depth_h)), Color(0, 0, 0, 0.30))
+	# Depth face first so the lid overlaps it cleanly. Corrugation keeps its
+	# original pitch instead of being squeezed once per container-width.
+	var unit_d := maxf(float(dt.get_size().x) * sc, 8.0)
+	var dn := maxi(1, int(ceil(r.size.x / unit_d)))
+	var dw := r.size.x / float(dn)
+	for i in range(dn):
+		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y), Vector2(dw, depth_h)), false)
 	if horizontal:
-		var body := Rect2(r.position + Vector2(cap_w, 0), Vector2(r.size.x - cap_w * 2, r.size.y))
-		_tile_container(lid, body, true)
-		draw_texture_rect(cap, Rect2(r.position, Vector2(cap_w, r.size.y)), false)
-		draw_texture_rect(cap, Rect2(Vector2(r.end.x - cap_w, r.position.y), Vector2(cap_w, r.size.y)), false)
+		var mid_w := r.size.x - cap_a - cap_b
+		draw_texture_rect(_c_cap_l[key], Rect2(r.position, Vector2(cap_a, thick)), false)
+		draw_texture_rect(_c_cap_r[key], Rect2(Vector2(r.end.x - cap_b, r.position.y), Vector2(cap_b, thick)), false)
+		if mid_w > 1.0:
+			var tex: Texture2D = _c_mid_h[key]
+			var unit := float(tex.get_size().x) * sc
+			var n := maxi(1, int(ceil(mid_w / maxf(unit, 1.0))))
+			var seg := mid_w / float(n)
+			for i in range(n):
+				draw_texture_rect(tex, Rect2(Vector2(r.position.x + cap_a + i * seg, r.position.y), Vector2(seg, thick)), false)
 	else:
-		var body := Rect2(r.position + Vector2(0, cap_w), Vector2(r.size.x, r.size.y - cap_w * 2))
-		_tile_container(lid, body, false)
-		# End caps rotated to face along Y.
-		draw_set_transform(Vector2(r.position.x, r.position.y), PI / 2.0, Vector2.ONE)
-		draw_texture_rect(cap, Rect2(Vector2(0, -r.size.x), Vector2(cap_w, r.size.x)), false)
-		draw_set_transform(Vector2(r.position.x, r.end.y - cap_w), PI / 2.0, Vector2.ONE)
-		draw_texture_rect(cap, Rect2(Vector2(0, -r.size.x), Vector2(cap_w, r.size.x)), false)
-		draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	# Dark outline last so runs read as discrete objects.
-	draw_rect(r, Color("14181f"), false, 3.0)
+		var mid_h := r.size.y - cap_a - cap_b
+		draw_texture_rect(_c_cap_a[key], Rect2(r.position, Vector2(thick, cap_a)), false)
+		draw_texture_rect(_c_cap_b[key], Rect2(Vector2(r.position.x, r.end.y - cap_b), Vector2(thick, cap_b)), false)
+		if mid_h > 1.0:
+			var tex: Texture2D = _c_mid[key]
+			var unit := float(tex.get_size().y) * sc
+			var n := maxi(1, int(ceil(mid_h / maxf(unit, 1.0))))
+			var seg := mid_h / float(n)
+			for i in range(n):
+				draw_texture_rect(tex, Rect2(Vector2(r.position.x, r.position.y + cap_a + i * seg), Vector2(thick, seg)), false)
 
-func _tile_container(tex: Texture2D, area: Rect2, horizontal: bool) -> void:
-	if area.size.x <= 1 or area.size.y <= 1:
-		draw_texture_rect(tex, area, false)
-		return
-	# Draw the lid in fixed-size world segments so ribs never stretch.
-	var seg := 64.0
-	if horizontal:
-		var n := maxi(1, int(ceil(area.size.x / seg)))
-		var w := area.size.x / float(n)
-		for i in range(n):
-			var dst := Rect2(area.position + Vector2(i * w, 0), Vector2(w, area.size.y))
-			draw_texture_rect(tex, dst, false)
-	else:
-		var n := maxi(1, int(ceil(area.size.y / seg)))
-		var h := area.size.y / float(n)
-		for i in range(n):
-			# Rotate the horizontal lid art to run vertically.
-			var p := area.position + Vector2(0, i * h)
-			draw_set_transform(p + Vector2(area.size.x, 0), PI / 2.0, Vector2.ONE)
-			draw_texture_rect(tex, Rect2(Vector2.ZERO, Vector2(h, area.size.x)), false)
-			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+func _draw_crate(r: Rect2) -> void:
+	var dh := r.size.y * 0.24
+	draw_rect(Rect2(r.position + Vector2(5, 8), r.size + Vector2(0, dh)), Color(0, 0, 0, 0.30))
+	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y), Vector2(r.size.x, dh)), false)
+	draw_texture_rect(CRATE_TOP, r, false)
 
 func _draw_cone(g: Dictionary) -> void:
 	var pts := PackedVector2Array([g.pos])
