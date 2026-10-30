@@ -1,0 +1,11 @@
+.godot/
+.ci/
+.apex-backup/
+build/
+*.apk
+*.aab
+*.keystore
+*.jks
+__pycache__/
+*.pyc
+.DS_Store
