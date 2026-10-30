@@ -25,15 +25,43 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      # Ubuntu runners do not guarantee sdkmanager is on PATH.
+      # This action installs Android command-line tools, accepts SDK licenses,
+      # installs the requested SDK packages, and adds sdkmanager/adb to PATH.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: "12266719"
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
+          packages: >-
+            platform-tools
+            platforms;android-35
+            platforms;android-36
+            build-tools;35.0.1
+            build-tools;36.0.0
+
+      - name: Verify Android SDK tools
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          command -v adb
+          sdkmanager --version
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+
       - name: Cache Godot export templates
         uses: actions/cache@v4
         with:
           path: ~/.local/share/godot/export_templates
           key: godot-templates-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}
+
       - name: Install Godot + Android templates
         run: |
           set -euo pipefail
@@ -48,31 +76,37 @@ jobs:
             unzip -q -o .ci/templates.tpz -d "$TPL"
             if [ -d "$TPL/templates" ]; then mv "$TPL/templates"/* "$TPL"/; rmdir "$TPL/templates"; fi
           fi
+
       - name: Import + headless smoke tests
         run: |
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
           "$GODOT" --headless --path . --editor --quit
           "$GODOT" --headless --path . --script tests/smoke_test.gd
-      - name: Install Android SDK packages
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;35.0.1" "build-tools;36.0.0"
+
       - name: Export debug APK
         run: |
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
-          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.android/sdk}}"
+          if [ ! -d "$ANDROID_SDK" ]; then
+            echo "Android SDK directory not found: $ANDROID_SDK" >&2
+            exit 1
+          fi
+          export ANDROID_HOME="$ANDROID_SDK"
+          export ANDROID_SDK_ROOT="$ANDROID_SDK"
+          mkdir -p "$HOME/.android" "$HOME/.config/godot" build/android
           DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
           if [ ! -f "$DEBUG_KEYSTORE" ]; then
             keytool -genkeypair -keystore "$DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
           fi
-          printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_HOME" "$ANDROID_HOME" "$DEBUG_KEYSTORE" > "$HOME/.config/godot/editor_settings-4.7.tres"
+          printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_HOME" "$ANDROID_SDK" "$DEBUG_KEYSTORE" > "$HOME/.config/godot/editor_settings-4.7.tres"
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$DEBUG_KEYSTORE"
           export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
           export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
           "$GODOT" --headless --path . --export-debug "Android" build/android/apex-assassin-debug.apk
+          test -f build/android/apex-assassin-debug.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: apex-assassin-debug-${{ github.sha }}
