@@ -131,13 +131,15 @@ func _run() -> void:
 	level._path_to(target)
 	check(level.player_path.size() > 0, "path found")
 	level.player_pos = level.guards[0].pos + Vector2(20, 0)
+	level.guards[0].diamond_carrier = true
+	var money_before_kill: int = gs.cash
+	var diamonds_before_kill: int = gs.gems
 	level.attack_cd = 0.0
 	level._auto_attack()
 	check(level.kills == 1, "auto blade kill")
-	check(level.gems.size() >= 1, "gem dropped")
-	level.player_pos = level.gems[0].pos
-	level._update_gems(0.1)
-	check(level.gems_collected >= 1, "gem collected")
+	check(gs.cash > money_before_kill and level.money_collected > 0, "kill awards and shows money")
+	check(gs.gems == diamonds_before_kill + 1 and level.gems_collected == 1, "carrier awards one diamond")
+	check(level.loot_particles.size() >= 5 and level.gem_label.text == str(gs.gems), "money and diamond effects and total are visible")
 	for i in range(level.guards.size()):
 		if level.guards[i].alive:
 			level._kill_guard(i)
@@ -180,7 +182,7 @@ func _run() -> void:
 		lv2.guards[index].alive = other_lives[index - 1]
 	check(lv2.kills == kills_before + 1, "backstab kills unaware guard")
 	check(lv2.backstabs == 1, "backstab counted")
-	check(lv2.gems.size() >= 8, "backstab drops bonus gems")
+	check(lv2.money_collected >= lv2.MONEY_STANDARD + lv2.MONEY_SILENT_BONUS, "backstab awards bonus money")
 	# Gunfire informs only guards within hearing range.
 	var spotter: Dictionary = {}
 	for g in lv2.guards:

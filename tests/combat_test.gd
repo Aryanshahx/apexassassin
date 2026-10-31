@@ -149,7 +149,9 @@ func _run() -> void:
 	lv.attack_cd = 0.0
 	lv.finished = false
 	lv.total = 99
+	var hp_before_contact: float = lv.player_hp
 	lv._physics_process(1.0 / 60.0)
-	check(not spotter.alive and lv.bullets.size() == 1, "light contact fires before point-blank auto-melee in the live physics loop")
+	# A faster point-blank bullet may already hit and be removed this frame.
+	check(not spotter.alive and (lv.bullets.size() == 1 or lv.player_hp < hp_before_contact), "light contact fires before point-blank auto-melee in the live physics loop")
 	print("COMBAT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

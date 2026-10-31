@@ -3,7 +3,7 @@ extends Node2D
 ## Tap floor to move, tap a guard to hunt. Auto-blade in range. Guards patrol,
 ## investigate noise, chase on sight, fire line-of-sight bullets, and search.
 ## Cover blocks sight/bullets; flashlight contact triggers immediate fire.
-## Nearby guards hear gunfire and investigate. Kills drop gems.
+## Nearby guards hear gunfire. Kills award money and rare diamonds.
 
 const CELL := 32.0
 ## Increase each existing obstacle footprint by 20%, about its own centre.
@@ -42,6 +42,7 @@ const DRAIN_TEX := preload("res://assets/environment/depot/drain_real.png")
 const ARROW_TEX := preload("res://assets/environment/depot/arrow_real.png")
 const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
+const MONEY_TEX := preload("res://assets/ui/cash.png")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
@@ -55,6 +56,14 @@ const PLAYER_SCALE := 1.40
 const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
 const BULLET_DAMAGE := 100.0 # fallback for legacy/test bullets
+const BULLET_SPEED := 660.0 # faster than v0.6.2's 420 world units/second
+const ALERT_SPEED_MULTIPLIER := 1.8
+const INVESTIGATE_SPEED_MULTIPLIER := 1.45
+const ALERT_STOP_DISTANCE := 128.0
+const DIAMOND_LEVEL_CHANCE := 0.60 # at most one carrier per level
+const MONEY_STANDARD := 10
+const MONEY_HEAVY := 20
+const MONEY_SILENT_BONUS := 5
 const GUNSHOT_HEARING_RADIUS := 480.0
 const HEALTH_BAR_SIZE := Vector2(64, 8)
 const ENEMY_PROFILES := {
@@ -89,16 +98,23 @@ var player_rig: Node2D
 var guards: Array[Dictionary] = []
 var bullets: Array[Dictionary] = []
 var effects: Array[Dictionary] = []
-var gems: Array[Dictionary] = []
+var loot_particles: Array[Dictionary] = []
 var kills := 0
 var total := 0
-var gems_collected := 0
+var gems_collected := 0 # legacy name; these are diamonds
+var money_collected := 0
+var victory_delay := -1.0
 var damage_taken := 0
 var was_alerted := false
 var finished := false
 var elapsed := 0.0
 var counter: Label
 var gem_label: Label
+var money_label: Label
+var money_caption: Label
+var gem_caption: Label
+var money_panel: Panel
+var gem_panel: Panel
 var status_label: Label
 var overlay: Control
 var hud: Control
@@ -126,6 +142,7 @@ var backstabs := 0
 var pause_btn: Button
 var target_icon: TextureRect
 var gem_icon: TextureRect
+var money_icon: TextureRect
 
 func _load_depot() -> void:
 	var shared := GameState.depot_textures()
@@ -212,15 +229,35 @@ func _apply_shake(delta: float) -> void:
 		position = base_position
 
 func _layout_hud() -> void:
-	var safe := ScreenUtil.safe_rect(get_viewport())
+	_layout_hud_for_rect(ScreenUtil.safe_rect(get_viewport()))
+
+func _layout_hud_for_rect(safe: Rect2) -> void:
+	var money_x := safe.position.x + safe.size.x * 0.314
+	var diamond_x := safe.position.x + safe.size.x * 0.570
+	if money_panel:
+		money_panel.position = Vector2(money_x - 7, safe.position.y + 18)
+		money_panel.size = Vector2(maxf(1.0, diamond_x - money_x - 7), 62)
+	if gem_panel:
+		gem_panel.position = Vector2(diamond_x - 7, safe.position.y + 18)
+		gem_panel.size = Vector2(maxf(1.0, safe.end.x - 92 - (diamond_x - 7)), 62)
 	if target_icon:
-		target_icon.position = safe.position + Vector2(28, 24)
+		target_icon.position = safe.position + Vector2(24, 26)
 	if counter:
-		counter.position = safe.position + Vector2(100, 20)
+		counter.position = safe.position + Vector2(88, 25)
+	if money_icon:
+		money_icon.position = Vector2(money_x, safe.position.y + 35)
+	if money_caption:
+		money_caption.position = Vector2(money_x + 47, safe.position.y + 20)
+	if money_label:
+		money_label.position = Vector2(money_x + 47, safe.position.y + 40)
+		money_label.size.x = maxf(50.0, diamond_x - money_x - 55.0)
 	if gem_icon:
-		gem_icon.position = safe.position + Vector2(250, 32)
+		gem_icon.position = Vector2(diamond_x, safe.position.y + 35)
+	if gem_caption:
+		gem_caption.position = Vector2(diamond_x + 48, safe.position.y + 20)
 	if gem_label:
-		gem_label.position = safe.position + Vector2(300, 30)
+		gem_label.position = Vector2(diamond_x + 48, safe.position.y + 40)
+		gem_label.size.x = maxf(50.0, safe.end.x - 92.0 - (diamond_x + 48.0))
 	if status_label:
 		status_label.position = safe.position + Vector2(30, 96)
 	if pause_btn:
@@ -228,6 +265,7 @@ func _layout_hud() -> void:
 	if hint:
 		hint.position = Vector2(safe.position.x, safe.end.y - 50)
 		hint.size = Vector2(safe.size.x, 40)
+	_refresh_wallet()
 
 func _load_level(n: int) -> void:
 	data = GameState.level_data(n)
@@ -271,7 +309,7 @@ func _configure_grid(target: AStarGrid2D, diagonals: int) -> void:
 	target.update()
 
 func _build_grid() -> void:
-	_configure_grid(grid, AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES)
+	_configure_grid(grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
 	# Four-way guard routes stay inside the conservative body-clearance grid.
 	_configure_grid(guard_grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
 	for y in range(int(data.height)):
@@ -403,7 +441,17 @@ func _build_player() -> void:
 	player_rig.rotation = player_face + PI / 2
 	add_child(player_rig)
 
+func _diamond_carrier_for_level(number: int, count: int) -> int:
+	# Rare: only some levels have a carrier, and never more than one.
+	# Separate seeded RNG leaves patrol/alert randomness unchanged.
+	if count <= 0:
+		return -1
+	var loot_rng := RandomNumberGenerator.new()
+	loot_rng.seed = 630000 + number * 31
+	return loot_rng.randi_range(0, count - 1) if loot_rng.randf() < DIAMOND_LEVEL_CHANCE else -1
+
 func _build_guards() -> void:
+	var diamond_carrier := _diamond_carrier_for_level(int(data.id), data.guards.size())
 	for index in range(data.guards.size()):
 		var g: Dictionary = data.guards[index]
 		var route := PackedVector2Array()
@@ -431,7 +479,7 @@ func _build_guards() -> void:
 		mark.visible = false
 		add_child(mark)
 		guards.append({
-			"id": index, "variant": variant, "shot_damage": float(profile.damage),
+			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage),
 			"shot_interval": float(profile.interval), "mark": mark,
 			"pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
@@ -444,6 +492,7 @@ func _build_guards() -> void:
 			"blocked_t": 0.0, "avoid_side": 1.0, "avoid_time": 0.0,
 			"avoid_direction": Vector2.ZERO, "walk_hold": 0.0, "sees_player": false,
 			"travel_dir": Vector2.ZERO, "traffic_wait": false, "traffic_stall": 0.0,
+			"alert_repath": 0.0,
 			"yield_partner": -1, "yield_forward": Vector2.ZERO,
 			"yield_side": Vector2.ZERO, "yield_left": 0.0,
 			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
@@ -475,18 +524,47 @@ func _build_hud() -> void:
 	counter.position = Vector2(100, 20)
 	hud.add_child(counter)
 	_update_counter()
+	# Soft dark pills keep the two totals legible over bright floor and beams.
+	var wallet_style := StyleBoxFlat.new()
+	wallet_style.bg_color = Color(0.04, 0.07, 0.09, 0.72)
+	wallet_style.set_corner_radius_all(10)
+	money_panel = Panel.new()
+	money_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	money_panel.add_theme_stylebox_override("panel", wallet_style)
+	hud.add_child(money_panel)
+	gem_panel = Panel.new()
+	gem_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gem_panel.add_theme_stylebox_override("panel", wallet_style)
+	hud.add_child(gem_panel)
+	var mi := TextureRect.new()
+	money_icon = mi
+	mi.texture = MONEY_TEX
+	mi.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mi.size = Vector2(40, 40)
+	mi.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(mi)
+	money_caption = _label(19, 2)
+	money_caption.text = "MONEY"
+	hud.add_child(money_caption)
+	money_label = _label(32, 5)
+	money_label.size = Vector2(120, 38)
+	money_label.clip_text = true
+	hud.add_child(money_label)
 	var gi := TextureRect.new()
 	gem_icon = gi
 	gi.texture = GEM_TEX
 	gi.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	gi.position = Vector2(250, 32)
-	gi.size = Vector2(44, 44)
+	gi.size = Vector2(40, 40)
 	gi.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(gi)
-	gem_label = _label(36, 6)
-	gem_label.position = Vector2(300, 30)
-	gem_label.text = "0"
+	gem_caption = _label(19, 2)
+	gem_caption.text = "DIAMONDS"
+	hud.add_child(gem_caption)
+	gem_label = _label(32, 5)
+	gem_label.size = Vector2(120, 38)
+	gem_label.clip_text = true
 	hud.add_child(gem_label)
+	_refresh_wallet()
 	status_label = _label(24, 4)
 	status_label.position = Vector2(30, 96)
 	status_label.add_theme_color_override("font_color", Color("7CFC7C"))
@@ -571,6 +649,20 @@ func _label(size: int, outline: int) -> Label:
 func _update_counter() -> void:
 	counter.text = "%d/%d" % [kills, total]
 
+func _fit_wallet_label(label: Label, amount: int) -> void:
+	label.text = str(amount)
+	var font: Font = label.get_theme_font("font")
+	var font_size := 32
+	while font_size > 14 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > label.size.x - 2.0:
+		font_size -= 1
+	label.add_theme_font_size_override("font_size", font_size)
+
+func _refresh_wallet() -> void:
+	if money_label:
+		_fit_wallet_label(money_label, GameState.cash)
+	if gem_label:
+		_fit_wallet_label(gem_label, GameState.gems)
+
 func _physics_process(delta: float) -> void:
 	if finished or overlay != null:
 		return
@@ -602,11 +694,18 @@ func _physics_process(delta: float) -> void:
 	_update_guards(delta)
 	_auto_attack()
 	_update_bullets(delta)
-	_update_gems(delta)
+	_update_loot_particles(delta)
 	_update_effects(delta)
 	_update_stealth_hud()
 	if kills >= total and not finished:
-		_win()
+		# Show the final money/diamond pickup before opening the win panel.
+		if victory_delay < 0.0:
+			victory_delay = 0.8
+			bullets.clear()
+		else:
+			victory_delay -= delta
+			if victory_delay <= 0.0:
+				_win()
 	queue_redraw()
 
 func _update_hunt() -> void:
@@ -629,13 +728,17 @@ func _move_player(delta: float) -> void:
 		var d := player_pos.distance_to(target)
 		if d <= 0.001:
 			player_path.remove_at(0)
-		elif d <= budget:
-			player_pos = target
-			player_path.remove_at(0)
-			budget -= d
 		else:
-			player_pos += (target - player_pos) / d * budget
-			budget = 0.0
+			var step := minf(d, budget)
+			var next := player_pos + (target - player_pos) / d * step
+			# Never walk through solid cover even if a stale path is supplied.
+			if not _los(player_pos, next):
+				player_path.clear()
+				break
+			player_pos = next
+			budget -= step
+			if d <= step + 0.001:
+				player_path.remove_at(0)
 	var displacement := player_pos - before
 	var moved := displacement.length_squared() > 0.0001
 	if moved:
@@ -651,42 +754,109 @@ func _move_player(delta: float) -> void:
 	else:
 		player_rig.modulate = Color.WHITE
 
+func _visible_player_anchors(point: Vector2, only_region: int = -1) -> Array[Vector2i]:
+	# A rectangular obstacle can clip a corner of a grid cell even when that
+	# cell's centre is walkable. Connect the real position only to centres that
+	# are actually visible, rather than drawing an impossible first segment.
+	var nearby: Array[Vector2i] = []
+	var cell := _to_cell(point)
+	for radius in range(0, 4):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if maxi(absi(dx), absi(dy)) != radius:
+					continue
+				var candidate := cell + Vector2i(dx, dy)
+				if not grid.is_in_boundsv(candidate) or grid.is_point_solid(candidate):
+					continue
+				if only_region >= 0 and int(region_by_cell.get(candidate, -1)) != only_region:
+					continue
+				var centre := _cell_center(candidate.x, candidate.y)
+				if _los(point, centre):
+					nearby.append(candidate)
+		if nearby.size() >= 3:
+			break
+	nearby.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _cell_center(a.x, a.y).distance_squared_to(point) < _cell_center(b.x, b.y).distance_squared_to(point))
+	if nearby.size() > 3:
+		nearby.resize(3)
+	return nearby
+
+func _simplify_player_route(points: PackedVector2Array) -> PackedVector2Array:
+	var result := PackedVector2Array()
+	var start := player_pos
+	var index := 0
+	while index < points.size():
+		var last_visible := index
+		for j in range(index + 1, points.size()):
+			if not _los(start, points[j]):
+				break
+			last_visible = j
+		var next: Vector2 = points[last_visible]
+		if start.distance_squared_to(next) > 0.01:
+			result.append(next)
+		start = next
+		index = last_visible + 1
+	return result
+
 func _path_to(target: Vector2) -> void:
-	var from := _to_cell(player_pos)
-	var requested := _to_cell(target)
-	requested.x = clampi(requested.x, 0, int(data.width) - 1)
-	requested.y = clampi(requested.y, 0, int(data.height) - 1)
-	if not grid.is_in_boundsv(from) or grid.is_point_solid(from):
-		player_path.clear()
-		return
-	var rid := int(region_by_cell.get(from, -1))
-	if rid < 0:
-		player_path.clear()
-		return
-	var destination := requested
-	if int(region_by_cell.get(requested, -1)) != rid:
-		# Nearest reachable cell to a tap on cover/outside/disconnected space.
-		# This avoids AStar's expensive partial search toward a solid end node.
-		var closest := INF
-		for c in walkable_regions[rid]:
-			var dist: float = _cell_center(c.x, c.y).distance_squared_to(target)
-			if dist < closest:
-				closest = dist
-				destination = c
-	var route: PackedVector2Array = grid.get_point_path(from, destination)
-	if route.is_empty():
-		player_path.clear()
-		return
-	if route.size() == 1:
-		route.clear()
-	elif _los(player_pos, route[1]):
-		route.remove_at(0)
+	player_path.clear()
 	var map_rect := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
-	if destination == requested and map_rect.has_point(target) and not _solid(target):
-		var last: Vector2 = route[route.size() - 1] if not route.is_empty() else player_pos
-		if last.distance_to(target) > 0.5 and _los(last, target):
-			route.append(target)
-	player_path = route
+	var target_is_floor := map_rect.has_point(target) and not _solid(target)
+	if _solid(player_pos):
+		return
+	if target_is_floor and _los(player_pos, target):
+		if player_pos.distance_to(target) > 0.5:
+			player_path.append(target)
+		return
+	var starts := _visible_player_anchors(player_pos)
+	var best_route := PackedVector2Array()
+	var best_distance := INF
+	var region_ends := {}
+	for first in starts:
+		var rid := int(region_by_cell.get(first, -1))
+		if rid < 0:
+			continue
+		if not region_ends.has(rid):
+			var ends: Array[Vector2i] = []
+			if target_is_floor:
+				ends = _visible_player_anchors(target, rid)
+			if ends.is_empty():
+				# A tap on cover/outside/island ends at the nearest reachable
+				# grid point, not at a fictional point behind the obstacle.
+				var nearest := INF
+				var nearest_cell := first
+				for c in walkable_regions[rid]:
+					var dist: float = _cell_center(c.x, c.y).distance_squared_to(target)
+					if dist < nearest:
+						nearest = dist
+						nearest_cell = c
+				ends.append(nearest_cell)
+			region_ends[rid] = ends
+		for last in region_ends[rid]:
+			var route: PackedVector2Array = grid.get_point_path(first, last)
+			if route.is_empty():
+				continue
+			var previous := player_pos
+			var cost := 0.0
+			var legal := true
+			for waypoint in route:
+				if not _los(previous, waypoint):
+					legal = false
+					break
+				cost += previous.distance_to(waypoint)
+				previous = waypoint
+			if not legal:
+				continue
+			if target_is_floor and _los(previous, target):
+				cost += previous.distance_to(target)
+				route.append(target)
+			else:
+				# Prefer approaching a blocked tap as closely as possible.
+				cost += previous.distance_to(target) * 4.0
+			if cost < best_distance:
+				best_distance = cost
+				best_route = route
+	player_path = _simplify_player_route(best_route)
 
 func _route_visual_points() -> PackedVector2Array:
 	# This is the actual remaining AStar route, not a straight-line guess.
@@ -785,6 +955,8 @@ func _auto_attack() -> void:
 
 func _kill_guard(index: int, silent := false) -> void:
 	var g: Dictionary = guards[index]
+	if not g.alive:
+		return
 	g.alive = false
 	g.state = GState.DEAD
 	_sync_guard_marker(g)
@@ -792,17 +964,27 @@ func _kill_guard(index: int, silent := false) -> void:
 	kills += 1
 	_update_counter()
 	effects.append({"pos": g.pos, "t": 0.4, "max": 0.4, "kind": "poof"})
-	# Hunter-Assassin style takedown feedback: shock ring + gem fountain + counter pop.
+	# Credit and save immediately; the particles below are visual only, so a
+	# level clear/retry cannot double-award or lose the last enemy's loot.
 	effects.append({"pos": g.pos, "t": 0.45, "max": 0.45, "kind": "killring"})
-	var drop := (12 if g.elite else 8) if silent else (8 if g.elite else 5)
-	effects.append({"pos": g.pos + Vector2(0, -18), "t": 0.9, "max": 0.9, "kind": "gemtext", "amount": drop})
+	var money := MONEY_HEAVY if g.elite else MONEY_STANDARD
+	if silent:
+		money += MONEY_SILENT_BONUS
+	var diamonds := 1 if bool(g.get("diamond_carrier", false)) else 0
+	money_collected += money
+	gems_collected += diamonds
+	GameState.add_combat_loot(money, diamonds)
+	_refresh_wallet()
+	effects.append({"pos": g.pos + Vector2(0, -18), "t": 1.1, "max": 1.1, "kind": "moneytext", "amount": money})
+	if diamonds > 0:
+		effects.append({"pos": g.pos + Vector2(0, -56), "t": 1.1, "max": 1.1, "kind": "diamondtext", "amount": diamonds})
 	shake = maxf(shake, 5.0)
 	hit_stop = 0.055
-	for i in range(drop):
-		var a := TAU * float(i) / float(drop) + rng.randf_range(-0.3, 0.3)
-		var sp := rng.randf_range(90, 190)
-		gems.append({"pos": g.pos + Vector2.from_angle(a) * 6.0,
-			"vel": Vector2.from_angle(a) * sp, "t": 0.0})
+	for i in range(4):
+		var angle := TAU * float(i) / 4.0 + rng.randf_range(-0.3, 0.3)
+		loot_particles.append({"pos": g.pos, "vel": Vector2.from_angle(angle) * rng.randf_range(80, 135), "t": 0.0, "kind": "money"})
+	if diamonds > 0:
+		loot_particles.append({"pos": g.pos, "vel": Vector2(0, -140), "t": 0.0, "kind": "diamond"})
 	# Nearby guards hear the takedown unless deep in shadow.
 	var noise := 0.0 if silent else (70.0 if in_shadow(player_pos) else 130.0)
 	for other in guards:
@@ -855,6 +1037,8 @@ func _update_guards(delta: float) -> void:
 			if first_contact:
 				g.shoot = 0.0
 				g.burst = 0
+				g.path.clear()
+				g.alert_repath = 0.0
 			if g.state != GState.ALERT:
 				Sfx.play("alert")
 				was_alerted = true
@@ -868,7 +1052,7 @@ func _update_guards(delta: float) -> void:
 			GState.PATROL:
 				_patrol(g, delta)
 			GState.INVESTIGATE:
-				_seek(g, g.last_seen, delta, g.speed * 1.25)
+				_seek(g, g.last_seen, delta, g.speed * INVESTIGATE_SPEED_MULTIPLIER)
 				if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
 					# If other guards occupy the target, search from here rather
 					# than endlessly squeezing together and jittering.
@@ -887,8 +1071,18 @@ func _update_guards(delta: float) -> void:
 					if g.shoot <= 0:
 						_fire(g)
 						g.shoot = float(g.shot_interval)
+					# Pursue visibly while alerted, but keep a little room to aim.
+					# The first shot above remains immediate on flashlight contact.
+					if g.pos.distance_to(player_pos) > ALERT_STOP_DISTANCE:
+						g.alert_repath -= delta
+						if g.alert_repath <= 0.0:
+							g.path.clear()
+							g.alert_repath = 0.35
+						_seek(g, player_pos, delta, g.speed * ALERT_SPEED_MULTIPLIER)
+						var aim_after_move: float = (player_pos - g.pos).angle()
+						g.face = lerp_angle(g.face, aim_after_move, minf(1.0, delta * 10))
 				else:
-					_seek(g, g.last_seen, delta, g.speed * 1.5)
+					_seek(g, g.last_seen, delta, g.speed * ALERT_SPEED_MULTIPLIER)
 					if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
 						g.state = GState.SEARCH
 						g.search_t = 3.0
@@ -916,7 +1110,7 @@ func _fire(g: Dictionary) -> void:
 	var dir: Vector2 = toward_player.normalized() if toward_player.length_squared() > 0.001 else Vector2.from_angle(g.face)
 	# Never place a point-blank muzzle beyond the player.
 	var muzzle_offset := minf(24.0, maxf(0.0, toward_player.length() - PLAYER_HIT_RADIUS * 0.5))
-	bullets.append({"pos": g.pos + dir * muzzle_offset, "vel": dir * 420.0,
+	bullets.append({"pos": g.pos + dir * muzzle_offset, "vel": dir * BULLET_SPEED,
 		"life": 1.6, "damage": float(g.get("shot_damage", BULLET_DAMAGE))})
 	# The muzzle flash is attached to the moving gun, not floating in the world.
 	g.rig.play_anim("shoot", true)
@@ -1323,20 +1517,16 @@ func _segment_circle(a: Vector2, b: Vector2, c: Vector2, r: float) -> bool:
 	var t := clampf((c - a).dot(ab) / maxf(ab.length_squared(), 0.001), 0.0, 1.0)
 	return (a + ab * t).distance_to(c) <= r
 
-func _update_gems(delta: float) -> void:
-	for i in range(gems.size() - 1, -1, -1):
-		var gm: Dictionary = gems[i]
-		gm.t += delta
-		gm.pos += gm.vel * delta
-		gm.vel = gm.vel.lerp(Vector2.ZERO, delta * 6)
-		var d: float = gm.pos.distance_to(player_pos)
-		if d < 130:
-			gm.pos = gm.pos.lerp(player_pos, delta * 9)
-		if d < 22:
-			gems_collected += 1
-			gem_label.text = str(gems_collected)
-			Sfx.play("coin")
-			gems.remove_at(i)
+func _update_loot_particles(delta: float) -> void:
+	for i in range(loot_particles.size() - 1, -1, -1):
+		var part: Dictionary = loot_particles[i]
+		part.t += delta
+		part.pos += part.vel * delta
+		part.vel = part.vel.lerp(Vector2.ZERO, minf(1.0, delta * 6))
+		if part.t > 0.18 and part.pos.distance_to(player_pos) < 150:
+			part.pos = part.pos.lerp(player_pos, minf(1.0, delta * 8))
+		if part.t >= 1.0 or (part.t > 0.18 and part.pos.distance_to(player_pos) < 18):
+			loot_particles.remove_at(i)
 
 func _update_effects(delta: float) -> void:
 	for i in range(effects.size() - 1, -1, -1):
@@ -1415,9 +1605,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_target = local
 			drag_dirty = true
 	elif release:
-		if dragging and hunt_target < 0:
-			drag_target = local
-			_path_to(local)
+		# The camera may have moved between finger-down and finger-up.
+		# Keep the last actual drag target in world space instead of silently
+		# moving the destination underneath a stationary finger on release.
+		if dragging and hunt_target < 0 and drag_dirty:
+			_path_to(drag_target)
 		dragging = false
 		drag_dirty = false
 		drag_repath = 0.0
@@ -1434,10 +1626,11 @@ func _draw() -> void:
 		var reach := Rect2(g.pos - Vector2.ONE * vision, Vector2.ONE * vision * 2.0)
 		if g.alive and view_world.intersects(reach):
 			_draw_cone(g)
-	# Gems.
-	for gm in gems:
-		var bob := sin(gm.t * 6) * 3
-		draw_texture_rect(GEM_TEX, Rect2(gm.pos + Vector2(-12, -12 + bob), Vector2(24, 24)), false)
+	# Money flies out after every kill; a blue diamond appears only for carriers.
+	for part in loot_particles:
+		var icon: Texture2D = GEM_TEX if part.kind == "diamond" else MONEY_TEX
+		var bob: float = sin(part.t * 6) * 3
+		draw_texture_rect(icon, Rect2(part.pos + Vector2(-12, -12 + bob), Vector2(24, 24)), false)
 	# Bullets.
 	for b in bullets:
 		draw_line(b.pos - b.vel.normalized() * 14, b.pos, Color(1, 0.9, 0.5, 0.9), 3)
@@ -1463,15 +1656,18 @@ func _draw() -> void:
 			var p2: Vector2 = e.pos + Vector2(-w2 * 0.5, -rise2)
 			draw_string_outline(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0.06, 0.07, 0.1, k))
 			draw_string(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.55, 1.0, 0.65, k))
-		elif e.kind == "gemtext":
-			var rise := (1.0 - k) * 34.0
+		elif e.kind == "moneytext" or e.kind == "diamondtext":
+			var rise := (1.0 - k) * 38.0
 			var txt := "+%d" % int(e.amount)
+			var icon: Texture2D = GEM_TEX if e.kind == "diamondtext" else MONEY_TEX
 			var fv := fx_font
-			var fs := 30
+			var fs := 27
 			var tw2 := fv.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			var tp: Vector2 = e.pos + Vector2(-tw2 * 0.5, -rise)
-			draw_string_outline(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 7, Color(0.06, 0.07, 0.1, k))
-			draw_string(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1.0, 0.89, 0.25, k))
+			var tp: Vector2 = e.pos + Vector2(-(tw2 + 28.0) * 0.5 + 28.0, -rise)
+			draw_texture_rect(icon, Rect2(tp + Vector2(-30, -23), Vector2(26, 26)), false, Color(1, 1, 1, k))
+			draw_string_outline(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 6, Color(0.06, 0.07, 0.1, k))
+			var tint := Color(0.53, 0.95, 1.0, k) if e.kind == "diamondtext" else Color(0.55, 1.0, 0.43, k)
+			draw_string(fv, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, tint)
 		elif e.kind == "spark" or e.kind == "muzzle":
 			draw_set_transform(e.pos, 0, Vector2.ONE * (0.6 + k))
 			draw_texture(SPARK_TEX, -SPARK_TEX.get_size() / 2, Color(1, 1, 1, k))
@@ -1562,6 +1758,8 @@ func _draw_light_fan(points: PackedVector2Array, color: Color) -> void:
 
 # ---------------- End states ----------------
 func _win() -> void:
+	if finished:
+		return
 	finished = true
 	var level_no := GameState.current_level
 	player_rig.set_moving(false)
@@ -1570,10 +1768,10 @@ func _win() -> void:
 		stars = 2
 	if damage_taken > 0:
 		stars = 1
-	GameState.add_gems(gems_collected)
 	GameState.complete_level(kills, damage_taken == 0, stars)
+	_refresh_wallet()
 	Sfx.play("win")
-	_end_panel("LEVEL COMPLETE!", Color("4caf20"), "★".repeat(stars) + "  +%d cash  +%d gems" % [50 + level_no * 5, gems_collected], [
+	_end_panel("LEVEL COMPLETE!", Color("4caf20"), "★".repeat(stars) + "  +%d cash  +%d diamonds" % [50 + level_no * 5 + money_collected, gems_collected], [
 		["Next Level", func(): GameState.start_level(GameState.current_level)],
 		["Home", func(): get_tree().change_scene_to_file("res://scenes/home/home.tscn")],
 	])

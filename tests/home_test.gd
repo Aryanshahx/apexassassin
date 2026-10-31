@@ -39,7 +39,7 @@ func _run() -> void:
 	for safe in [Rect2(0, 0, 320, 568), Rect2(0, 0, 360, 640), Rect2(0, 0, 400, 850), Rect2(0, 0, 428, 926), Rect2(14, 24, 360, 740)]:
 		home._layout_in_safe_rect(safe)
 		var controls: Array[Control] = []
-		for name in ["GemsButton", "CashButton", "SettingsButton", "AssassinButton", "KnivesButton", "WheelButton", "ShopButton", "MissionsPanel", "StartGameButton"]:
+		for name in ["DiamondsButton", "CashButton", "SettingsButton", "AssassinButton", "KnivesButton", "WheelButton", "ShopButton", "MissionsPanel", "StartGameButton"]:
 			var n := home.find_child(name, true, false) as Control
 			controls.append(n)
 			check(safe.grow(0.1).encloses(n.get_global_rect()), "%s within safe area %s" % [name, safe])
@@ -52,7 +52,7 @@ func _run() -> void:
 	check(home.selected_name_label.text == "BANDAGED", "only the selected assassin's live name is shown")
 	check(home.find_children("SelectedAssassinPortrait", "TextureRect", true, false).size() == 1, "home shows exactly one selected-character portrait")
 	check(home.find_child("CurrentLevelLabel", true, false).text == "LEVEL 9", "start button shows current level")
-	for name in ["GemsButton", "CashButton", "SettingsButton", "WheelButton", "ShopButton", "AssassinButton", "KnivesButton", "StartGameButton"]:
+	for name in ["DiamondsButton", "CashButton", "SettingsButton", "WheelButton", "ShopButton", "AssassinButton", "KnivesButton", "StartGameButton"]:
 		check(button(home, name) != null, name + " is a real control")
 	var m1 := button(home, "Mission1Button")
 	var m2 := button(home, "Mission2Button")
@@ -72,9 +72,9 @@ func _run() -> void:
 	check(home.overlay != null and home.overlay.find_children("*", "Button", true, false).size() >= 4, "settings opens")
 	home._close_overlay()
 	await process_frame
-	button(home, "GemsButton").pressed.emit()
+	button(home, "DiamondsButton").pressed.emit()
 	await process_frame
-	check(home.overlay != null, "gem plus opens help")
+	check(home.overlay != null, "diamond plus opens help")
 	home._close_overlay()
 	button(home, "CashButton").pressed.emit()
 	await process_frame

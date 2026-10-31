@@ -322,6 +322,12 @@ func add_gems(n: int) -> void:
 	gems += maxi(0, n)
 	save_game()
 
+func add_combat_loot(money: int, diamonds: int) -> void:
+	# Keep the historical `gems` save key: existing gems are now diamonds.
+	cash += maxi(0, money)
+	gems += maxi(0, diamonds)
+	save_game()
+
 func can_spin_wheel() -> bool:
 	return last_wheel_day != Time.get_date_string_from_system()
 

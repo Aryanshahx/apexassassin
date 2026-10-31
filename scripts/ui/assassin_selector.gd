@@ -221,7 +221,7 @@ func _roster_card(id: String) -> Button:
 	if not GameState.is_unlocked(id):
 		var price := _font(18, 3)
 		price.name = "Price"
-		price.text = "%d gems" % int(GameState.CHARACTERS[id].cost)
+		price.text = "%d diamonds" % int(GameState.CHARACTERS[id].cost)
 		price.position = Vector2(6, 100)
 		price.size = Vector2(120, 25)
 		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -337,7 +337,7 @@ func _refresh_preview() -> void:
 	var unlocked := GameState.is_unlocked(preview_id)
 	selected_button.disabled = preview_id == GameState.selected_assassin
 	selected_button.text = "SELECTED" if selected_button.disabled else ("SELECT" if unlocked else "UNLOCK  %d" % int(data.cost))
-	hint.text = "Currently equipped" if selected_button.disabled else ("Tap SELECT to equip" if unlocked else "Unlock for %d gems" % int(data.cost))
+	hint.text = "Currently equipped" if selected_button.disabled else ("Tap SELECT to equip" if unlocked else "Unlock for %d diamonds" % int(data.cost))
 	for id in cards:
 		var card: Button = cards[id]
 		var highlighted: bool = id == preview_id
@@ -360,6 +360,6 @@ func _confirm() -> void:
 		Sfx.play("upgrade")
 		changed.emit()
 	else:
-		hint.text = "Need %d gems to unlock" % int(GameState.CHARACTERS[preview_id].cost)
+		hint.text = "Need %d diamonds to unlock" % int(GameState.CHARACTERS[preview_id].cost)
 		return
 	_refresh_preview()

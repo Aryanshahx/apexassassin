@@ -157,10 +157,10 @@ func _badge(parent_pos: Vector2) -> Panel:
 	return p
 
 func _build_resources() -> void:
-	var gems := _resource_pill("GEMS", Vector2(24, 20), preload("res://assets/ui/gem.png"), func(): _popup("Gems", "Guards drop gems. Unlock assassins and special knives."))
+	var gems := _resource_pill("DIAMONDS", Vector2(24, 20), preload("res://assets/ui/gem.png"), func(): _popup("Diamonds", "A few guards carry diamonds. Unlock assassins and special knives."))
 	gems_label = gems.get_meta("value_label")
 	gems_label.name = "GemsValue"
-	var cash := _resource_pill("CASH", Vector2(285, 20), preload("res://assets/ui/cash.png"), func(): _popup("Cash", "Earn cash by completing levels and missions."))
+	var cash := _resource_pill("CASH", Vector2(285, 20), preload("res://assets/ui/cash.png"), func(): _popup("Cash", "Earn cash by defeating guards, completing levels and missions."))
 	cash_label = cash.get_meta("value_label")
 	cash_label.name = "CashValue"
 	_refresh_values()
@@ -635,7 +635,7 @@ func _on_knife_pressed(id: String) -> void:
 		_open_knives()
 		_toast("%s unlocked!" % k.name)
 	else:
-		_toast("Need %d gems." % int(k.cost))
+		_toast("Need %d diamonds." % int(k.cost))
 
 func _open_settings() -> void:
 	var box := _popup_base("Settings")

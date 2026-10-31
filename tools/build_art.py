@@ -135,12 +135,9 @@ def environment():
     render("fx/slash", slash, 2)
     spark = svg(32, 32, '''<circle cx="16" cy="16" r="6" fill="#fff6c9"/><circle cx="16" cy="16" r="11" fill="#ffd23f" opacity="0.35"/>''')
     render("fx/spark", spark, 2)
-    gem = svg(48, 48, '''
-    <path d="M24 3 L42 17 L34 43 L14 43 L6 17 Z" fill="#e63946" stroke="#7a1020" stroke-width="3"/>
-    <path d="M24 3 L24 43 M6 17 L42 17 M14 43 L24 17 L34 43" stroke="#ff8a9a" stroke-width="2" opacity="0.8"/>
-    <path d="M14 10 L22 8" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
-    ''')
-    render("ui/gem_drop", gem, 2)
+    # Preserve the current blue-diamond currency whenever art is regenerated.
+    from build_diamond_v63 import build as build_diamond
+    build_diamond()
 
 def key_portrait(src: Path, out: Path):
     im = Image.open(src).convert("RGBA")

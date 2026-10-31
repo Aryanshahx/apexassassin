@@ -25,6 +25,7 @@ var wall_rects: Array[Rect2] = []
 var crate_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
 var floor_details: Array[Dictionary] = []
+var l_wall_colors := {}
 var _c_cap_a := {}
 var _c_cap_b := {}
 var _c_cap_l := {}
@@ -41,6 +42,10 @@ func setup(level, only_cover: bool = false) -> void:
 	crate_rects = level.crate_rects
 	shadow_rects = level.shadow_rects
 	floor_details = level.floor_details
+	l_wall_colors.clear()
+	for shape in data.get("l_shapes", []):
+		for index in shape.arms:
+			l_wall_colors[int(index)] = String(shape.color)
 	_c_cap_a = level._c_cap_a
 	_c_cap_b = level._c_cap_b
 	_c_cap_l = level._c_cap_l
@@ -53,8 +58,8 @@ func setup(level, only_cover: bool = false) -> void:
 func _draw() -> void:
 	draw_count += 1
 	if cover_only:
-		for r in wall_rects:
-			_draw_wall(r)
+		for i in range(wall_rects.size()):
+			_draw_wall(wall_rects[i], String(l_wall_colors.get(i, "")))
 		for r in crate_rects:
 			_draw_crate(r)
 		return
@@ -90,10 +95,10 @@ func _wall_colour(r: Rect2) -> String:
 	var original_pos := r.get_center() - original_size * 0.5
 	return CONTAINER_KEYS[int(abs(original_pos.x * 7 + original_pos.y * 13)) % CONTAINER_KEYS.size()]
 
-func _draw_wall(r: Rect2) -> void:
+func _draw_wall(r: Rect2, l_color: String = "") -> void:
 	# 9-slice the real container art: fixed hazard caps + tiled ribbed middle,
 	# then the original depth face along the bottom edge.
-	var key := _wall_colour(r)
+	var key := l_color if CONTAINER_KEYS.has(l_color) else _wall_colour(r)
 	var horizontal := r.size.x > r.size.y
 	var thick := minf(r.size.x, r.size.y)
 	var sc := thick / SRC_THICK

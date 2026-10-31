@@ -141,7 +141,7 @@ func _landed() -> void:
 	var amount := int(prize.amount)
 	if String(prize.kind) == "gems":
 		prize_gems = amount
-		result_lbl.text = "+%d GEMS!" % amount
+		result_lbl.text = "+%d DIAMONDS!" % amount
 	else:
 		prize_cash = amount
 		result_lbl.text = "+%d CASH!" % amount

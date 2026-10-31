@@ -124,6 +124,21 @@ func _run() -> void:
 	touch.position = drag.position
 	lv._unhandled_input(touch)
 	check(not lv.dragging, "touch release ends dragging")
+	# The camera can follow the player during a tap. A stationary finger-up
+	# must not turn into a different world destination after the camera moves.
+	lv.player_pos = start
+	touch.pressed = true
+	touch.position = lv.to_global(goal)
+	lv._unhandled_input(touch)
+	var original_destination: Vector2 = lv.player_path[lv.player_path.size() - 1]
+	var original_transform: Vector2 = lv.position
+	lv.position += Vector2(25, 35)
+	touch.pressed = false
+	lv._unhandled_input(touch)
+	check(lv.player_path.size() > 0 and lv.player_path[lv.player_path.size() - 1].distance_to(original_destination) < 0.01, "camera motion cannot shift a stationary tap destination on release")
+	lv.position = original_transform
+	lv.player_pos = start
+	lv._path_to(goal)
 	var before_move: Vector2 = lv.player_pos
 	lv._move_player(0.1)
 	drawn = lv._route_visual_points()

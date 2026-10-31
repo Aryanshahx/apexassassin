@@ -81,6 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          test -s assets/audio/ui_tap_audio.mp3
           "$GODOT" --headless --path . --import
           # All suites exercise saves; never write to an existing save.
           TEST_DATA="$(mktemp -d)"
@@ -99,6 +100,11 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/layout" timeout 120 "$GODOT" --headless --path . --script tests/layout_test.gd
           XDG_DATA_HOME="$TEST_DATA/gate" timeout 120 "$GODOT" --headless --path . --script tests/gate_test.gd
           XDG_DATA_HOME="$TEST_DATA/enemy-types" timeout 120 "$GODOT" --headless --path . --script tests/enemy_types_test.gd
+          mkdir -p "$TEST_DATA/player-path" "$TEST_DATA/loot-speed" "$TEST_DATA/button-feedback" "$TEST_DATA/tap-audio"
+          XDG_DATA_HOME="$TEST_DATA/player-path" timeout 120 "$GODOT" --headless --path . --script tests/player_path_test.gd
+          XDG_DATA_HOME="$TEST_DATA/loot-speed" timeout 120 "$GODOT" --headless --path . --script tests/loot_speed_test.gd
+          XDG_DATA_HOME="$TEST_DATA/button-feedback" timeout 120 "$GODOT" --headless --path . --script tests/button_feedback_test.gd
+          XDG_DATA_HOME="$TEST_DATA/tap-audio" timeout 120 "$GODOT" --headless --path . --script tests/tap_audio_import_test.gd
 
       - name: Export debug APK
         run: |

@@ -17,6 +17,7 @@ func _run() -> void:
 	check(lv.GRADE_FLOOR.r > 0.7 and lv.GRADE_FLOOR.g > 0.8 and lv.GRADE_WALL.r > 0.95, "brighter floor and colorful original container art")
 	var guard_count := 0
 	var crate_count := 0
+	var shape_count := 0
 	for number in range(1, 101):
 		lv.wall_rects.clear()
 		lv.crate_rects.clear()
@@ -60,9 +61,33 @@ func _run() -> void:
 			positions.append(pos)
 			guard_count += 1
 		check(spawn_safe, "level %d guards spawn apart from cover and are reachable" % number)
-		check(lv.data.crates.size() >= 10 and lv.data.guards.size() >= 4, "level %d retains its obstacles and guards" % number)
+		var shapes_ok: bool = lv.data.get("l_shapes", []).size() == 4
+		var used := {}
+		for shape in lv.data.get("l_shapes", []):
+			if shape.arms.size() != 2 or not ["red", "blue", "olive"].has(String(shape.color)):
+				shapes_ok = false
+				continue
+			var ai := int(shape.arms[0])
+			var bi := int(shape.arms[1])
+			if ai < 4 or bi < 4 or ai >= lv.data.walls.size() or bi >= lv.data.walls.size() or used.has(ai) or used.has(bi):
+				shapes_ok = false
+				continue
+			used[ai] = true
+			used[bi] = true
+			var h: Array = lv.data.walls[ai]
+			var v: Array = lv.data.walls[bi]
+			if h[2] < 4 or h[3] != 1 or v[2] != 1 or v[3] < 3 or not lv.wall_rects[ai].intersects(lv.wall_rects[bi]):
+				shapes_ok = false
+			shape_count += 1
+		check(shapes_ok and lv.data.guards.size() >= 4, "level %d has four genuinely joined long L covers and retains guards" % number)
+		var accents_ok: bool = lv.data.crates.size() <= 2
+		for crate in lv.data.crates:
+			if int(crate[2]) * int(crate[3]) < 4:
+				accents_ok = false
+		check(accents_ok, "level %d has at most two large accent crates and no tiny scattered crates" % number)
 	check(guard_count == 1064, "all original 1064 guard spawns retained")
-	check(crate_count == 1744, "all original 1744 crates retained")
+	check(shape_count == 400, "400 long L-shaped cover groups across 100 levels")
+	check(crate_count <= 200, "small scattered crates are replaced with fewer large accents")
 	lv.free()
 	print("LAYOUT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

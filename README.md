@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.6.2 — 20% larger, carefully spaced cover; a brighter depot; three enemy types; smoother doorway traffic; stronger alerts and a slimmer health bar.
+v0.6.3 — traversable routes, long L-shaped cover, faster bullets and alerted guards, money and rare diamonds, and your own button tap audio.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -33,11 +33,18 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **Repaired cover**: visible and collision cover are 20% larger in both dimensions.
-  Across the 100 maps all 1,744 crates, 1,064 guards, player spawns and rewards
-  are retained. Crates and guard starts are repositioned where needed; 253 of
-  1,122 original interior wall sections are removed to maintain safe passages.
-  The seeded generator reproduces the repaired maps deterministically.
+- **Long L-shaped cover** replaces most of the scattered small obstacles: four
+  joined L groups and up to two large accents per map, with safe connected
+  routes on all 100 levels. All 1,064 guards and the existing spawns remain.
+  The seeded level generator reproduces the maps deterministically.
+- **Faster threats**: bullets travel at 660 units/s; alerted pursuit is 1.8×
+  patrol speed and investigation 1.45×. The first shot is still immediate.
+- **Money and rare diamonds**: each kill immediately saves +10 cash (+20 for a
+  heavy, plus +5 for a silent kill). Some levels have one diamond carrier; a
+  carrier awards one diamond on defeat. Floating loot and top HUD totals show
+  the result. Existing saved gems retain their value and are shown as diamonds.
+- **Button tap feedback**: buttons briefly compress and play the player's own
+  `assets/audio/ui_tap_audio.mp3`, respecting the existing sound setting.
 - **Chosen character logo** is used for the Android launcher. The original splash
   artwork is retained, with its bottom labels changed to “Loading...” and
   “Hyper Tech Labs”.
@@ -50,7 +57,7 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   - Guard vision cones, patrols, investigation, alert/chase, gunfire, search.
   - Walls and crates block sight and bullets.
   - Light touching the player is detected immediately, even in shadows.
-  - Kills drop gems; collect them to unlock legacy assassins and special knives.
+  - Kills award money and, rarely, diamonds; unlocks use the existing wallet.
   - Clear all guards to finish the level.
 - **100 validated levels** with increasing guard counts and cover density.
 - User-selected **classic-style home**: the old top-down warehouse backdrop,
@@ -60,8 +67,20 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   the example numbers from the design are not baked into the game.
 - Level and depot resources are cached; static map layers are retained, and
   off-screen/near-cover guard beams are culled or cached to reduce work.
-- Original synthesized sound effects and mobile haptics.
+- Existing sound effects and mobile haptics, plus the locally supplied button-tap MP3.
 - **Debug-only Android APK workflow** for GitHub Actions. No release keystore or signing secrets.
+
+## Update on Raspberry Pi 5
+
+Put your `ui_tap_audio.mp3` in `~/Downloads/` before running the separate
+`apex_v063_update.sh` on your existing v0.6.2 project. The installer copies the
+MP3 **without modification**, checks the existing project, protects local edits,
+and creates a rollback backup. It does not automatically publish to GitHub.
+The code-only source ZIP does not include your MP3 or the project's art assets.
+
+```bash
+bash ~/Downloads/apex_v063_update.sh /home/aryan/apex-assassin
+```
 
 ## Run on Raspberry Pi 5
 
@@ -90,6 +109,7 @@ SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"; MOVE_DATA="$(mktemp -d)"
 ROAM_DATA="$(mktemp -d)"; TRANS_DATA="$(mktemp -d)"; HOME_DATA="$(mktemp -d)"
 COMBAT_DATA="$(mktemp -d)"; COLLISION_DATA="$(mktemp -d)"; SPLASH_DATA="$(mktemp -d)"
 LAYOUT_DATA="$(mktemp -d)"; GATE_DATA="$(mktemp -d)"; ENEMY_DATA="$(mktemp -d)"
+PATH_DATA="$(mktemp -d)"; LOOT_DATA="$(mktemp -d)"; BTN_DATA="$(mktemp -d)"; AUDIO_DATA="$(mktemp -d)"
 XDG_DATA_HOME="$SMOKE_DATA" godot --headless --path . --script tests/smoke_test.gd
 XDG_DATA_HOME="$REF_DATA" godot --headless --path . --script tests/reference_test.gd
 XDG_DATA_HOME="$MOVE_DATA" godot --headless --path . --script tests/movement_test.gd
@@ -102,7 +122,11 @@ XDG_DATA_HOME="$SPLASH_DATA" godot --headless --path . --script tests/splash_tes
 XDG_DATA_HOME="$LAYOUT_DATA" godot --headless --path . --script tests/layout_test.gd
 XDG_DATA_HOME="$GATE_DATA" godot --headless --path . --script tests/gate_test.gd
 XDG_DATA_HOME="$ENEMY_DATA" godot --headless --path . --script tests/enemy_types_test.gd
-rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA" "$LAYOUT_DATA" "$GATE_DATA" "$ENEMY_DATA"
+XDG_DATA_HOME="$PATH_DATA" godot --headless --path . --script tests/player_path_test.gd
+XDG_DATA_HOME="$LOOT_DATA" godot --headless --path . --script tests/loot_speed_test.gd
+XDG_DATA_HOME="$BTN_DATA" godot --headless --path . --script tests/button_feedback_test.gd
+XDG_DATA_HOME="$AUDIO_DATA" godot --headless --path . --script tests/tap_audio_import_test.gd
+rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA" "$LAYOUT_DATA" "$GATE_DATA" "$ENEMY_DATA" "$PATH_DATA" "$LOOT_DATA" "$BTN_DATA" "$AUDIO_DATA"
 ```
 
 ## Push to GitHub + build APK
@@ -117,8 +141,8 @@ bash tools/publish_github.sh
 The script fetches `origin/main`, refuses to overwrite a newer remote or other
 staged changes, stages only the update paths, shows the proposed commit and asks
 for confirmation. Authenticate Git with GitHub first (for example, `gh auth
-login`); never put access tokens in the script. Check `ASSETS_LICENSE.md` before
-publishing. It does not force-push or automatically resolve divergent history.
+login`); never put access tokens in the script. Check `ASSETS_LICENSE.md` and
+make sure you have permission to publish the tap audio before publishing. It does not force-push or automatically resolve divergent history.
 
 Then open:
 
