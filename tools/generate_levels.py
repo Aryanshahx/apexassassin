@@ -3,6 +3,7 @@
 import json, random
 from repair_levels_v62 import repair
 from redesign_levels_v63 import redesign
+from redesign_levels_v64 import redesign as enlarge_v64
 from collections import deque
 from pathlib import Path
 
@@ -150,12 +151,12 @@ def build(level: int):
 
 
 def main():
-    # Build the original seeded maps, repair for 20%-larger cover, then replace
-    # scattered small obstacles with four long, connected Ls per level.
-    levels = [redesign(repair(build(i))[0]) for i in range(1, 101)]
+    # Build and repair the original seeded maps, then transform them into the
+    # larger v0.6.4 warehouse with six joined L groups and clear passages.
+    levels = [enlarge_v64(redesign(repair(build(i))[0])) for i in range(1, 101)]
     out = ROOT / "data" / "levels" / "levels.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"schema": 3, "levels": levels, "layout_revision": "0.6.3"}, separators=(",", ":")) + "\n")
+    out.write_text(json.dumps({"schema": 3, "levels": levels, "layout_revision": "0.6.4"}, separators=(",", ":")) + "\n")
     total_guards = sum(len(l["guards"]) for l in levels)
     print("Generated %d levels (%d guards total) -> %s" % (len(levels), total_guards, out))
     for i in (1, 4, 20, 50, 100):

@@ -32,6 +32,10 @@ var guard_aim_target := 0.0
 var guard_aim_offset := 0.0
 var guard_aim_offset_target := 0.0
 var guard_raise_angle := 0.0
+# Head is a real separately layered part, not a duplicate drawn over a still.
+var head: Node2D
+var head_rest := Vector2.ZERO
+var head_phase := 0.0
 var anim: AnimationPlayer
 var _current := ""
 var _source_extent := 248.0
@@ -65,9 +69,11 @@ func _region_sprite(tex: Texture2D, region: Rect2, pos: Vector2) -> Sprite2D:
 
 func _build_player() -> void:
 	var index := clampi(GameState.reference_art_index(kind), 1, 12)
-	var tex: Texture2D = load(REF_PATH + "characters/%02d.png" % index)
-	var body_tex: Texture2D = load(REF_PATH + "characters/parts/%02d_body.png" % index)
-	var boot_tex: Texture2D = load(REF_PATH + "characters/parts/%02d_boot.png" % index)
+	var is_vault := kind == "vault_phantom"
+	var tex: Texture2D = load(REF_PATH + "characters/vault_phantom.png" if is_vault else REF_PATH + "characters/%02d.png" % index)
+	var body_tex: Texture2D = load(REF_PATH + "characters/parts/v64_vault_body.png" if is_vault else REF_PATH + "characters/parts/v64_%02d_body.png" % index)
+	var head_tex: Texture2D = load(REF_PATH + "characters/parts/v64_vault_head.png" if is_vault else REF_PATH + "characters/parts/v64_%02d_head.png" % index)
+	var boot_tex: Texture2D = null if is_vault else load(REF_PATH + "characters/parts/%02d_boot.png" % index)
 	var sz := tex.get_size()
 	_source_extent = maxf(sz.x, sz.y)
 	var pivot := Vector2(sz.x * 0.64, sz.y * 0.50)
@@ -82,16 +88,18 @@ func _build_player() -> void:
 	foot_rest_a = boot_anchor - pivot
 	foot_a.position = foot_rest_a
 	art.add_child(foot_a)
-	var boot := Sprite2D.new()
-	boot.texture = boot_tex
-	boot.centered = false
-	boot.position = -boot_anchor
-	foot_a.add_child(boot)
-	var cut: float = CUT_X[index - 1]
-	var cut_y: float = CUT_Y[index - 1]
+	if boot_tex:
+		var boot := Sprite2D.new()
+		boot.texture = boot_tex
+		boot.centered = false
+		boot.position = -boot_anchor
+		foot_a.add_child(boot)
+	var cut: float = 74.0 if is_vault else CUT_X[index - 1]
+	var cut_y: float = 70.0 if is_vault else CUT_Y[index - 1]
 	var torso := _region_sprite(body_tex, Rect2(cut, 0, sz.x - cut, sz.y), Vector2(cut, 0) - pivot)
 	torso.name = "Pose"
 	art.add_child(torso)
+	_add_head(head_tex, Vector2(sz.x * 0.66, sz.y * 0.42), pivot)
 	blade = Node2D.new()
 	blade.name = "Blade"
 	blade.position = Vector2(cut, cut_y) - pivot
@@ -107,7 +115,27 @@ func _build_player() -> void:
 	blade.add_child(custom_blade)
 	set_knife(knife_id)
 
+func _add_head(texture: Texture2D, anchor: Vector2, pivot: Vector2) -> void:
+	head = Node2D.new()
+	head.name = "Head"
+	head_rest = anchor - pivot
+	head.position = head_rest
+	art.add_child(head)
+	var part := Sprite2D.new()
+	part.name = "HeadArtwork"
+	part.texture = texture
+	part.centered = false
+	part.position = -anchor
+	head.add_child(part)
+
 func _process(delta: float) -> void:
+	if head != null and not dead:
+		head_phase += delta * (6.8 if moving else 2.4)
+		var head_turn := sin(head_phase) * (0.055 if moving else 0.024)
+		if role == "guard" and guard_aim_target > 0.0:
+			head_turn += clampf(guard_aim_offset_target * 0.22, -0.09, 0.09)
+		head.rotation = head_turn
+		head.position = head_rest + Vector2(0.0, sin(head_phase * 0.5) * 0.6)
 	if role == "guard" and guard_gun != null and not dead:
 		# Pivot from patrol pose toward the player, compensating for body turn.
 		guard_aim_amount = move_toward(guard_aim_amount, guard_aim_target, delta * 4.5)
@@ -159,10 +187,11 @@ func _build_guard() -> void:
 	foot_b.add_child(back)
 	var pose := Sprite2D.new()
 	pose.name = "Pose"
-	pose.texture = load(parts + "body.png")
+	pose.texture = load(REF_PATH + "guards/parts/v64_" + guard_name + "_body.png")
 	pose.centered = false
 	pose.position = -pivot
 	art.add_child(pose)
+	_add_head(load(REF_PATH + "guards/parts/v64_" + guard_name + "_head.png"), Vector2(sz.x * 0.44, sz.y * 0.57), pivot)
 	# The rifle is cut from the same supplied image and pivots at the hand.
 	var anchor := Vector2(38, 22) if kind == "elite" else Vector2(39, 16)
 	var tip := Vector2(3, 5) if kind == "elite" else Vector2(9, 13)

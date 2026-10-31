@@ -4,6 +4,9 @@ const SAVE_PATH := "user://apex_save_v3.json"
 const OLD_SAVE_PATH := "user://apex_save_v2.json"
 const TOTAL_LEVELS := 100
 const BASE_SPEED := 190.0
+const PLAYER_SPEED_MULTIPLIER := 1.20
+const VAULT_CHARACTER := "vault_phantom"
+const KEY_LEVEL_CHANCE := 0.42
 const BASE_HEALTH := 1000.0
 # One purchased upgrade still adds one standard enemy hit of protection.
 const HEALTH_UPGRADE_AMOUNT := 100.0
@@ -33,11 +36,13 @@ const CHARACTERS := {
 	"ref10": {"name": "Boxer", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.30, "blurb": "+30% health"},
 	"ref11": {"name": "Blonde and Pink", "cost": 0, "speed_bonus": 0.35, "health_bonus": 0.0, "blurb": "+35% speed"},
 	"ref12": {"name": "Green Shell", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.35, "blurb": "+35% health"},
+	# An original secret character, earned only through the three-key lockers.
+	"vault_phantom": {"name": "Vault Phantom", "cost": 0, "speed_bonus": 0.15, "health_bonus": 0.15, "blurb": "Locker reward: +15% speed and health"},
 
 }
 const REFERENCE_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12"]
 const LEGACY_ORDER := ["ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
-const CHARACTER_ORDER := REFERENCE_ORDER + LEGACY_ORDER
+const CHARACTER_ORDER := REFERENCE_ORDER + LEGACY_ORDER + [VAULT_CHARACTER]
 # Give previously saved assassins the approved visual style without changing
 # their IDs, bonuses, selected state, unlocks or save schema.
 const LEGACY_ART_INDEX := {"ronin": 1, "sable": 2, "nova": 3, "aegis": 4, "dash": 5, "sentinel": 6, "sage": 7, "crimson": 8, "fiesta": 9, "oni": 10}
@@ -81,6 +86,10 @@ var selected_knife := "standard"
 var unlocked_knives := {"standard": true}
 var best_stars := {}
 var last_wheel_day := ""
+# Key/locker fields are additive: old schema-4 saves continue to load intact.
+var keys_collected := 0
+var key_levels_claimed := {}
+var locker_board := {}
 # Keep immutable level data and depot textures alive across level changes. This
 # avoids re-parsing the full 100-level file and re-uploading map art every win.
 var _level_catalog: Array = []
@@ -174,6 +183,15 @@ func load_game() -> void:
 	if stars is Dictionary:
 		best_stars = stars
 	last_wheel_day = String(p.get("last_wheel_day", ""))
+	keys_collected = clampi(int(p.get("keys_collected", 0)), 0, 2)
+	key_levels_claimed = {}
+	var saved_keys: Variant = p.get("key_levels_claimed", {})
+	if saved_keys is Dictionary:
+		for k in saved_keys:
+			var number := int(k)
+			if number >= 1 and number <= TOTAL_LEVELS and bool(saved_keys[k]):
+				key_levels_claimed[str(number)] = true
+	locker_board = _validated_locker_board(p.get("locker_board", {}))
 
 func save_game() -> void:
 	var data := {
@@ -186,6 +204,8 @@ func save_game() -> void:
 		"selected_assassin": selected_assassin, "unlocked_assassins": unlocked_assassins,
 		"selected_knife": selected_knife, "unlocked_knives": unlocked_knives,
 		"best_stars": best_stars, "last_wheel_day": last_wheel_day,
+		"keys_collected": keys_collected, "key_levels_claimed": key_levels_claimed,
+		"locker_board": locker_board,
 	}
 	var tmp := SAVE_PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
@@ -226,7 +246,7 @@ func player_damage() -> int:
 	return int(knife().damage) + int(upgrades.damage)
 
 func player_speed() -> float:
-	return BASE_SPEED * (1.0 + float(character().get("speed_bonus", 0.0))) + int(upgrades.speed) * 14.0
+	return (BASE_SPEED * (1.0 + float(character().get("speed_bonus", 0.0))) + int(upgrades.speed) * 14.0) * PLAYER_SPEED_MULTIPLIER
 
 func attack_cooldown() -> float:
 	return float(knife().cooldown)
@@ -257,12 +277,17 @@ func reference_art_index(id: String) -> int:
 		return index + 1
 	return int(LEGACY_ART_INDEX.get(id, 1))
 
+func character_portrait_path(id: String) -> String:
+	if id == VAULT_CHARACTER:
+		return "res://assets/reference/characters/vault_phantom.png"
+	return "res://assets/reference/characters/%02d.png" % reference_art_index(id)
+
 func is_unlocked(id: String) -> bool:
 	# The twelve selected reference designs are free; legacy unlocks persist.
 	return CHARACTERS.has(id) and (is_reference_character(id) or bool(unlocked_assassins.get(id, false)))
 
 func unlock_character(id: String) -> bool:
-	if not CHARACTERS.has(id) or is_unlocked(id):
+	if not CHARACTERS.has(id) or is_unlocked(id) or id == VAULT_CHARACTER:
 		return false
 	var cost := int(CHARACTERS[id].cost)
 	if gems < cost:
@@ -327,6 +352,91 @@ func add_combat_loot(money: int, diamonds: int) -> void:
 	cash += maxi(0, money)
 	gems += maxi(0, diamonds)
 	save_game()
+
+func level_has_key(number: int) -> bool:
+	if number < 1 or number > TOTAL_LEVELS:
+		return false
+	var key_rng := RandomNumberGenerator.new()
+	key_rng.seed = 640019 + number * 97
+	return key_rng.randf() < KEY_LEVEL_CHANCE
+
+func key_available(number: int) -> bool:
+	return level_has_key(number) and not bool(key_levels_claimed.get(str(number), false)) and locker_board.is_empty()
+
+func collect_level_key(number: int) -> bool:
+	if not key_available(number):
+		return false
+	key_levels_claimed[str(number)] = true
+	keys_collected += 1
+	if keys_collected >= 3:
+		keys_collected -= 3
+		_make_locker_board()
+	save_game()
+	return true
+
+func _make_locker_board(seed_value: int = -1) -> void:
+	var roll := RandomNumberGenerator.new()
+	if seed_value < 0:
+		roll.randomize()
+	else:
+		roll.seed = seed_value
+	var amounts := []
+	for i in range(9):
+		amounts.append(roll.randi_range(5, 15))
+	locker_board = {"character_slot": roll.randi_range(0, 8) if not is_unlocked(VAULT_CHARACTER) else -1,
+		"amounts": amounts, "opened": []}
+
+func _validated_locker_board(value: Variant) -> Dictionary:
+	if not value is Dictionary or value.is_empty():
+		return {}
+	var amounts: Variant = value.get("amounts", [])
+	var opened: Variant = value.get("opened", [])
+	var character_slot := int(value.get("character_slot", -1))
+	if not amounts is Array or amounts.size() != 9 or not opened is Array or opened.size() > 3 or character_slot < -1 or character_slot > 8:
+		return {}
+	var safe_amounts := []
+	for amount in amounts:
+		safe_amounts.append(clampi(int(amount), 1, 50))
+	var safe_opened := []
+	var seen := {}
+	for prize in opened:
+		if not prize is Dictionary:
+			return {}
+		var index := int(prize.get("index", -1))
+		var kind := String(prize.get("kind", ""))
+		if index < 0 or index > 8 or seen.has(index) or kind not in ["diamonds", "character"]:
+			return {}
+		seen[index] = true
+		safe_opened.append({"index": index, "kind": kind, "amount": maxi(0, int(prize.get("amount", 0)))})
+	return {"character_slot": character_slot, "amounts": safe_amounts, "opened": safe_opened}
+
+func locker_pending() -> bool:
+	return not locker_board.is_empty()
+
+func open_locker(index: int) -> Dictionary:
+	if locker_board.is_empty() or index < 0 or index >= 9 or locker_board.opened.size() >= 3:
+		return {}
+	for previous in locker_board.opened:
+		if int(previous.index) == index:
+			return {}
+	var prize := {"index": index, "kind": "diamonds", "amount": int(locker_board.amounts[index])}
+	if index == int(locker_board.character_slot) and not is_unlocked(VAULT_CHARACTER):
+		unlocked_assassins[VAULT_CHARACTER] = true
+		prize = {"index": index, "kind": "character", "amount": 1}
+	else:
+		gems += int(prize.amount)
+	locker_board.opened.append(prize)
+	save_game()
+	return prize
+
+func finish_locker_board() -> bool:
+	if locker_board.is_empty() or locker_board.opened.size() < 3:
+		return false
+	locker_board = {}
+	# A completed board starts a fresh key cycle, including replayed key levels.
+	key_levels_claimed = {}
+	save_game()
+	return true
 
 func can_spin_wheel() -> bool:
 	return last_wheel_day != Time.get_date_string_from_system()

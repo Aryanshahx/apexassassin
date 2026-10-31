@@ -91,7 +91,7 @@ func _run() -> void:
 	button(home, "AssassinButton").pressed.emit()
 	await process_frame
 	var selector = home.overlay
-	check(selector != null and selector.find_child("Roster", true, false).get_child_count() == 22, "assassin selector opens retained roster")
+	check(selector != null and selector.find_child("Roster", true, false).get_child_count() == 23, "assassin selector opens the retained roster plus locker character")
 	selector._preview("ref02")
 	var select_btn := button(selector, "SelectButton")
 	select_btn.pressed.emit()

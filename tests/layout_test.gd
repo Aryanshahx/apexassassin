@@ -26,6 +26,7 @@ func _run() -> void:
 		lv._build_walkable_regions()
 		var spawn: Vector2i = lv._to_cell(lv.player_pos)
 		var player_region := int(lv.region_by_cell.get(spawn, -1))
+		check(int(lv.data.width) == 29 and int(lv.data.height) == 46 and lv.data.get("partition_walls", []).size() == 4 and lv.data.get("gate_decor", []).size() == 2, "level %d is enlarged and has four green partitions and two open gates" % number)
 		check(not lv._solid(lv.player_pos) and player_region >= 0, "level %d player spawn is clear" % number)
 		check(lv.guard_walkable_regions.size() == 1, "level %d guard-clear floor is connected" % number)
 		var geometry_ok: bool = lv.wall_rects.size() == lv.data.walls.size() and lv.crate_rects.size() == lv.data.crates.size()
@@ -56,12 +57,12 @@ func _run() -> void:
 			if pos.distance_to(lv.player_pos) < 280.0 or lv._guard_solid(pos) or not lv.guard_region_by_cell.has(cell) or int(lv.region_by_cell.get(cell, -2)) != player_region:
 				spawn_safe = false
 			for prior in positions:
-				if pos.distance_to(prior) < 96.0:
+				if pos.distance_to(prior) < 160.0:
 					spawn_safe = false
 			positions.append(pos)
 			guard_count += 1
 		check(spawn_safe, "level %d guards spawn apart from cover and are reachable" % number)
-		var shapes_ok: bool = lv.data.get("l_shapes", []).size() == 4
+		var shapes_ok: bool = lv.data.get("l_shapes", []).size() == 6
 		var used := {}
 		for shape in lv.data.get("l_shapes", []):
 			if shape.arms.size() != 2 or not ["red", "blue", "olive"].has(String(shape.color)):
@@ -69,7 +70,7 @@ func _run() -> void:
 				continue
 			var ai := int(shape.arms[0])
 			var bi := int(shape.arms[1])
-			if ai < 4 or bi < 4 or ai >= lv.data.walls.size() or bi >= lv.data.walls.size() or used.has(ai) or used.has(bi):
+			if ai < 8 or bi < 8 or ai >= lv.data.walls.size() or bi >= lv.data.walls.size() or used.has(ai) or used.has(bi):
 				shapes_ok = false
 				continue
 			used[ai] = true
@@ -79,15 +80,15 @@ func _run() -> void:
 			if h[2] < 4 or h[3] != 1 or v[2] != 1 or v[3] < 3 or not lv.wall_rects[ai].intersects(lv.wall_rects[bi]):
 				shapes_ok = false
 			shape_count += 1
-		check(shapes_ok and lv.data.guards.size() >= 4, "level %d has four genuinely joined long L covers and retains guards" % number)
-		var accents_ok: bool = lv.data.crates.size() <= 2
+		check(shapes_ok and lv.data.guards.size() >= 4, "level %d has six genuinely joined long L covers and retains guards" % number)
+		var accents_ok: bool = lv.data.crates.size() == 3
 		for crate in lv.data.crates:
 			if int(crate[2]) * int(crate[3]) < 4:
 				accents_ok = false
-		check(accents_ok, "level %d has at most two large accent crates and no tiny scattered crates" % number)
+		check(accents_ok, "level %d has three large crate clusters and no tiny scattered crates" % number)
 	check(guard_count == 1064, "all original 1064 guard spawns retained")
-	check(shape_count == 400, "400 long L-shaped cover groups across 100 levels")
-	check(crate_count <= 200, "small scattered crates are replaced with fewer large accents")
+	check(shape_count == 600, "600 long L-shaped cover groups across 100 enlarged levels")
+	check(crate_count == 300, "three large crate clusters per map")
 	lv.free()
 	print("LAYOUT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

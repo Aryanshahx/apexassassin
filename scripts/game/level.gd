@@ -18,8 +18,8 @@ const DEPOT := "res://assets/environment/depot/"
 const CONTAINER_KEYS := ["blue", "red", "olive"]
 const SRC_THICK := 91.0          # container width in the concept art
 ## Bright, colourful original depot art, while beams stay legible.
-const GRADE_FLOOR := Color(0.76, 0.86, 0.94)
-const GRADE_OUTSIDE := Color(0.40, 0.48, 0.58)
+const GRADE_FLOOR := Color(1.0, 1.0, 1.0)
+const GRADE_OUTSIDE := Color(0.52, 0.54, 0.56)
 const GRADE_WALL := Color(1.0, 0.98, 1.0)
 const GRADE_CRATE := Color(1.0, 0.98, 0.94)
 const GRADE_PROP := Color(0.95, 0.97, 1.0)
@@ -27,7 +27,7 @@ const GRADE_PROP := Color(0.95, 0.97, 1.0)
 ## than the old 12-cell view (actors are 20% smaller), and still follows the player.
 const CAM_VIEW_CELLS := 15.0
 var cam_scale := 1.0
-const FLOOR_TILE := 90.0         # 256px concept tile at world scale
+const FLOOR_TILE := 320.0         # 256px concept tile at world scale
 var _c_cap_a := {}
 var _c_cap_b := {}
 var _c_cap_l := {}
@@ -43,12 +43,14 @@ const ARROW_TEX := preload("res://assets/environment/depot/arrow_real.png")
 const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const MONEY_TEX := preload("res://assets/ui/cash.png")
+const KEY_TEX := preload("res://assets/ui/v64_key.png")
+const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
-const GUARD_GAP := 66.0
+const GUARD_GAP := 80.0
 # Body clearance beyond the universal four-unit blocker: wider than before.
 const GUARD_WALL_MARGIN := 20.0
 const GUARD_AVOID_HOLD := 0.55
@@ -57,7 +59,8 @@ const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
 const BULLET_DAMAGE := 100.0 # fallback for legacy/test bullets
 const BULLET_SPEED := 660.0 # faster than v0.6.2's 420 world units/second
-const ALERT_SPEED_MULTIPLIER := 1.8
+const ALERT_SPEED_MULTIPLIER := 2.07  # v0.6.3 chase speed * 1.15
+const CHASE_MEMORY_SECONDS := 7.0
 const INVESTIGATE_SPEED_MULTIPLIER := 1.45
 const ALERT_STOP_DISTANCE := 128.0
 const DIAMOND_LEVEL_CHANCE := 0.60 # at most one carrier per level
@@ -67,9 +70,12 @@ const MONEY_SILENT_BONUS := 5
 const GUNSHOT_HEARING_RADIUS := 480.0
 const HEALTH_BAR_SIZE := Vector2(64, 8)
 const ENEMY_PROFILES := {
-	"scout": {"damage": 65.0, "interval": 0.65, "speed": 68.0, "vision": 250.0, "tint": Color(0.55, 0.88, 1.0)},
-	"guard": {"damage": 100.0, "interval": 1.00, "speed": 58.0, "vision": 250.0, "tint": Color.WHITE},
-	"heavy": {"damage": 160.0, "interval": 1.45, "speed": 48.0, "vision": 220.0, "tint": Color(1.0, 0.78, 0.68)},
+	"scout": {"damage": 65.0, "interval": 0.65, "speed": 68.0, "vision": 250.0, "hp": 1, "tint": Color(0.55, 0.88, 1.0)},
+	"guard": {"damage": 100.0, "interval": 1.00, "speed": 58.0, "vision": 250.0, "hp": 1, "tint": Color.WHITE},
+	"heavy": {"damage": 160.0, "interval": 1.45, "speed": 48.0, "vision": 220.0, "hp": 2, "tint": Color(1.0, 0.78, 0.68)},
+	"ranger": {"damage": 120.0, "interval": 0.80, "speed": 70.0, "vision": 290.0, "hp": 2, "tint": Color(0.50, 0.86, 1.0)},
+	"breacher": {"damage": 185.0, "interval": 1.15, "speed": 62.0, "vision": 245.0, "hp": 3, "tint": Color(0.83, 0.64, 1.0)},
+	"captain": {"damage": 230.0, "interval": 0.95, "speed": 68.0, "vision": 285.0, "hp": 4, "tint": Color(1.0, 0.83, 0.38)},
 }
 const DRAG_REPATH_INTERVAL := 0.045
 
@@ -99,6 +105,13 @@ var guards: Array[Dictionary] = []
 var bullets: Array[Dictionary] = []
 var effects: Array[Dictionary] = []
 var loot_particles: Array[Dictionary] = []
+var blood_splats: Array[Dictionary] = []
+var key_on_floor := false
+var key_position := Vector2.ZERO
+var key_icon: TextureRect
+var key_label: Label
+var key_guide: Button
+var locker_ui: Control
 var kills := 0
 var total := 0
 var gems_collected := 0 # legacy name; these are diamonds
@@ -178,6 +191,7 @@ func _ready() -> void:
 	fx_font.base_font = FONT
 	fx_font.variation_embolden = 1.0
 	_build_guards()
+	_place_level_key()
 	_build_player()
 	_build_hud()
 	player_hp = GameState.max_health()
@@ -186,6 +200,8 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_layout_hud)
 	_fit_world()
 	_layout_hud()
+	if GameState.locker_pending():
+		call_deferred("_show_locker")
 	if GameState.current_level == 1:
 		hint.text = "Tap to move  •  Tap a guard to hunt  •  Stay out of the light"
 		var tw := create_tween()
@@ -245,21 +261,27 @@ func _layout_hud_for_rect(safe: Rect2) -> void:
 	if counter:
 		counter.position = safe.position + Vector2(88, 25)
 	if money_icon:
-		money_icon.position = Vector2(money_x, safe.position.y + 35)
+		money_icon.position = Vector2(money_x, safe.position.y + 26)
 	if money_caption:
 		money_caption.position = Vector2(money_x + 47, safe.position.y + 20)
 	if money_label:
-		money_label.position = Vector2(money_x + 47, safe.position.y + 40)
+		money_label.position = Vector2(money_x + 47, safe.position.y + 29)
 		money_label.size.x = maxf(50.0, diamond_x - money_x - 55.0)
 	if gem_icon:
-		gem_icon.position = Vector2(diamond_x, safe.position.y + 35)
+		gem_icon.position = Vector2(diamond_x, safe.position.y + 26)
 	if gem_caption:
 		gem_caption.position = Vector2(diamond_x + 48, safe.position.y + 20)
 	if gem_label:
-		gem_label.position = Vector2(diamond_x + 48, safe.position.y + 40)
+		gem_label.position = Vector2(diamond_x + 48, safe.position.y + 29)
 		gem_label.size.x = maxf(50.0, safe.end.x - 92.0 - (diamond_x + 48.0))
 	if status_label:
 		status_label.position = safe.position + Vector2(30, 96)
+	if key_icon:
+		key_icon.position = Vector2(safe.end.x - 195, safe.position.y + 92)
+	if key_label:
+		key_label.position = Vector2(safe.end.x - 154, safe.position.y + 93)
+	if key_guide:
+		key_guide.position = Vector2(safe.end.x - 198, safe.position.y + 132)
 	if pause_btn:
 		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
 	if hint:
@@ -431,6 +453,70 @@ func in_shadow(p: Vector2) -> bool:
 			return true
 	return false
 
+func _place_level_key() -> void:
+	key_on_floor = false
+	var number := int(data.id)
+	if not GameState.key_available(number):
+		return
+	var region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
+	if region_id < 0:
+		return
+	var cells: Array = walkable_regions[region_id].duplicate()
+	var key_rng := RandomNumberGenerator.new()
+	key_rng.seed = 640500 + number * 139
+	# Shuffle deterministically without affecting combat/patrol RNG.
+	for i in range(cells.size() - 1, 0, -1):
+		var j := key_rng.randi_range(0, i)
+		var temp: Variant = cells[i]
+		cells[i] = cells[j]
+		cells[j] = temp
+	for cell in cells:
+		var p: Vector2 = _cell_center(cell.x, cell.y)
+		if _guard_solid(p) or p.distance_to(player_pos) < 260.0:
+			continue
+		var close := false
+		for guard in guards:
+			if p.distance_to(guard.pos) < 150.0:
+				close = true
+				break
+		if not close:
+			key_position = p
+			key_on_floor = true
+			return
+
+func _guide_to_key() -> void:
+	# The larger warehouse can put a key outside the camera. This optional
+	# button highlights the real walkable path; players can still skip the key.
+	if not key_on_floor or finished or overlay != null or locker_ui != null:
+		return
+	dragging = false
+	hunt_target = -1
+	_path_to(key_position)
+
+func _collect_key_if_close() -> void:
+	if not key_on_floor or player_pos.distance_to(key_position) > 28.0:
+		return
+	if GameState.collect_level_key(int(data.id)):
+		key_on_floor = false
+		Sfx.play("coin")
+		effects.append({"pos": key_position, "t": 1.0, "max": 1.0, "kind": "keytext"})
+		_refresh_wallet()
+		if GameState.locker_pending():
+			_show_locker()
+
+func _show_locker() -> void:
+	if not GameState.locker_pending() or locker_ui != null or hud == null:
+		return
+	dragging = false
+	player_path.clear()
+	locker_ui = LockerRewards.new()
+	hud.add_child(locker_ui)
+	locker_ui.completed.connect(_locker_finished)
+
+func _locker_finished() -> void:
+	locker_ui = null
+	_refresh_wallet()
+
 func _build_player() -> void:
 	player_rig = ActorRigScript.new()
 	player_rig.setup(GameState.selected_assassin, "player")
@@ -450,6 +536,18 @@ func _diamond_carrier_for_level(number: int, count: int) -> int:
 	loot_rng.seed = 630000 + number * 31
 	return loot_rng.randi_range(0, count - 1) if loot_rng.randf() < DIAMOND_LEVEL_CHANCE else -1
 
+func _enemy_variant(number: int, index: int, authored: Dictionary) -> String:
+	# A fresh special enemy is guaranteed from each threshold onward; the
+	# original scout, guard and heavy still appear alongside it.
+	if index % 6 == 0:
+		if number >= 50:
+			return "captain"
+		if number >= 25:
+			return "breacher"
+		if number >= 8:
+			return "ranger"
+	return "heavy" if bool(authored.get("elite", false)) or index % 5 == 2 else ("scout" if index % 3 == 1 else "guard")
+
 func _build_guards() -> void:
 	var diamond_carrier := _diamond_carrier_for_level(int(data.id), data.guards.size())
 	for index in range(data.guards.size()):
@@ -457,10 +555,11 @@ func _build_guards() -> void:
 		var route := PackedVector2Array()
 		for c in g.route:
 			route.append(_cell_center(c[0], c[1]))
-		# Three visually differentiated archetypes, present from the first level.
-		var variant := "heavy" if bool(g.get("elite", false)) or index % 5 == 2 else ("scout" if index % 3 == 1 else "guard")
+		var variant := _enemy_variant(int(data.id), index, g)
 		var profile: Dictionary = ENEMY_PROFILES[variant]
-		var kind := "elite" if variant == "heavy" else "guard"
+		var kind := "elite" if variant in ["heavy", "breacher", "captain"] else "guard"
+		var damage_scale := 1.0 + float(int(data.id) - 1) * 0.004
+		var extra_armor := int((int(data.id) - 1) / 40)
 		var rig := ActorRigScript.new()
 		rig.setup(kind, "guard")
 		rig.scale = Vector2.ONE * (0.98 if kind == "elite" else 0.92)
@@ -479,11 +578,11 @@ func _build_guards() -> void:
 		mark.visible = false
 		add_child(mark)
 		guards.append({
-			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage),
+			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage) * damage_scale,
 			"shot_interval": float(profile.interval), "mark": mark,
 			"pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
-			"hp": 2 if kind == "elite" else 1, "elite": kind == "elite",
+			"hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
 			"state": GState.PATROL, "alert": 0.0, "shoot": 0.0, "burst": 0,
 			"alive": true, "path": PackedVector2Array(), "pi": 0,
 			"last_seen": Vector2.ZERO, "search_t": 0.0, "rig": rig,
@@ -492,7 +591,7 @@ func _build_guards() -> void:
 			"blocked_t": 0.0, "avoid_side": 1.0, "avoid_time": 0.0,
 			"avoid_direction": Vector2.ZERO, "walk_hold": 0.0, "sees_player": false,
 			"travel_dir": Vector2.ZERO, "traffic_wait": false, "traffic_stall": 0.0,
-			"alert_repath": 0.0,
+			"alert_repath": 0.0, "chase_left": 0.0,
 			"yield_partner": -1, "yield_forward": Vector2.ZERO,
 			"yield_side": Vector2.ZERO, "yield_left": 0.0,
 			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
@@ -530,10 +629,12 @@ func _build_hud() -> void:
 	wallet_style.set_corner_radius_all(10)
 	money_panel = Panel.new()
 	money_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	money_panel.visible = false  # No currency backgrounds during gameplay.
 	money_panel.add_theme_stylebox_override("panel", wallet_style)
 	hud.add_child(money_panel)
 	gem_panel = Panel.new()
 	gem_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gem_panel.visible = false
 	gem_panel.add_theme_stylebox_override("panel", wallet_style)
 	hud.add_child(gem_panel)
 	var mi := TextureRect.new()
@@ -545,6 +646,7 @@ func _build_hud() -> void:
 	hud.add_child(mi)
 	money_caption = _label(19, 2)
 	money_caption.text = "MONEY"
+	money_caption.visible = false
 	hud.add_child(money_caption)
 	money_label = _label(32, 5)
 	money_label.size = Vector2(120, 38)
@@ -559,11 +661,35 @@ func _build_hud() -> void:
 	hud.add_child(gi)
 	gem_caption = _label(19, 2)
 	gem_caption.text = "DIAMONDS"
+	gem_caption.visible = false
 	hud.add_child(gem_caption)
 	gem_label = _label(32, 5)
 	gem_label.size = Vector2(120, 38)
 	gem_label.clip_text = true
 	hud.add_child(gem_label)
+	key_icon = TextureRect.new()
+	key_icon.name = "KeyIcon"
+	key_icon.texture = KEY_TEX
+	key_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	key_icon.size = Vector2(40, 40)
+	key_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(key_icon)
+	key_label = _label(26, 4)
+	key_label.name = "KeyCount"
+	key_label.size = Vector2(82, 40)
+	hud.add_child(key_label)
+	key_guide = Button.new()
+	key_guide.name = "FindKeyButton"
+	key_guide.text = "FIND KEY"
+	key_guide.flat = true
+	key_guide.size = Vector2(140, 36)
+	key_guide.add_theme_font_override("font", FONT)
+	key_guide.add_theme_font_size_override("font_size", 20)
+	key_guide.add_theme_color_override("font_color", Color("ffda78"))
+	key_guide.add_theme_color_override("font_outline_color", Color("181c20"))
+	key_guide.add_theme_constant_override("outline_size", 3)
+	key_guide.pressed.connect(_guide_to_key)
+	hud.add_child(key_guide)
 	_refresh_wallet()
 	status_label = _label(24, 4)
 	status_label.position = Vector2(30, 96)
@@ -662,9 +788,13 @@ func _refresh_wallet() -> void:
 		_fit_wallet_label(money_label, GameState.cash)
 	if gem_label:
 		_fit_wallet_label(gem_label, GameState.gems)
+	if key_label:
+		key_label.text = "%d/3" % GameState.keys_collected
+	if key_guide:
+		key_guide.visible = key_on_floor
 
 func _physics_process(delta: float) -> void:
-	if finished or overlay != null:
+	if finished or overlay != null or locker_ui != null:
 		return
 	# Micro hit-stop makes each takedown feel weighty.
 	if hit_stop > 0.0:
@@ -689,6 +819,9 @@ func _physics_process(delta: float) -> void:
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
+	_collect_key_if_close()
+	if locker_ui != null:
+		return
 	# Resolve light contact before melee so a guard can fire immediately even
 	# when the player enters the beam at point-blank range.
 	_update_guards(delta)
@@ -904,12 +1037,12 @@ func _draw_route() -> void:
 	var points := _route_visual_points()
 	if points.size() < 2:
 		return
-	draw_polyline(points, Color(0.02, 0.08, 0.12, 0.70), 7.0, true)
-	draw_polyline(points, Color(0.42, 0.94, 1.0, 0.92), 3.2, true)
+	draw_polyline(points, Color(0.34, 0.10, 0.00, 0.80), 7.0, true)
+	draw_polyline(points, Color(1.0, 0.65, 0.08, 0.97), 3.2, true)
 	# A small arrowhead belongs to the actual path endpoint, not a tap pulse.
 	var arrow := _route_arrow_points()
 	if arrow.size() == 3:
-		draw_colored_polygon(arrow, Color(0.42, 0.94, 1.0, 0.96))
+		draw_colored_polygon(arrow, Color(1.0, 0.67, 0.08, 0.98))
 
 func _auto_attack() -> void:
 	if attack_cd > 0:
@@ -951,6 +1084,7 @@ func _auto_attack() -> void:
 		g.alert = 1.0
 		g.state = GState.ALERT
 		g.last_seen = player_pos
+		g.chase_left = _chase_duration(g)
 		g.rig.play_anim("hurt", true)
 
 func _kill_guard(index: int, silent := false) -> void:
@@ -963,6 +1097,7 @@ func _kill_guard(index: int, silent := false) -> void:
 	g.rig.die()
 	kills += 1
 	_update_counter()
+	_add_blood_splatter(g.pos)
 	effects.append({"pos": g.pos, "t": 0.4, "max": 0.4, "kind": "poof"})
 	# Credit and save immediately; the particles below are visual only, so a
 	# level clear/retry cannot double-award or lose the last enemy's loot.
@@ -993,11 +1128,21 @@ func _kill_guard(index: int, silent := false) -> void:
 	if hunt_target == index:
 		hunt_target = -1
 
+func _add_blood_splatter(point: Vector2) -> void:
+	var drops := []
+	for i in range(12):
+		var angle := rng.randf_range(0.0, TAU)
+		var distance := rng.randf_range(7.0, 43.0)
+		drops.append({"offset": Vector2.from_angle(angle) * distance, "radius": rng.randf_range(2.2, 6.4)})
+	blood_splats.append({"pos": point, "t": 8.0, "drops": drops})
+	if blood_splats.size() > 32:
+		blood_splats.remove_at(0)
+
 func _alarm_others(source: Dictionary) -> void:
 	# A gunshot alerts nearby guards, not the entire map. They investigate the
 	# last known player position and still need line of sight before shooting.
 	for other in guards:
-		if other == source or not other.alive or other.state == GState.ALERT:
+		if int(other.id) == int(source.id) or not other.alive or other.state == GState.ALERT:
 			continue
 		if other.pos.distance_squared_to(source.pos) > GUNSHOT_HEARING_RADIUS * GUNSHOT_HEARING_RADIUS:
 			continue
@@ -1022,6 +1167,30 @@ func _investigate(g: Dictionary, p: Vector2) -> void:
 	g.avoid_time = 0.0
 	g.path.clear()
 
+func _chase_duration(g: Dictionary) -> float:
+	# Different guards stop chasing at different times, not in a single wave.
+	return CHASE_MEMORY_SECONDS + float(int(g.id) % 5) * 0.45
+
+func _search_duration(g: Dictionary) -> float:
+	return 3.0 + float(int(g.id) % 5) * 0.55
+
+func _pursuit_goal(g: Dictionary, target: Vector2) -> Vector2:
+	# Give nearby pursuers different approach lanes instead of sending everyone
+	# to the exact same point. A lone guard follows the actual last-known point.
+	var nearby := 0
+	for other in guards:
+		if int(other.id) == int(g.id) or not other.alive:
+			continue
+		if other.state in [GState.ALERT, GState.INVESTIGATE] and other.last_seen.distance_to(target) < 145.0:
+			nearby += 1
+	if nearby == 0:
+		return target
+	var radial: Vector2 = g.pos - target
+	if radial.length_squared() < 1.0:
+		radial = Vector2.from_angle(float(int(g.id) % 8) * TAU / 8.0)
+	var lane := float((int(g.id) % 3) - 1) * 0.48
+	return target + radial.normalized().rotated(lane) * (GUARD_GAP * 1.15)
+
 func _update_guards(delta: float) -> void:
 	for g in guards:
 		if not g.alive:
@@ -1044,6 +1213,7 @@ func _update_guards(delta: float) -> void:
 				was_alerted = true
 			g.alert = 1.0
 			g.last_seen = player_pos
+			g.chase_left = _chase_duration(g)
 			g.state = GState.ALERT
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
@@ -1052,40 +1222,49 @@ func _update_guards(delta: float) -> void:
 			GState.PATROL:
 				_patrol(g, delta)
 			GState.INVESTIGATE:
-				_seek(g, g.last_seen, delta, g.speed * INVESTIGATE_SPEED_MULTIPLIER)
-				if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
+				var investigate_goal := _pursuit_goal(g, g.last_seen)
+				_seek(g, investigate_goal, delta, g.speed * INVESTIGATE_SPEED_MULTIPLIER)
+				if g.pos.distance_to(investigate_goal) < 18 or g.blocked_t > 2.5:
 					# If other guards occupy the target, search from here rather
 					# than endlessly squeezing together and jittering.
 					g.state = GState.SEARCH
-					g.search_t = 2.5
+					g.search_t = _search_duration(g)
 					g.blocked_t = 0.0
 					g.path.clear()
 			GState.ALERT:
-				var target_angle: float = (player_pos - g.pos).angle()
-				g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
 				if sees:
-					# Snap the gun to the target on the first frame so the visible
-					# muzzle matches the immediate shot instead of raising late.
+					var target_angle: float = (player_pos - g.pos).angle()
+					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
+					# Shoot only while the player is actually inside the visible cone.
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
 					if g.shoot <= 0:
 						_fire(g)
 						g.shoot = float(g.shot_interval)
-					# Pursue visibly while alerted, but keep a little room to aim.
-					# The first shot above remains immediate on flashlight contact.
 					if g.pos.distance_to(player_pos) > ALERT_STOP_DISTANCE:
 						g.alert_repath -= delta
 						if g.alert_repath <= 0.0:
 							g.path.clear()
-							g.alert_repath = 0.35
-						_seek(g, player_pos, delta, g.speed * ALERT_SPEED_MULTIPLIER)
+							g.alert_repath = 0.30
+						_seek(g, _pursuit_goal(g, player_pos), delta, g.speed * ALERT_SPEED_MULTIPLIER)
 						var aim_after_move: float = (player_pos - g.pos).angle()
 						g.face = lerp_angle(g.face, aim_after_move, minf(1.0, delta * 10))
 				else:
-					_seek(g, g.last_seen, delta, g.speed * ALERT_SPEED_MULTIPLIER)
-					if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
+					# Do not turn toward or shoot the unseen live position. Chase the
+					# saved last-seen point for a while, then search and resume patrol.
+					g.rig.set_aiming(false)
+					g.chase_left = maxf(0.0, float(g.chase_left) - delta)
+					var goal := _pursuit_goal(g, g.last_seen)
+					_seek(g, goal, delta, g.speed * ALERT_SPEED_MULTIPLIER)
+					if g.blocked_t > 1.2:
+						# Replan instead of giving up merely because a teammate is close.
+						g.path.clear()
+						g.pi = 0
+						g.avoid_time = 0.0
+						g.blocked_t = 0.0
+					if g.pos.distance_to(goal) < 22.0 or g.chase_left <= 0.0:
 						g.state = GState.SEARCH
-						g.search_t = 3.0
+						g.search_t = _search_duration(g)
 						g.blocked_t = 0.0
 						g.path.clear()
 			GState.SEARCH:
@@ -1529,6 +1708,10 @@ func _update_loot_particles(delta: float) -> void:
 			loot_particles.remove_at(i)
 
 func _update_effects(delta: float) -> void:
+	for i in range(blood_splats.size() - 1, -1, -1):
+		blood_splats[i].t -= delta
+		if blood_splats[i].t <= 0.0:
+			blood_splats.remove_at(i)
 	for i in range(effects.size() - 1, -1, -1):
 		effects[i].t -= delta
 		if effects[i].t <= 0:
@@ -1550,7 +1733,7 @@ func _update_stealth_hud() -> void:
 		status_label.add_theme_color_override("font_color", Color("ffd23f"))
 
 func _unhandled_input(event: InputEvent) -> void:
-	if finished or overlay != null:
+	if finished or overlay != null or locker_ui != null:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		_pause()
@@ -1615,6 +1798,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		drag_repath = 0.0
 
 func _draw() -> void:
+	# Blood remains underneath the character and gradually fades away.
+	for splat in blood_splats:
+		var opacity: float = clampf(float(splat.t) / 2.0, 0.0, 1.0)
+		draw_circle(splat.pos, 15.0, Color(0.42, 0.025, 0.035, 0.78 * opacity))
+		for drop in splat.drops:
+			draw_circle(splat.pos + drop.offset, float(drop.radius), Color(0.52, 0.035, 0.045, 0.82 * opacity))
+	if key_on_floor:
+		var bob := sin(elapsed * 4.0) * 3.0
+		draw_texture_rect(KEY_TEX, Rect2(key_position + Vector2(-24, -24 + bob), Vector2(48, 48)), false)
 	# Highlight only the player's actual remaining path, below cover and actors.
 	_draw_route()
 	# Only cast cones that can actually reach the current viewport.
@@ -1656,6 +1848,10 @@ func _draw() -> void:
 			var p2: Vector2 = e.pos + Vector2(-w2 * 0.5, -rise2)
 			draw_string_outline(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, 6, Color(0.06, 0.07, 0.1, k))
 			draw_string(fv2, p2, t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.55, 1.0, 0.65, k))
+		elif e.kind == "keytext":
+			var pos: Vector2 = e.pos + Vector2(-20, -28 - (1.0-k)*28.0)
+			draw_string_outline(fx_font, pos, "+ KEY", HORIZONTAL_ALIGNMENT_LEFT, -1, 25, 5, Color(0.08,0.05,0.01,k))
+			draw_string(fx_font, pos, "+ KEY", HORIZONTAL_ALIGNMENT_LEFT, -1, 25, Color(1.0,0.83,0.24,k))
 		elif e.kind == "moneytext" or e.kind == "diamondtext":
 			var rise := (1.0 - k) * 38.0
 			var txt := "+%d" % int(e.amount)

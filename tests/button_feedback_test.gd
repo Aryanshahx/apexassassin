@@ -38,9 +38,13 @@ func _run() -> void:
 		if player.playing and player.stream == test_audio:
 			playing = true
 	check(playing, "button down triggers the registered tap stream when sound is enabled")
-	await create_timer(0.06).timeout
+	# Advance the actual Tween deterministically; wall-clock sleeps can skip a
+	# very short pulse on a busy CI host before the test gets CPU time.
+	var pulse: Tween = button.get_meta("apex_tap_tween")
+	pulse.pause()
+	pulse.custom_step(0.035)
 	check(button.scale.x < 0.995 and button.scale.y < 0.995, "button visibly compresses on tap")
-	await create_timer(0.25).timeout
+	pulse.custom_step(0.3)
 	check(button.scale.distance_to(Vector2.ONE) < 0.001, "button returns to its original scale")
 	for player in sfx.players:
 		player.stop()
@@ -50,7 +54,9 @@ func _run() -> void:
 	for player in sfx.players:
 		if player.playing: playing = true
 	check(not playing, "sound toggle mutes the tap sound")
-	await create_timer(0.06).timeout
+	var muted_pulse: Tween = texture_button.get_meta("apex_tap_tween")
+	muted_pulse.pause()
+	muted_pulse.custom_step(0.035)
 	check(texture_button.scale.x < 0.995, "visual button feedback still works with sound muted")
 	button.disabled = true
 	button.remove_meta("apex_tap_tween")

@@ -57,3 +57,16 @@ logo selected by the user; it contains no text. The two small splash-label
 patches replace text on the existing project splash image; the rest of that
 image is unchanged. Review the rights of all original and screenshot-derived
 assets before publishing; selection does not establish third-party rights.
+
+
+## v0.6.4 warehouse and animated heads
+
+The new `art_source/environment/v64_floor_concept.webp` and
+`art_source/characters/vault_phantom_topdown.webp` are AI-generated concepts
+created for this update. The floor tile, key artwork and Vault Phantom sprite
+are reconstructed for gameplay by `tools/build_v64_assets.py`. The twelve
+reference-character heads and two guard heads remain derived from the earlier
+user-supplied screenshot artwork; their separated layers and animation are new
+approximations. The provenance and permission cautions above still apply.
+The installed user-provided tap audio is preserved unchanged; rights to publish
+that recording must be confirmed separately before any GitHub push.

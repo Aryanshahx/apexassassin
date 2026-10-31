@@ -105,6 +105,11 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/loot-speed" timeout 120 "$GODOT" --headless --path . --script tests/loot_speed_test.gd
           XDG_DATA_HOME="$TEST_DATA/button-feedback" timeout 120 "$GODOT" --headless --path . --script tests/button_feedback_test.gd
           XDG_DATA_HOME="$TEST_DATA/tap-audio" timeout 120 "$GODOT" --headless --path . --script tests/tap_audio_import_test.gd
+          mkdir -p "$TEST_DATA/v64-lockers" "$TEST_DATA/v64-combat" "$TEST_DATA/v64-path" "$TEST_DATA/v64-traffic"
+          XDG_DATA_HOME="$TEST_DATA/v64-lockers" timeout 120 "$GODOT" --headless --path . --script tests/v64_lockers_test.gd
+          XDG_DATA_HOME="$TEST_DATA/v64-combat" timeout 120 "$GODOT" --headless --path . --script tests/v64_combat_test.gd
+          XDG_DATA_HOME="$TEST_DATA/v64-path" timeout 300 "$GODOT" --headless --path . --script tests/v64_path_stress_test.gd
+          XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd
 
       - name: Export debug APK
         run: |

@@ -29,7 +29,7 @@ func _run() -> void:
 	var lv = current_scene
 	lv.set_physics_process(false)
 	check(lv.money_label.text == "500" and lv.gem_label.text == "42", "top HUD shows saved total money and diamonds")
-	check(lv.money_caption.text == "MONEY" and lv.gem_caption.text == "DIAMONDS", "HUD clearly labels both currencies")
+	check(not lv.money_caption.visible and not lv.gem_caption.visible and not lv.money_panel.visible and not lv.gem_panel.visible, "currency backgrounds and words are hidden during gameplay")
 	for safe in [Rect2(0,0,720,1280), Rect2(12,20,640,1100), Rect2(20,40,600,900)]:
 		lv._layout_hud_for_rect(safe)
 		check(not Rect2(lv.money_label.position, lv.money_label.size).intersects(Rect2(lv.gem_icon.position, lv.gem_icon.size)) and not Rect2(lv.gem_label.position, lv.gem_label.size).intersects(Rect2(lv.pause_btn.position, lv.pause_btn.size)), "wallet totals do not overlap at safe width %s" % safe.size.x)

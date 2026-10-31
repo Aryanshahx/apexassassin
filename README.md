@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.6.3 — traversable routes, long L-shaped cover, faster bullets and alerted guards, money and rare diamonds, and your own button tap audio.
+v0.6.4 — larger warehouse maps, faster movement, improved pursuit, animated heads, progressive enemies and three-key lockers.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -12,10 +12,11 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   Saves that selected one fall back to Ronin; other progress is preserved.
 - **10 legacy character IDs**, costs, bonuses, selected state and unlocks remain supported.
   Their visuals now use the reference art style.
+- **Vault Phantom**, an original 23rd character, can only be found in the three-key lockers. Unlocking it does not change your selected assassin.
 - **17 knives**, with their existing damage, speed, reach and unlock rules.
 - **Reconstructed movement**: separate boot pivots for player and guards, smoothed
-  facing, idle, run, attack, shoot, hurt and death. The shader/node animation is recreated
-  from single still images, not original animation frames.
+  facing, separately animated heads, idle, run, attack, shoot, hurt and death.
+  The node animation is reconstructed from still images, not original frames.
 - **Smoother steering**: route replans do not pull actors back to their current
   cell centre; touch-emulated mouse events are de-duplicated, flashlight rays
   use exact obstacle intersections, and the remaining walkable path is highlighted.
@@ -24,25 +25,34 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 - **Improved guards** roam across reachable map regions and avoid one another
   and cover with wider spacing and stable passing. Flashlight contact causes
   an immediate shot; gunfire alerts nearby guards, which investigate the last
-  known location and still require line of sight to shoot. Boots and rifle aim
-  are approximations rebuilt from stills.
-- **Three enemy types** (tunable defaults): scout deals 65 damage every 0.65 s,
-  standard guard deals 100 every 1.00 s, and heavy deals 160 every 1.45 s.
-  They have distinct tints, speeds and heavy armour. Gunshots can alert guards
-  within 480 world units; a red `?` marks alert, investigation and search.
+  known location and still require line of sight to shoot. After losing sight,
+  guards lower their weapons, pursue the last-seen location for several seconds,
+  then search for individually varied durations. Their approach lanes and
+  separation rules reduce clustering.
+- **Progressive enemy types**: scout, standard guard and heavy are joined by a
+  ranger from level 8, a breacher from level 25 and a captain from level 50.
+  Damage scales gradually with level and armor increases at higher tiers.
+  Gunshots alert nearby guards; a red `?` marks alert, investigation and search.
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **Long L-shaped cover** replaces most of the scattered small obstacles: four
-  joined L groups and up to two large accents per map, with safe connected
-  routes on all 100 levels. All 1,064 guards and the existing spawns remain.
-  The seeded level generator reproduces the maps deterministically.
-- **Faster threats**: bullets travel at 660 units/s; alerted pursuit is 1.8×
-  patrol speed and investigation 1.45×. The first shot is still immediate.
+- **Larger warehouse maps**: each of the 100 arenas is 29×46 cells, with six
+  long L-shaped covers, green partitions, open gates and three large crate
+  clusters. All 1,064 guards remain, with safely spaced positions and connected
+  routes; the maps are generated deterministically.
+- **Faster movement**: player speed, including saved bonuses and upgrades, is
+  20% above v0.6.3. Alerted chase speed is 15% above v0.6.3 (2.07× patrol);
+  investigation remains 1.45× and bullets remain 660 units/s.
 - **Money and rare diamonds**: each kill immediately saves +10 cash (+20 for a
   heavy, plus +5 for a silent kill). Some levels have one diamond carrier; a
   carrier awards one diamond on defeat. Floating loot and top HUD totals show
   the result. Existing saved gems retain their value and are shown as diamonds.
+  The in-level HUD keeps the icons and totals without currency backgrounds or captions.
+- **Random-level keys**: keys appear in a seeded subset of levels. A FIND KEY
+  button highlights a walkable route when a key is present. Three collected keys
+  open a 3×3 board with three unique picks. Most lockers award diamonds; one
+  randomly placed locker may unlock Vault Phantom. Keys, the board and each
+  prize are saved immediately and an unfinished board returns on the home screen.
 - **Button tap feedback**: buttons briefly compress and play the player's own
   `assets/audio/ui_tap_audio.mp3`, respecting the existing sound setting.
 - **Chosen character logo** is used for the Android launcher. The original splash
@@ -72,14 +82,14 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 
 ## Update on Raspberry Pi 5
 
-Put your `ui_tap_audio.mp3` in `~/Downloads/` before running the separate
-`apex_v063_update.sh` on your existing v0.6.2 project. The installer copies the
-MP3 **without modification**, checks the existing project, protects local edits,
-and creates a rollback backup. It does not automatically publish to GitHub.
-The code-only source ZIP does not include your MP3 or the project's art assets.
+Run the separate `apex_v064_update.sh` on your existing v0.6.3 project.
+The installer checks the affected files, protects local edits, backs up replaced
+files and preserves the already-installed tap audio byte-for-byte. Your save
+and unrelated files are not changed. It does not publish to GitHub. The separate
+code-only ZIP does not contain art or the MP3 and is not a standalone game.
 
 ```bash
-bash ~/Downloads/apex_v063_update.sh /home/aryan/apex-assassin
+bash ~/Downloads/apex_v064_update.sh /home/aryan/apex-assassin
 ```
 
 ## Run on Raspberry Pi 5
@@ -126,6 +136,12 @@ XDG_DATA_HOME="$PATH_DATA" godot --headless --path . --script tests/player_path_
 XDG_DATA_HOME="$LOOT_DATA" godot --headless --path . --script tests/loot_speed_test.gd
 XDG_DATA_HOME="$BTN_DATA" godot --headless --path . --script tests/button_feedback_test.gd
 XDG_DATA_HOME="$AUDIO_DATA" godot --headless --path . --script tests/tap_audio_import_test.gd
+# Additional v0.6.4 suites (each directory must be isolated):
+for test in v64_lockers_test v64_combat_test v64_path_stress_test v64_traffic_stress_test; do
+  TEMP_DATA="$(mktemp -d)"
+  XDG_DATA_HOME="$TEMP_DATA" godot --headless --path . --script "tests/$test.gd"
+  rm -rf "$TEMP_DATA"
+done
 rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA" "$LAYOUT_DATA" "$GATE_DATA" "$ENEMY_DATA" "$PATH_DATA" "$LOOT_DATA" "$BTN_DATA" "$AUDIO_DATA"
 ```
 
@@ -174,6 +190,8 @@ python3 tools/build_reference_gait.py
 python3 tools/build_guard_layers.py
 python3 tools/build_home_v59_background.py
 python3 tools/build_selector_background.py
+# Optional: regenerate the v0.6.4 floor, secret character, key and head layers.
+python3 tools/build_v64_assets.py
 ```
 
 ## Project layout

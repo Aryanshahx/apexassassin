@@ -8,6 +8,7 @@ const STAGE := preload("res://assets/home/character_stage.svg")
 const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 const AssassinSelectorScript := preload("res://scripts/ui/assassin_selector.gd")
+const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 
 var canvas: Control
 var cash_label: Label
@@ -55,6 +56,15 @@ func _ready() -> void:
 	_build_missions()
 	_build_start()
 	_fit()
+	if GameState.locker_pending():
+		call_deferred("_show_pending_locker")
+
+func _show_pending_locker() -> void:
+	if not GameState.locker_pending():
+		return
+	var locker := LockerRewards.new()
+	add_child(locker)
+	locker.completed.connect(_refresh_values)
 
 func _fit() -> void:
 	_layout_in_safe_rect(ScreenUtil.safe_rect(get_viewport()))
@@ -469,7 +479,7 @@ func _refresh_values() -> void:
 		gems_label.text = str(GameState.gems)
 
 func _character_portrait(id: String) -> Texture2D:
-	return load("res://assets/reference/characters/%02d.png" % GameState.reference_art_index(id))
+	return load(GameState.character_portrait_path(id))
 
 func _refresh_card() -> void:
 	if card_art:

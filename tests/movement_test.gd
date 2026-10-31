@@ -19,6 +19,27 @@ func _sampled_ray(lv: Node2D, origin: Vector2, direction: Vector2, distance: flo
 			return distance * float(i - 1) / float(steps)
 	return distance
 
+# Find the same straight-lane scenario in the larger redesigned map instead
+# of assuming an old level-1 cell remains walkable after walls were moved.
+func _find_clear_lane(lv: Node2D) -> Dictionary:
+	for y in range(9, int(lv.data.height) - 5):
+		for x in range(3, int(lv.data.width) - 4):
+			var start: Vector2 = lv._cell_center(x, y) + Vector2(0, -8)
+			var goal: Vector2 = lv._cell_center(x, y - 4)
+			var drag: Vector2 = lv._cell_center(x + 1, y - 4)
+			if lv._guard_solid(start) or lv._guard_solid(goal) or lv._guard_solid(drag):
+				continue
+			if not lv._guard_line_clear(start, goal) or not lv._guard_line_clear(goal, drag) or not lv._guard_line_clear(start, start + Vector2(0, 100)):
+				continue
+			var crowded := false
+			for guard in lv.guards:
+				if start.distance_to(guard.pos) < 180.0 or goal.distance_to(guard.pos) < 140.0:
+					crowded = true
+					break
+			if not crowded:
+				return {"start": start, "goal": goal, "drag": drag}
+	return {}
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
@@ -29,8 +50,14 @@ func _run() -> void:
 	await process_frame
 	var lv = current_scene
 	lv.set_physics_process(false)
-	var start: Vector2 = lv._cell_center(8, 30) + Vector2(0, -8)
-	var goal: Vector2 = lv._cell_center(8, 26)
+	var lane := _find_clear_lane(lv)
+	check(not lane.is_empty(), "the redesigned map has an open straight test lane")
+	if lane.is_empty():
+		quit(1)
+		return
+	var start: Vector2 = lane.start
+	var goal: Vector2 = lane.goal
+	var drag_goal: Vector2 = lane.drag
 	var direction := (goal - start).normalized()
 	lv.player_pos = start
 	var backwards := 0
@@ -106,12 +133,12 @@ func _run() -> void:
 	check(arrow_forward.dot((drawn[drawn.size() - 1] - drawn[drawn.size() - 2]).normalized()) > 0.99, "arrowhead follows the final path segment")
 	var path_before: PackedVector2Array = lv.player_path.duplicate()
 	var drag := InputEventScreenDrag.new()
-	drag.position = lv.to_global(lv._cell_center(9, 26))
+	drag.position = lv.to_global(drag_goal)
 	lv._unhandled_input(drag)
-	check(lv.player_path == path_before and lv.drag_target.distance_to(lv._cell_center(9, 26)) < 0.1 and lv.drag_dirty, "drag target updates immediately and marks a new route")
+	check(lv.player_path == path_before and lv.drag_target.distance_to(drag_goal) < 0.1 and lv.drag_dirty, "drag target updates immediately and marks a new route")
 	lv.drag_repath = 0.0
 	lv._physics_process(1.0 / 60.0)
-	check(not lv.drag_dirty and lv._route_visual_points()[lv._route_visual_points().size() - 1].distance_to(lv._cell_center(9, 26)) < 0.1, "next physics tick responds to finger movement")
+	check(not lv.drag_dirty and lv._route_visual_points()[lv._route_visual_points().size() - 1].distance_to(drag_goal) < 0.1, "next physics tick responds to finger movement")
 	path_before = lv.player_path.duplicate()
 	var emulated := InputEventMouseButton.new()
 	emulated.device = InputEvent.DEVICE_ID_EMULATION

@@ -70,7 +70,7 @@ func _box(bg: Color, border: Color, radius: int, border_width: int = 3) -> Style
 	return style
 
 func _portrait(id: String) -> Texture2D:
-	return load("res://assets/reference/characters/%02d.png" % GameState.reference_art_index(id))
+	return load(GameState.character_portrait_path(id))
 
 func _build() -> void:
 	var background := TextureRect.new()
@@ -221,7 +221,7 @@ func _roster_card(id: String) -> Button:
 	if not GameState.is_unlocked(id):
 		var price := _font(18, 3)
 		price.name = "Price"
-		price.text = "%d diamonds" % int(GameState.CHARACTERS[id].cost)
+		price.text = "KEY REWARD" if id == GameState.VAULT_CHARACTER else "%d diamonds" % int(GameState.CHARACTERS[id].cost)
 		price.position = Vector2(6, 100)
 		price.size = Vector2(120, 25)
 		price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -335,9 +335,11 @@ func _refresh_preview() -> void:
 	health_value.text = "+%d%%" % roundi(float(data.health_bonus) * 100.0)
 	gems_value.text = str(GameState.gems)
 	var unlocked := GameState.is_unlocked(preview_id)
-	selected_button.disabled = preview_id == GameState.selected_assassin
-	selected_button.text = "SELECTED" if selected_button.disabled else ("SELECT" if unlocked else "UNLOCK  %d" % int(data.cost))
-	hint.text = "Currently equipped" if selected_button.disabled else ("Tap SELECT to equip" if unlocked else "Unlock for %d diamonds" % int(data.cost))
+	var equipped := preview_id == GameState.selected_assassin
+	var locker_only := preview_id == GameState.VAULT_CHARACTER and not unlocked
+	selected_button.disabled = equipped or locker_only
+	selected_button.text = "SELECTED" if equipped else ("FIND IN LOCKERS" if locker_only else ("SELECT" if unlocked else "UNLOCK  %d" % int(data.cost)))
+	hint.text = "Currently equipped" if equipped else ("Find in a three-key locker" if locker_only else ("Tap SELECT to equip" if unlocked else "Unlock for %d diamonds" % int(data.cost)))
 	for id in cards:
 		var card: Button = cards[id]
 		var highlighted: bool = id == preview_id

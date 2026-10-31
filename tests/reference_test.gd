@@ -49,8 +49,8 @@ func _run() -> void:
 	check(gs.gems == 733 and gs.cash == 512 and gs.unlocked_level == 40 and gs.current_level == 34, "legacy currency and levels preserved")
 	check(gs.total_kills == 62 and gs.flawless_count == 3 and int(gs.best_stars.get("7", 0)) == 3, "legacy stats and stars preserved")
 	check(gs.mission1_claimed and gs.mission3_claimed and gs.last_wheel_day == "2026-10-29", "legacy mission and wheel data preserved")
-	check(absf(gs.player_speed() - (190.0 * 1.40 + 14.0)) < 0.001, "legacy fiesta speed unchanged")
-	check(gs.LEGACY_ORDER.size() == 10 and gs.REFERENCE_ORDER.size() == 12 and gs.CHARACTER_ORDER.size() == 22, "12 reference and 10 legacy characters exposed")
+	check(absf(gs.player_speed() - ((190.0 * 1.40 + 14.0) * 1.20)) < 0.001, "legacy fiesta bonus and upgrade retained with 20% speed increase")
+	check(gs.LEGACY_ORDER.size() == 10 and gs.REFERENCE_ORDER.size() == 12 and gs.CHARACTER_ORDER.size() == 23, "12 reference and 10 legacy plus one secret exposed")
 
 	var speeds := [0.10, 0.0, 0.15, 0.0, 0.20, 0.0, 0.25, 0.0, 0.30, 0.0, 0.35, 0.0]
 	var healths := [0.0, 0.10, 0.0, 0.15, 0.0, 0.20, 0.0, 0.25, 0.0, 0.30, 0.0, 0.35]
@@ -60,7 +60,7 @@ func _run() -> void:
 		check(gs.is_unlocked(id) and int(gs.CHARACTERS[id].cost) == 0, "%s immediately available free" % id)
 		check(absf(float(gs.CHARACTERS[id].speed_bonus) - float(speeds[i])) < 0.001 and absf(float(gs.CHARACTERS[id].health_bonus) - float(healths[i])) < 0.001, "%s screenshot bonuses" % id)
 		check(gs.select_character(id) and gs.selected_assassin == id, "%s selectable" % id)
-		check(absf(gs.player_speed() - (190.0 * (1.0 + float(speeds[i])) + 14.0)) < 0.001, "%s speed applies" % id)
+		check(absf(gs.player_speed() - ((190.0 * (1.0 + float(speeds[i])) + 14.0) * 1.20)) < 0.001, "%s speed applies" % id)
 		check(absf(gs.max_health() - (1000.0 * (1.0 + float(healths[i])) + 100.0)) < 0.001, "%s 1000-point health and saved upgrade apply" % id)
 		# Force a fresh read of the file to ensure the free selection survives reload.
 		gs.selected_assassin = "ronin"
@@ -108,7 +108,7 @@ func _run() -> void:
 		rig.setup(id, "player")
 		root.add_child(rig)
 		var pose := rig.art.get_node("Pose") as Sprite2D
-		check(pose != null and pose.texture.resource_path.ends_with("/characters/parts/%02d_body.png" % (i + 1)), "%s uses its own layered screenshot pixels" % id)
+		check(pose != null and pose.texture.resource_path.ends_with("/characters/parts/v64_%02d_body.png" % (i + 1)), "%s uses its own layered screenshot pixels" % id)
 		check(absf(rig.ART_WORLD_EXTENT - 55.0) < 0.001 and rig.original_blade.visible and not rig.custom_blade.visible, "%s bounded size and original standard blade" % id)
 		for knife in gs.KNIFE_ORDER:
 			rig.set_knife(knife)
@@ -141,7 +141,7 @@ func _run() -> void:
 		enemy.setup(type, "guard")
 		root.add_child(enemy)
 		var pose := enemy.art.get_node("Pose") as Sprite2D
-		check(pose.texture.resource_path.ends_with("/guards/parts/%s_body.png" % type), "%s uses layered gameplay-reference pixels" % type)
+		check(pose.texture.resource_path.ends_with("/guards/parts/v64_%s_body.png" % type), "%s uses layered gameplay-reference pixels" % type)
 		check(absf(enemy.GUARD_WORLD_EXTENT - 60.0) < 0.001, "%s bounded artwork size" % type)
 		check(enemy.anim.has_animation("idle") and enemy.anim.has_animation("run") and enemy.anim.has_animation("shoot") and enemy.anim.has_animation("hurt") and enemy.anim.has_animation("death"), "%s enemy clips present" % type)
 		check(enemy.foot_a.get_child(0).texture != enemy.foot_b.get_child(0).texture and enemy.guard_gun.get_node("Weapon").texture != null, "%s has two separate boot layers and a rifle" % type)
@@ -180,7 +180,7 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	var roster = home.overlay.find_child("Roster", true, false)
-	check(roster != null and roster.get_child_count() == 22, "selector exposes the 22 retained characters")
+	check(roster != null and roster.get_child_count() == 23, "selector exposes 22 retained characters plus the secret locker character")
 	check(home.overlay.find_child("WarehouseBackdrop", true, false) != null and home.overlay.find_child("HeroArt", true, false) != null, "live warehouse selector and featured art present")
 	# Push actual pointer events: browsing previews without spending/equipping.
 	var click_card := home.overlay.find_child("ReferenceCard02", true, false) as Button
