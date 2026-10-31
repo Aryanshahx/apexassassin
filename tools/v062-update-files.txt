@@ -1,0 +1,22 @@
+# Only these v0.6.2 update paths are staged for the guarded GitHub publisher.
+.github/workflows/android.yml
+README.md
+data/levels/levels.json
+export_presets.cfg
+project.godot
+scripts/game/level.gd
+scripts/game/world_backplate.gd
+tests/collision_test.gd
+tests/combat_test.gd
+tests/enemy_types_test.gd
+tests/enemy_types_test.gd.uid
+tests/gate_test.gd
+tests/gate_test.gd.uid
+tests/layout_test.gd
+tests/layout_test.gd.uid
+tests/movement_test.gd
+tests/smoke_test.gd
+tools/generate_levels.py
+tools/publish_github.sh
+tools/repair_levels_v62.py
+tools/v062-update-files.txt

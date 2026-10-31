@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.6.1 — improved guard movement and immediate flashlight detection, a 1,000-point player health bar, a selected character app icon and updated splash text.
+v0.6.2 — 20% larger, carefully spaced cover; a brighter depot; three enemy types; smoother doorway traffic; stronger alerts and a slimmer health bar.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -26,9 +26,18 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   an immediate shot; gunfire alerts nearby guards, which investigate the last
   known location and still require line of sight to shoot. Boots and rifle aim
   are approximations rebuilt from stills.
-- **Visible health**: the player starts at 1,000 base health, shown in a green
-  bar above the character. A standard shot removes 100 points; existing character
-  health bonuses and saved health upgrades continue to apply (+100 per upgrade).
+- **Three enemy types** (tunable defaults): scout deals 65 damage every 0.65 s,
+  standard guard deals 100 every 1.00 s, and heavy deals 160 every 1.45 s.
+  They have distinct tints, speeds and heavy armour. Gunshots can alert guards
+  within 480 world units; a red `?` marks alert, investigation and search.
+- **Visible health**: the player starts at 1,000 base health, shown in a thinner
+  green bar above the character. Existing character health bonuses and saved
+  health upgrades continue to apply (+100 per upgrade).
+- **Repaired cover**: visible and collision cover are 20% larger in both dimensions.
+  Across the 100 maps all 1,744 crates, 1,064 guards, player spawns and rewards
+  are retained. Crates and guard starts are repositioned where needed; 253 of
+  1,122 original interior wall sections are removed to maintain safe passages.
+  The seeded generator reproduces the repaired maps deterministically.
 - **Chosen character logo** is used for the Android launcher. The original splash
   artwork is retained, with its bottom labels changed to “Loading...” and
   “Hyper Tech Labs”.
@@ -80,6 +89,7 @@ godot --headless --path . --import
 SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"; MOVE_DATA="$(mktemp -d)"
 ROAM_DATA="$(mktemp -d)"; TRANS_DATA="$(mktemp -d)"; HOME_DATA="$(mktemp -d)"
 COMBAT_DATA="$(mktemp -d)"; COLLISION_DATA="$(mktemp -d)"; SPLASH_DATA="$(mktemp -d)"
+LAYOUT_DATA="$(mktemp -d)"; GATE_DATA="$(mktemp -d)"; ENEMY_DATA="$(mktemp -d)"
 XDG_DATA_HOME="$SMOKE_DATA" godot --headless --path . --script tests/smoke_test.gd
 XDG_DATA_HOME="$REF_DATA" godot --headless --path . --script tests/reference_test.gd
 XDG_DATA_HOME="$MOVE_DATA" godot --headless --path . --script tests/movement_test.gd
@@ -89,7 +99,10 @@ XDG_DATA_HOME="$HOME_DATA" godot --headless --path . --script tests/home_test.gd
 XDG_DATA_HOME="$COMBAT_DATA" godot --headless --path . --script tests/combat_test.gd
 XDG_DATA_HOME="$COLLISION_DATA" godot --headless --path . --script tests/collision_test.gd
 XDG_DATA_HOME="$SPLASH_DATA" godot --headless --path . --script tests/splash_test.gd
-rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA"
+XDG_DATA_HOME="$LAYOUT_DATA" godot --headless --path . --script tests/layout_test.gd
+XDG_DATA_HOME="$GATE_DATA" godot --headless --path . --script tests/gate_test.gd
+XDG_DATA_HOME="$ENEMY_DATA" godot --headless --path . --script tests/enemy_types_test.gd
+rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA" "$LAYOUT_DATA" "$GATE_DATA" "$ENEMY_DATA"
 ```
 
 ## Push to GitHub + build APK
@@ -336,3 +349,16 @@ distribution. No original source animation frames were supplied.
   “Loading...” and “Hyper Tech Labs”; the original splash artwork remains.
 - The Git publisher disables the pager so its review list and confirmation
   cannot appear to stall on a long terminal screen.
+
+## v0.6.2 — larger cover and smarter enemy traffic
+
+The new obstacle size is 1.2 times the v0.6.1 rendered rectangle, centered on
+the repaired placement. Some cover has moved and some interior wall sections
+were opened to keep the enlarged layouts navigable; original crate and guard
+counts, player spawn cells, rewards and local saves are preserved.
+
+Scouts, standard guards and heavies have different shot damage and cadence;
+the values above are gameplay defaults because no exact damage values were
+specified. Heavies also have two health points. Nearby guards investigate
+gunfire without shooting through cover. Opposing and crossing doorway traffic
+yields predictably and followers can back out of a queue.

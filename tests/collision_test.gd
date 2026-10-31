@@ -15,7 +15,7 @@ func _open_origin(lv: Node2D) -> Vector2:
 			var ok := true
 			for dy in range(6):
 				for dx in range(6):
-					if lv.grid.is_point_solid(Vector2i(x + dx, y + dy)):
+					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
 						ok = false
 			if ok:
 				return lv._cell_center(x + 1, y + 2)

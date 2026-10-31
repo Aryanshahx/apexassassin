@@ -95,6 +95,10 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/combat" timeout 120 "$GODOT" --headless --path . --script tests/combat_test.gd
           XDG_DATA_HOME="$TEST_DATA/collision" timeout 120 "$GODOT" --headless --path . --script tests/collision_test.gd
           XDG_DATA_HOME="$TEST_DATA/splash" timeout 120 "$GODOT" --headless --path . --script tests/splash_test.gd
+          mkdir -p "$TEST_DATA/layout" "$TEST_DATA/gate" "$TEST_DATA/enemy-types"
+          XDG_DATA_HOME="$TEST_DATA/layout" timeout 120 "$GODOT" --headless --path . --script tests/layout_test.gd
+          XDG_DATA_HOME="$TEST_DATA/gate" timeout 120 "$GODOT" --headless --path . --script tests/gate_test.gd
+          XDG_DATA_HOME="$TEST_DATA/enemy-types" timeout 120 "$GODOT" --headless --path . --script tests/enemy_types_test.gd
 
       - name: Export debug APK
         run: |

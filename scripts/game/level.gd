@@ -6,11 +6,10 @@ extends Node2D
 ## Nearby guards hear gunfire and investigate. Kills drop gems.
 
 const CELL := 32.0
-## Enlarge cover on all sides independently of actor and camera scaling.
-## A one-cell obstacle becomes 38 instead of 32 units (18.75% thicker).
-## 3 + the existing 4-unit collision margin is less than half a cell, so
-## centre-based AStar walkable cells stay the same across all levels.
+## Increase each existing obstacle footprint by 20%, about its own centre.
+## The repaired authored layouts leave space for this larger art and collision.
 const OBSTACLE_GROW := 3.0
+const OBSTACLE_SCALE := 1.20
 const ORIGIN := Vector2(24, 140)
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
 const FLOOR := preload("res://assets/environment/depot/floor_real.png")
@@ -18,12 +17,12 @@ const FLOOR := preload("res://assets/environment/depot/floor_real.png")
 const DEPOT := "res://assets/environment/depot/"
 const CONTAINER_KEYS := ["blue", "red", "olive"]
 const SRC_THICK := 91.0          # container width in the concept art
-## Night shift: the depot is darkened so guard flashlights read clearly.
-const GRADE_FLOOR := Color(0.34, 0.37, 0.46)
-const GRADE_OUTSIDE := Color(0.17, 0.19, 0.26)
-const GRADE_WALL := Color(0.62, 0.66, 0.78)
-const GRADE_CRATE := Color(0.66, 0.69, 0.80)
-const GRADE_PROP := Color(0.70, 0.73, 0.84)
+## Bright, colourful original depot art, while beams stay legible.
+const GRADE_FLOOR := Color(0.76, 0.86, 0.94)
+const GRADE_OUTSIDE := Color(0.40, 0.48, 0.58)
+const GRADE_WALL := Color(1.0, 0.98, 1.0)
+const GRADE_CRATE := Color(1.0, 0.98, 0.94)
+const GRADE_PROP := Color(0.95, 0.97, 1.0)
 ## Camera: visible grid cells across the width. 15 shows 25% more world
 ## than the old 12-cell view (actors are 20% smaller), and still follows the player.
 const CAM_VIEW_CELLS := 15.0
@@ -49,19 +48,28 @@ const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
 const GUARD_GAP := 66.0
-const GUARD_WALL_MARGIN := 5.0
+# Body clearance beyond the universal four-unit blocker: wider than before.
+const GUARD_WALL_MARGIN := 20.0
 const GUARD_AVOID_HOLD := 0.55
 const PLAYER_SCALE := 1.40
 const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
-const BULLET_DAMAGE := 100.0
-const GUNSHOT_HEARING_RADIUS := 320.0
+const BULLET_DAMAGE := 100.0 # fallback for legacy/test bullets
+const GUNSHOT_HEARING_RADIUS := 480.0
+const HEALTH_BAR_SIZE := Vector2(64, 8)
+const ENEMY_PROFILES := {
+	"scout": {"damage": 65.0, "interval": 0.65, "speed": 68.0, "vision": 250.0, "tint": Color(0.55, 0.88, 1.0)},
+	"guard": {"damage": 100.0, "interval": 1.00, "speed": 58.0, "vision": 250.0, "tint": Color.WHITE},
+	"heavy": {"damage": 160.0, "interval": 1.45, "speed": 48.0, "vision": 220.0, "tint": Color(1.0, 0.78, 0.68)},
+}
 const DRAG_REPATH_INTERVAL := 0.045
 
 enum GState { PATROL, INVESTIGATE, ALERT, SEARCH, DEAD }
 
 var data: Dictionary = {}
 var grid := AStarGrid2D.new()
+# Guards need a wider navigation clearance than the player.
+var guard_grid := AStarGrid2D.new()
 var wall_rects: Array[Rect2] = []
 var crate_rects: Array[Rect2] = []
 # Pre-grown once; used by movement, bullet blocking and the analytic vision rays.
@@ -109,6 +117,8 @@ var drag_repath := 0.0
 var drag_dirty := false
 var walkable_regions: Array = []
 var region_by_cell := {}
+var guard_walkable_regions: Array = []
+var guard_region_by_cell := {}
 var map_backplate: Node2D
 var map_cover: Node2D
 var fx_font: FontVariation
@@ -225,9 +235,9 @@ func _load_level(n: int) -> void:
 		return
 	player_pos = _cell_center(data.spawn[0], data.spawn[1])
 	for w in data.walls:
-		wall_rects.append(Rect2(ORIGIN + Vector2(w[0], w[1]) * CELL, Vector2(w[2], w[3]) * CELL).grow(OBSTACLE_GROW))
+		wall_rects.append(_cover_rect(w))
 	for c in data.crates:
-		crate_rects.append(Rect2(ORIGIN + Vector2(c[0], c[1]) * CELL, Vector2(c[2], c[3]) * CELL).grow(OBSTACLE_GROW))
+		crate_rects.append(_cover_rect(c))
 	blocking_rects.clear()
 	for rect in wall_rects:
 		blocking_rects.append(rect.grow(4.0))
@@ -237,49 +247,76 @@ func _load_level(n: int) -> void:
 	for rect in blocking_rects:
 		guard_blocking_rects.append(rect.grow(GUARD_WALL_MARGIN))
 
+func _cover_rect(item: Array) -> Rect2:
+	# Keep the old obstacle centre fixed while enlarging both dimensions by 20%.
+	var previous := Rect2(ORIGIN + Vector2(item[0], item[1]) * CELL, Vector2(item[2], item[3]) * CELL).grow(OBSTACLE_GROW)
+	var new_size := previous.size * OBSTACLE_SCALE
+	return Rect2(previous.get_center() - new_size * 0.5, new_size)
+
 func _cell_center(x: int, y: int) -> Vector2:
 	return ORIGIN + Vector2(x + 0.5, y + 0.5) * CELL
 
 func _to_cell(p: Vector2) -> Vector2i:
 	return Vector2i(int(floor((p.x - ORIGIN.x) / CELL)), int(floor((p.y - ORIGIN.y) / CELL)))
 
+func _configure_grid(target: AStarGrid2D, diagonals: int) -> void:
+	# A level may be reloaded into an existing instance during tests/tools.
+	target.clear()
+	target.region = Rect2i(0, 0, int(data.width), int(data.height))
+	target.cell_size = Vector2.ONE * CELL
+	target.offset = ORIGIN + Vector2.ONE * CELL * 0.5
+	target.diagonal_mode = diagonals
+	target.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	target.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
+	target.update()
+
 func _build_grid() -> void:
-	grid.region = Rect2i(0, 0, int(data.width), int(data.height))
-	grid.cell_size = Vector2.ONE * CELL
-	grid.offset = ORIGIN + Vector2.ONE * CELL * 0.5
-	grid.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
-	grid.default_compute_heuristic = AStarGrid2D.HEURISTIC_OCTILE
-	grid.default_estimate_heuristic = AStarGrid2D.HEURISTIC_OCTILE
-	grid.update()
+	_configure_grid(grid, AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES)
+	# Four-way guard routes stay inside the conservative body-clearance grid.
+	_configure_grid(guard_grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
 	for y in range(int(data.height)):
 		for x in range(int(data.width)):
-			if _solid(_cell_center(x, y)):
-				grid.set_point_solid(Vector2i(x, y), true)
+			var cell := Vector2i(x, y)
+			var point := _cell_center(x, y)
+			if _solid(point):
+				grid.set_point_solid(cell, true)
+			if _guard_solid(point):
+				guard_grid.set_point_solid(cell, true)
 
-# The movement grid may have disconnected pockets. Flood-fill its four-way
-# components once so roaming and touch destinations never cross walls.
+# Separate connected regions stop patrol and search from selecting a cell
+# that is player-accessible but too narrow for a guard body.
 func _build_walkable_regions() -> void:
-	walkable_regions.clear()
-	region_by_cell.clear()
+	_fill_regions(grid, walkable_regions, region_by_cell)
+	_fill_regions(guard_grid, guard_walkable_regions, guard_region_by_cell)
+
+func _fill_regions(source: AStarGrid2D, regions: Array, lookup: Dictionary) -> void:
+	regions.clear()
+	lookup.clear()
 	var directions := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 	for y in range(int(data.height)):
 		for x in range(int(data.width)):
 			var cell := Vector2i(x, y)
-			if grid.is_point_solid(cell) or region_by_cell.has(cell):
+			if source.is_point_solid(cell) or lookup.has(cell):
 				continue
-			var rid := walkable_regions.size()
+			var rid := regions.size()
 			var queue: Array[Vector2i] = [cell]
-			region_by_cell[cell] = rid
+			lookup[cell] = rid
 			var cursor := 0
 			while cursor < queue.size():
 				var here := queue[cursor]
 				cursor += 1
 				for d in directions:
 					var next: Vector2i = here + d
-					if grid.is_in_boundsv(next) and not grid.is_point_solid(next) and not region_by_cell.has(next):
-						region_by_cell[next] = rid
+					if source.is_in_boundsv(next) and not source.is_point_solid(next) and not lookup.has(next):
+						lookup[next] = rid
 						queue.append(next)
-			walkable_regions.append(queue)
+			regions.append(queue)
+
+func _guard_solid(p: Vector2) -> bool:
+	for rect in guard_blocking_rects:
+		if rect.has_point(p):
+			return true
+	return false
 
 func _solid(p: Vector2) -> bool:
 	for rect in blocking_rects:
@@ -367,33 +404,57 @@ func _build_player() -> void:
 	add_child(player_rig)
 
 func _build_guards() -> void:
-	for g in data.guards:
+	for index in range(data.guards.size()):
+		var g: Dictionary = data.guards[index]
 		var route := PackedVector2Array()
 		for c in g.route:
 			route.append(_cell_center(c[0], c[1]))
-		var kind := "elite" if bool(g.get("elite", false)) else "guard"
+		# Three visually differentiated archetypes, present from the first level.
+		var variant := "heavy" if bool(g.get("elite", false)) or index % 5 == 2 else ("scout" if index % 3 == 1 else "guard")
+		var profile: Dictionary = ENEMY_PROFILES[variant]
+		var kind := "elite" if variant == "heavy" else "guard"
 		var rig := ActorRigScript.new()
 		rig.setup(kind, "guard")
 		rig.scale = Vector2.ONE * (0.98 if kind == "elite" else 0.92)
+		rig.modulate = profile.tint
 		rig.position = _cell_center(g.x, g.y)
 		rig.rotation = deg_to_rad(float(g.face)) + PI / 2
 		add_child(rig)
+		# The red question mark is a world-space sibling, never rotated with the actor.
+		var mark := _label(30, 5)
+		mark.name = "GuardAlertMark%d" % index
+		mark.text = "?"
+		mark.size = Vector2(30, 36)
+		mark.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mark.add_theme_color_override("font_color", Color("ff2938"))
+		mark.z_index = 101
+		mark.visible = false
+		add_child(mark)
 		guards.append({
+			"id": index, "variant": variant, "shot_damage": float(profile.damage),
+			"shot_interval": float(profile.interval), "mark": mark,
 			"pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
 			"hp": 2 if kind == "elite" else 1, "elite": kind == "elite",
 			"state": GState.PATROL, "alert": 0.0, "shoot": 0.0, "burst": 0,
 			"alive": true, "path": PackedVector2Array(), "pi": 0,
 			"last_seen": Vector2.ZERO, "search_t": 0.0, "rig": rig,
-			"speed": 48.0 if kind == "elite" else 58.0,
-			"vision": 220.0 if kind == "elite" else 250.0,
+			"speed": float(profile.speed), "vision": float(profile.vision),
 			"roam_target": Vector2.ZERO, "roam_valid": false,
 			"blocked_t": 0.0, "avoid_side": 1.0, "avoid_time": 0.0,
 			"avoid_direction": Vector2.ZERO, "walk_hold": 0.0, "sees_player": false,
+			"travel_dir": Vector2.ZERO, "traffic_wait": false, "traffic_stall": 0.0,
+			"yield_partner": -1, "yield_forward": Vector2.ZERO,
+			"yield_side": Vector2.ZERO, "yield_left": 0.0,
 			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
 			"light_face": 0.0, "light_segments": [],
 		})
 	total = guards.size()
+
+func _sync_guard_marker(g: Dictionary) -> void:
+	var mark: Label = g.mark
+	mark.visible = bool(g.alive) and g.state in [GState.INVESTIGATE, GState.ALERT, GState.SEARCH]
+	mark.position = g.pos + Vector2(-15, -62)
 
 func _build_hud() -> void:
 	var cl := CanvasLayer.new()
@@ -454,30 +515,33 @@ func _build_player_health_bar() -> void:
 	# Sibling of the rotating actor: stays horizontal and follows over their head.
 	player_health_anchor = Control.new()
 	player_health_anchor.name = "PlayerHealthBar"
-	player_health_anchor.size = Vector2(84, 18)
+	player_health_anchor.size = HEALTH_BAR_SIZE
 	player_health_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	player_health_anchor.z_index = 100
 	add_child(player_health_anchor)
 	player_health_bar = ProgressBar.new()
 	player_health_bar.name = "Fill"
-	player_health_bar.size = player_health_anchor.size
 	player_health_bar.show_percentage = false
 	player_health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bg := StyleBoxFlat.new()
 	bg.bg_color = Color("1b2a22")
 	bg.border_color = Color("0b1611")
-	bg.set_border_width_all(2)
-	bg.set_corner_radius_all(5)
+	bg.set_border_width_all(1)
+	bg.set_corner_radius_all(3)
 	var fill := StyleBoxFlat.new()
 	fill.bg_color = Color("39de5a")
-	fill.set_corner_radius_all(4)
+	fill.set_corner_radius_all(3)
 	player_health_bar.add_theme_stylebox_override("background", bg)
 	player_health_bar.add_theme_stylebox_override("fill", fill)
 	player_health_anchor.add_child(player_health_bar)
-	player_health_label = _label(16, 2)
+	# Size after disabling percentage/applying theme: Godot's default font-based
+	# minimum would otherwise leave the green bar 27 units tall.
+	player_health_bar.size = HEALTH_BAR_SIZE
+	player_health_label = _label(17, 3)
 	player_health_label.name = "Value"
-	player_health_label.position = Vector2(0, -2)
-	player_health_label.size = Vector2(84, 22)
+	# Keep the numeric health readable above the slim green fill.
+	player_health_label.position = Vector2(0, -27)
+	player_health_label.size = Vector2(HEALTH_BAR_SIZE.x, 27)
 	player_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	player_health_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	player_health_anchor.add_child(player_health_label)
@@ -486,7 +550,7 @@ func _build_player_health_bar() -> void:
 func _update_player_health_bar() -> void:
 	if player_health_anchor == null:
 		return
-	player_health_anchor.position = player_pos + Vector2(-42, -59)
+	player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -52)
 	player_health_bar.max_value = GameState.max_health()
 	player_health_bar.value = clampf(player_hp, 0.0, player_health_bar.max_value)
 	player_health_label.text = str(maxi(0, ceili(player_hp)))
@@ -580,7 +644,7 @@ func _move_player(delta: float) -> void:
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
 	if player_health_anchor:
-		player_health_anchor.position = player_pos + Vector2(-42, -59)
+		player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -52)
 	player_rig.set_moving(moved)
 	if invuln > 0 and int(invuln * 12) % 2 == 0:
 		player_rig.modulate = Color(1, 0.5, 0.5)
@@ -723,6 +787,7 @@ func _kill_guard(index: int, silent := false) -> void:
 	var g: Dictionary = guards[index]
 	g.alive = false
 	g.state = GState.DEAD
+	_sync_guard_marker(g)
 	g.rig.die()
 	kills += 1
 	_update_counter()
@@ -765,6 +830,7 @@ func _alarm_others(source: Dictionary) -> void:
 		else:
 			other.last_seen = new_target
 			other.search_t = 3.0
+		_sync_guard_marker(other)
 
 func _investigate(g: Dictionary, p: Vector2) -> void:
 	g.state = GState.INVESTIGATE
@@ -777,6 +843,7 @@ func _investigate(g: Dictionary, p: Vector2) -> void:
 func _update_guards(delta: float) -> void:
 	for g in guards:
 		if not g.alive:
+			_sync_guard_marker(g)
 			continue
 		var previous_position: Vector2 = g.pos
 		g.light_age += delta
@@ -818,11 +885,8 @@ func _update_guards(delta: float) -> void:
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
 					if g.shoot <= 0:
-						if g.burst <= 0:
-							g.burst = 3 if g.elite else 2
 						_fire(g)
-						g.burst -= 1
-						g.shoot = 0.14 if g.burst > 0 else (0.9 if g.elite else 1.15)
+						g.shoot = float(g.shot_interval)
 				else:
 					_seek(g, g.last_seen, delta, g.speed * 1.5)
 					if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
@@ -845,11 +909,15 @@ func _update_guards(delta: float) -> void:
 		var player_direction: Vector2 = player_pos - g.pos
 		var aim_offset: float = angle_difference(g.face, player_direction.angle()) if player_direction.length_squared() > 0.001 else 0.0
 		g.rig.set_aiming(sees, aim_offset)
+		_sync_guard_marker(g)
 
 func _fire(g: Dictionary) -> void:
 	var toward_player: Vector2 = player_pos - g.pos
 	var dir: Vector2 = toward_player.normalized() if toward_player.length_squared() > 0.001 else Vector2.from_angle(g.face)
-	bullets.append({"pos": g.pos + dir * 24, "vel": dir * 420.0, "life": 1.6})
+	# Never place a point-blank muzzle beyond the player.
+	var muzzle_offset := minf(24.0, maxf(0.0, toward_player.length() - PLAYER_HIT_RADIUS * 0.5))
+	bullets.append({"pos": g.pos + dir * muzzle_offset, "vel": dir * 420.0,
+		"life": 1.6, "damage": float(g.get("shot_damage", BULLET_DAMAGE))})
 	# The muzzle flash is attached to the moving gun, not floating in the world.
 	g.rig.play_anim("shoot", true)
 	Sfx.play("shot")
@@ -857,16 +925,18 @@ func _fire(g: Dictionary) -> void:
 
 func _choose_roam_target(g: Dictionary) -> bool:
 	var from := _to_cell(g.pos)
-	var region := int(region_by_cell.get(from, -1))
+	var region := int(guard_region_by_cell.get(from, -1))
 	if region < 0:
 		return false
-	var cells: Array = walkable_regions[region]
+	var cells: Array = guard_walkable_regions[region]
 	if cells.size() < 2:
 		return false
 	var choice := from
+	var fallback := from
 	var best_distance := 0.0
-	# Pick new long-range destinations across this connected portion of the
-	# warehouse; never assume two arbitrary floor cells are mutually reachable.
+	var fallback_distance := 0.0
+	# Prefer a long-range route whose first step does not push directly into
+	# another guard. This also helps clear a queue after a crowded doorway.
 	for attempt in range(mini(36, cells.size() * 2)):
 		var cell: Vector2i = cells[rng.randi_range(0, cells.size() - 1)]
 		var point := _cell_center(cell.x, cell.y)
@@ -878,11 +948,30 @@ func _choose_roam_target(g: Dictionary) -> bool:
 				break
 		if occupied:
 			continue
+		if distance > fallback_distance:
+			fallback = cell
+			fallback_distance = distance
+		var route: PackedVector2Array = guard_grid.get_point_path(from, cell)
+		if route.size() < 2:
+			continue
+		var initial: Vector2 = (route[1] - g.pos).normalized()
+		var crowded := false
+		for other in guards:
+			if other.rig == g.rig or not other.alive:
+				continue
+			var offset: Vector2 = other.pos - g.pos
+			if offset.length_squared() < (GUARD_GAP * 1.8) * (GUARD_GAP * 1.8) and initial.dot(offset.normalized()) > 0.35:
+				crowded = true
+				break
+		if crowded:
+			continue
 		if distance > best_distance:
 			choice = cell
 			best_distance = distance
 		if distance >= (CELL * 6.0) * (CELL * 6.0):
 			break
+	if choice == from:
+		choice = fallback
 	if choice == from:
 		return false
 	g.roam_target = _cell_center(choice.x, choice.y)
@@ -920,6 +1009,9 @@ func _guard_step_clear(g: Dictionary, candidate: Vector2) -> bool:
 	# Guard bodies need more wall clearance than the player-centre ray.
 	if not _guard_line_clear(g.pos, candidate):
 		return false
+	var destination_cell := _to_cell(candidate)
+	if not guard_grid.is_in_boundsv(destination_cell) or guard_grid.is_point_solid(destination_cell):
+		return false
 	for other in guards:
 		if not other.alive or other.rig == g.rig:
 			continue
@@ -933,10 +1025,138 @@ func _guard_step_clear(g: Dictionary, candidate: Vector2) -> bool:
 			return false
 	return true
 
+# Is this a single-file passage for two guard-sized bodies? Test the actual
+# expanded cover, not just the rendered tiles, so the result works at any gate.
+func _narrow_gate_at(point: Vector2, forward: Vector2) -> bool:
+	var side := Vector2(-forward.y, forward.x) * (GUARD_GAP * 0.8)
+	var open := 0
+	for probe in [point + side, point - side]:
+		var cell := _to_cell(probe)
+		if guard_grid.is_in_boundsv(cell) and not guard_grid.is_point_solid(cell) and _guard_line_clear(point, probe):
+			open += 1
+	return open == 0
+
+func _gate_axis_at(point: Vector2) -> Vector2:
+	var horizontal := _narrow_gate_at(point, Vector2.RIGHT)
+	var vertical := _narrow_gate_at(point, Vector2.DOWN)
+	if horizontal and not vertical:
+		return Vector2.RIGHT
+	if vertical and not horizontal:
+		return Vector2.DOWN
+	return Vector2.ZERO
+
+func _blocking_guard(g: Dictionary, desired: Vector2) -> Dictionary:
+	var nearest := INF
+	var blocker: Dictionary = {}
+	for other in guards:
+		if not other.alive or other.rig == g.rig:
+			continue
+		if _segment_circle(g.pos, desired, other.pos, GUARD_GAP - 0.05):
+			var distance: float = g.pos.distance_squared_to(other.pos)
+			if distance < nearest:
+				nearest = distance
+				blocker = other
+	return blocker
+
+func _guard_by_id(id: int) -> Dictionary:
+	for other in guards:
+		if int(other.id) == id and other.alive:
+			return other
+	return {}
+
+func _yield_at_gate(g: Dictionary, movement: Vector2) -> Vector2:
+	var other := _guard_by_id(int(g.yield_partner))
+	var forward: Vector2 = g.yield_forward
+	if other.is_empty() or (other.pos - g.pos).dot(forward) < -GUARD_GAP * 0.30:
+		# The priority guard has passed. Replan from this new location.
+		g.yield_partner = -1
+		g.yield_side = Vector2.ZERO
+		g.yield_left = 0.0
+		g.path.clear()
+		g.pi = 0
+		g.traffic_wait = true
+		return g.pos
+	var step := movement.length()
+	if step < 0.0001:
+		g.traffic_wait = true
+		return g.pos
+	var side: Vector2 = g.yield_side
+	if side == Vector2.ZERO and not _narrow_gate_at(g.pos, forward):
+		# Once clear of the doorway, move into a side pocket. Commit to this
+		# direction until there is enough space; don't flip left/right per frame.
+		var perpendicular := Vector2(-forward.y, forward.x)
+		var preference := signf((g.pos - other.pos).dot(perpendicular))
+		if is_zero_approx(preference):
+			preference = 1.0 if int(g.id) % 2 == 0 else -1.0
+		for sign in [preference, -preference]:
+			var trial: Vector2 = perpendicular * sign
+			var probe: Vector2 = g.pos + trial * (GUARD_GAP + 8.0)
+			var probe_cell := _to_cell(probe)
+			if guard_grid.is_in_boundsv(probe_cell) and not guard_grid.is_point_solid(probe_cell) and _guard_line_clear(g.pos, probe):
+				g.yield_side = trial
+				g.yield_left = GUARD_GAP + 8.0
+				side = trial
+				break
+	if side != Vector2.ZERO and g.yield_left > 0.0:
+		var lateral: Vector2 = g.pos + side * minf(step, g.yield_left)
+		if _guard_step_clear(g, lateral):
+			g.yield_left = maxf(0.0, g.yield_left - step)
+			g.traffic_wait = true
+			return lateral
+		# The grid may conservatively block the next cell even when its exact
+		# edge was clear. Back farther into the room before choosing a side.
+		var lateral_cell := _to_cell(lateral)
+		if guard_grid.is_in_boundsv(lateral_cell) and guard_grid.is_point_solid(lateral_cell):
+			g.yield_side = Vector2.ZERO
+			side = Vector2.ZERO
+	# In a tight gate, back out without trying to pass through the other actor.
+	# If parked at the side pocket, wait for the priority guard to finish passing.
+	if side == Vector2.ZERO:
+		var back: Vector2 = g.pos - forward * step
+		if _guard_step_clear(g, back):
+			g.traffic_wait = true
+			return back
+		# If another lower-priority guard is immediately behind, ask it to
+		# back out as well. This propagates a queue rather than trapping a
+		# yielding guard between a doorway and its own follower.
+		var follower := _blocking_guard(g, back)
+		if not follower.is_empty() and int(follower.id) > int(g.id) and int(follower.yield_partner) < 0:
+			follower.yield_partner = int(g.id)
+			follower.yield_forward = forward
+			follower.yield_side = Vector2.ZERO
+			follower.yield_left = 0.0
+			follower.avoid_time = 0.0
+	g.traffic_wait = true
+	return g.pos
+
 func _guard_step(g: Dictionary, desired: Vector2, delta: float) -> Vector2:
 	var movement: Vector2 = desired - g.pos
+	g.traffic_wait = false
 	if movement.length_squared() < 0.000001:
 		return g.pos
+	if int(g.yield_partner) >= 0:
+		return _yield_at_gate(g, movement)
+	var blocker := _blocking_guard(g, desired)
+	if not blocker.is_empty():
+		# The depot gates are axis-aligned. Retire straight along the doorway,
+		# not along a diagonal target line that can run into the jamb.
+		var forward := Vector2(signf(movement.x), 0.0) if absf(movement.x) >= absf(movement.y) else Vector2(0.0, signf(movement.y))
+		var other_forward: Vector2 = blocker.travel_dir
+		var dot := forward.dot(other_forward)
+		var single_file := _narrow_gate_at(g.pos, forward) or _narrow_gate_at(blocker.pos, forward)
+		if single_file and other_forward.length_squared() > 0.20:
+			g.avoid_time = 0.0
+			if dot < 0.45 and int(g.id) > int(blocker.id):
+				# Stable right-of-way for opposing or crossing traffic: the
+				# higher ID yields and waits until the other has passed.
+				g.yield_partner = int(blocker.id)
+				g.yield_forward = forward
+				g.yield_side = Vector2.ZERO
+				g.yield_left = 0.0
+				return _yield_at_gate(g, movement)
+			# Same-direction followers and the priority guard wait in place.
+			g.traffic_wait = true
+			return g.pos
 	# Commit to a brief passing direction rather than flipping sides each frame.
 	# This hysteresis prevents two approaching guards from vibrating in place.
 	if g.avoid_time > 0.0:
@@ -944,7 +1164,12 @@ func _guard_step(g: Dictionary, desired: Vector2, delta: float) -> Vector2:
 		g.avoid_time = maxf(0.0, g.avoid_time - delta)
 		if _guard_step_clear(g, held):
 			return held
-		g.avoid_time = 0.0
+		if _guard_step_clear(g, desired):
+			g.avoid_time = 0.0
+			return desired
+		# A wall or another body blocked the committed side. Wait briefly
+		# rather than instantly flipping to the opposite side every frame.
+		return g.pos
 	if _guard_step_clear(g, desired):
 		return desired
 	# Both oncoming guards choose their own right-hand side, so they pass on
@@ -963,8 +1188,18 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 	if g.path.size() == 0:
 		var from := _to_cell(g.pos)
 		var to := _to_cell(target)
-		if grid.is_in_boundsv(from) and grid.is_in_boundsv(to) and not grid.is_point_solid(to):
-			g.path = grid.get_point_path(from, to)
+		var region := int(guard_region_by_cell.get(from, -1))
+		if region >= 0 and int(guard_region_by_cell.get(to, -1)) != region:
+			# Investigate the nearest point a guard can actually reach when the
+			# last-seen player is tight against cover or outside its clearance.
+			var nearest := INF
+			for cell in guard_walkable_regions[region]:
+				var distance: float = _cell_center(cell.x, cell.y).distance_squared_to(target)
+				if distance < nearest:
+					nearest = distance
+					to = cell
+		if region >= 0 and guard_grid.is_in_boundsv(to) and not guard_grid.is_point_solid(to):
+			g.path = guard_grid.get_point_path(from, to)
 			if from == to:
 				g.path.clear()
 				if g.pos.distance_to(target) > 0.5 and _guard_line_clear(g.pos, target):
@@ -986,16 +1221,45 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 			continue
 		var start: Vector2 = g.pos
 		var step := minf(d, budget)
-		var wanted: Vector2 = start + (waypoint - start) * (step / d)
+		var direction := (waypoint - start).normalized()
+		# Do not cut diagonally into the jamb of a narrow doorway; continue
+		# through the gate's axis before turning toward the next waypoint.
+		var gate_axis := _gate_axis_at(start)
+		if gate_axis != Vector2.ZERO:
+			var along := (waypoint - start).dot(gate_axis)
+			if absf(along) > 0.5:
+				direction = gate_axis * signf(along)
+				step = minf(step, absf(along))
+		var wanted: Vector2 = start + direction * step
+		g.travel_dir = direction
 		var accepted := _guard_step(g, wanted, delta)
 		g.pos = accepted
 		var displacement := accepted - start
 		if displacement.length_squared() > 0.00001:
 			g.face = lerp_angle(g.face, displacement.angle(), minf(1.0, delta * 8.0))
 		if accepted.distance_squared_to(wanted) > 0.0001:
-			g.blocked_t += delta
+			# Queueing is deliberate, but a doorway with no side pocket must
+			# not strand a guard forever: after a stationary timeout, re-route
+			# a patrol or search from the best currently reachable position.
+			if g.traffic_wait:
+				if displacement.length_squared() <= 0.00001:
+					g.traffic_stall += delta
+				else:
+					g.traffic_stall = maxf(0.0, g.traffic_stall - delta * 2.0)
+				if g.traffic_stall >= 2.5:
+					g.traffic_stall = 0.0
+					g.yield_partner = -1
+					g.yield_side = Vector2.ZERO
+					g.avoid_time = 0.0
+					g.blocked_t = 3.0
+					g.path.clear()
+					g.pi = 0
+			else:
+				g.traffic_stall = 0.0
+				g.blocked_t += delta
 			budget = 0.0
 		else:
+			g.traffic_stall = maxf(0.0, g.traffic_stall - delta * 2.0)
 			g.blocked_t = maxf(0.0, g.blocked_t - delta * 2.0)
 			budget -= step
 			if d <= step + 0.001:
@@ -1036,9 +1300,9 @@ func _update_bullets(delta: float) -> void:
 		# Sweep to the first wall so a low-frame-rate bullet cannot tunnel
 		# through cover or hit someone who is behind it.
 		if invuln <= 0 and b.life > 0 and _segment_circle(old, b.pos, player_pos, PLAYER_HIT_RADIUS):
-			player_hp = maxf(0.0, player_hp - BULLET_DAMAGE)
+			player_hp = maxf(0.0, player_hp - float(b.get("damage", BULLET_DAMAGE)))
 			damage_taken += 1
-			invuln = 0.9
+			invuln = 0.35
 			_update_player_health_bar()
 			player_rig.play_anim("hurt", true)
 			effects.append({"pos": player_pos, "t": 0.3, "max": 0.3, "kind": "hurt"})
@@ -1215,19 +1479,12 @@ func _draw() -> void:
 		elif e.kind == "hurt":
 			draw_circle(e.pos, 26, Color(1, 0.2, 0.2, k * 0.5))
 
-	# Guard alert rings / state pips.
-	for g in guards:
-		if not g.alive:
-			continue
-		if g.alert > 0.05 and g.state != GState.ALERT:
-			draw_arc(g.pos, 24, -PI / 2, -PI / 2 + TAU * g.alert, 24, Color(1, 0.8, 0.2), 3)
-		elif g.state == GState.ALERT:
-			draw_arc(g.pos, 26, 0, TAU, 24, Color(1, 0.25, 0.25), 3)
-		elif g.state in [GState.INVESTIGATE, GState.SEARCH]:
-			draw_circle(g.pos + Vector2(0, -34), 4, Color("ffd23f"))
+	# Guard alerts are displayed by the upright red question-mark labels above
+	# their sprites (see _sync_guard_marker), not as destination/tap rings.
 
 func _wall_colour(r: Rect2) -> String:
-	var original_pos := r.position + Vector2.ONE * OBSTACLE_GROW
+	var original_size := r.size / OBSTACLE_SCALE - Vector2.ONE * OBSTACLE_GROW * 2.0
+	var original_pos := r.get_center() - original_size * 0.5
 	return CONTAINER_KEYS[int(abs(original_pos.x * 7 + original_pos.y * 13)) % CONTAINER_KEYS.size()]
 
 func _draw_cone(g: Dictionary) -> void:

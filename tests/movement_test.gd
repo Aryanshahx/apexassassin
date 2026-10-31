@@ -29,8 +29,8 @@ func _run() -> void:
 	await process_frame
 	var lv = current_scene
 	lv.set_physics_process(false)
-	var start: Vector2 = lv._cell_center(10, 30) + Vector2(0, -8)
-	var goal: Vector2 = lv._cell_center(10, 26)
+	var start: Vector2 = lv._cell_center(8, 30) + Vector2(0, -8)
+	var goal: Vector2 = lv._cell_center(8, 26)
 	var direction := (goal - start).normalized()
 	lv.player_pos = start
 	var backwards := 0
@@ -205,7 +205,12 @@ func _run() -> void:
 				var dir := Vector2.from_angle(angle)
 				var actual: float = lv._raycast_distance(origin, dir, 250.0)
 				var sampled := _sampled_ray(lv, origin, dir, 250.0, 500)
-				check(absf(actual - sampled) <= 0.55, "analytic vision ray matches dense collision sampling")
+				var matches_sample := absf(actual - sampled) <= 0.55
+				if actual + 0.55 < sampled:
+					# A ray can clip a corner for <0.5 units and escape between
+					# samples. Verify the exact intersection on both sides instead.
+					matches_sample = lv._solid(origin + dir * (actual + 0.01)) and (actual <= 0.01 or not lv._solid(origin + dir * (actual - 0.01)))
+				check(matches_sample, "analytic vision ray matches dense sampling or a verified corner graze")
 				ray_checks += 1
 	check(ray_checks >= 250, "multiple guards and levels exercise analytic rays")
 

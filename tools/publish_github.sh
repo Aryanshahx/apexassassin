@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Commit only the v0.6.1 update paths, then safely push the current main branch.
+# Commit only the v0.6.2 update paths, then safely push the current main branch.
 # Usage: bash tools/publish_github.sh ["commit message"] [--yes]
 # This never stores a token, rewrites your remote, uses force, or pulls for you.
 set -euo pipefail
@@ -9,7 +9,7 @@ export GIT_PAGER=cat
 export PAGER=cat
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BRANCH="main"
-MSG="Apex Assassin v0.6.1: health, guards, logo and splash"
+MSG="Apex Assassin v0.6.2: larger cover, enemy types and gate traffic"
 CONFIRM=0
 for arg in "$@"; do
   case "$arg" in --yes) CONFIRM=1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
@@ -17,7 +17,7 @@ done
 command -v git >/dev/null || { echo 'Git is required. Install it before publishing.' >&2;exit 1; }
 [ -d .git ] || { echo 'This project is not a Git clone. Clone your GitHub project first.' >&2;exit 1; }
 [ "$(git branch --show-current)" = "$BRANCH" ] || { echo "Switch to your $BRANCH branch first; this script does not switch branches." >&2;exit 1; }
-[ -f tools/v061-update-files.txt ] || { echo 'Update file list is missing; re-run the update installer.' >&2;exit 1; }
+[ -f tools/v062-update-files.txt ] || { echo 'Update file list is missing; re-run the update installer.' >&2;exit 1; }
 if ! git config user.name >/dev/null || ! git config user.email >/dev/null;then
   echo 'Set your Git identity, for example:' >&2
   echo '  git config --global user.name "Your Name"' >&2
@@ -45,7 +45,7 @@ if ! git merge-base --is-ancestor "$REMOTE_TIP" HEAD;then
   echo "Remote $BRANCH has commits not in your current branch. Update/rebase safely first, then rerun." >&2
   echo 'Your files and index were not changed by this script.' >&2;exit 1
 fi
-mapfile -t ALL < tools/v061-update-files.txt
+mapfile -t ALL < tools/v062-update-files.txt
 paths=()
 for path in "${ALL[@]}";do
   [ -n "$path" ] || continue

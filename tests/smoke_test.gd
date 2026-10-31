@@ -13,30 +13,23 @@ func check(cond: bool, msg: String) -> void:
 		failures += 1
 		printerr("FAIL: ", msg)
 
-# v0.5.4: Compare the centre-based walkability grid before/after cover growth.
-# This checks every cell of every level; paths must not become blocked merely
-# because the existing cover art and matching LOS/bullet bounds are larger.
-func cover_grid_matches_v53(lv: Dictionary, cell: float, origin: Vector2, grow: float) -> bool:
-	var before: Array[Rect2] = []
-	var after: Array[Rect2] = []
-	for item in lv.walls + lv.crates:
-		var r := Rect2(origin + Vector2(item[0], item[1]) * cell, Vector2(item[2], item[3]) * cell)
-		before.append(r.grow(4.0))
-		after.append(r.grow(4.0 + grow))
-	for y in range(int(lv.height)):
-		for x in range(int(lv.width)):
-			var centre := origin + Vector2(x + 0.5, y + 0.5) * cell
-			var was_solid := false
-			var now_solid := false
-			for i in range(before.size()):
-				if before[i].has_point(centre):
-					was_solid = true
-					now_solid = true
-					break
-				if after[i].has_point(centre):
-					now_solid = true
-			if was_solid != now_solid:
+# Every repaired layout separates crates from other crates and wall artwork.
+func crates_separated(lv: Dictionary, cell: float, origin: Vector2, grow: float, factor: float) -> bool:
+	var walls: Array[Rect2] = []
+	var crates: Array[Rect2] = []
+	for item in lv.walls:
+		var old := Rect2(origin + Vector2(item[0], item[1]) * cell, Vector2(item[2], item[3]) * cell).grow(grow)
+		walls.append(Rect2(old.get_center() - old.size * factor * 0.5, old.size * factor))
+	for item in lv.crates:
+		var old := Rect2(origin + Vector2(item[0], item[1]) * cell, Vector2(item[2], item[3]) * cell).grow(grow)
+		var actual := Rect2(old.get_center() - old.size * factor * 0.5, old.size * factor)
+		for wall in walls:
+			if actual.grow(13.99).intersects(wall):
 				return false
+		for other in crates:
+			if actual.grow(13.99).intersects(other):
+				return false
+		crates.append(actual)
 	return true
 
 func _run() -> void:
@@ -89,15 +82,17 @@ func _run() -> void:
 	await process_frame
 	var level = current_scene
 	check(level != null and level.total == 5, "level 4 has 5 guards")
-	# Cover retains its collision grid and camera; the player alone is enlarged.
-	check(level.OBSTACLE_GROW == 3.0, "cover expands by 3 world units per edge")
+	# Every cover item scales exactly 20% about its original v0.6.1 centre.
+	check(level.OBSTACLE_GROW == 3.0 and is_equal_approx(level.OBSTACLE_SCALE, 1.2), "cover scales 20% from v0.6.1")
 	var wd: Array = level.data.walls[0]
 	var wall_original := Rect2(level.ORIGIN + Vector2(wd[0], wd[1]) * level.CELL, Vector2(wd[2], wd[3]) * level.CELL)
-	var wall_expanded := wall_original.grow(level.OBSTACLE_GROW)
+	var wall_prior := wall_original.grow(level.OBSTACLE_GROW)
+	var wall_expanded := Rect2(wall_prior.get_center() - wall_prior.size * 0.6, wall_prior.size * 1.2)
 	check(level.wall_rects[0].position.distance_to(wall_expanded.position) < 0.001 and level.wall_rects[0].size.distance_to(wall_expanded.size) < 0.001, "wall geometry enlarged")
 	var cd: Array = level.data.crates[0]
 	var crate_original := Rect2(level.ORIGIN + Vector2(cd[0], cd[1]) * level.CELL, Vector2(cd[2], cd[3]) * level.CELL)
-	var crate_expanded := crate_original.grow(level.OBSTACLE_GROW)
+	var crate_prior := crate_original.grow(level.OBSTACLE_GROW)
+	var crate_expanded := Rect2(crate_prior.get_center() - crate_prior.size * 0.6, crate_prior.size * 1.2)
 	check(level.crate_rects[0].position.distance_to(crate_expanded.position) < 0.001 and level.crate_rects[0].size.distance_to(crate_expanded.size) < 0.001, "crate geometry enlarged")
 	var original_key: String = level.CONTAINER_KEYS[int(abs(wall_original.position.x * 7 + wall_original.position.y * 13)) % level.CONTAINER_KEYS.size()]
 	check(level._wall_colour(level.wall_rects[0]) == original_key, "container colour unchanged")
@@ -111,7 +106,7 @@ func _run() -> void:
 			guard_scales_ok = false
 	check(guard_scales_ok, "enemy sizes unchanged")
 	for lv in levels:
-		check(cover_grid_matches_v53(lv, level.CELL, level.ORIGIN, level.OBSTACLE_GROW), "level %d walkability grid unchanged" % int(lv.id))
+		check(crates_separated(lv, level.CELL, level.ORIGIN, level.OBSTACLE_GROW, level.OBSTACLE_SCALE), "level %d enlarged crates have clear placement" % int(lv.id))
 	check(level.player_rig.anim.has_animation("run"), "run animation")
 	check(level.player_rig.anim.has_animation("attack"), "attack animation")
 	check(level.player_rig.anim.has_animation("death"), "death animation")

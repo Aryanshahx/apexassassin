@@ -4,14 +4,15 @@ extends Node2D
 const CELL := 32.0
 const ORIGIN := Vector2(24, 140)
 const OBSTACLE_GROW := 3.0
+const OBSTACLE_SCALE := 1.20
 const FLOOR_TILE := 90.0
 const SRC_THICK := 91.0
 const CONTAINER_KEYS := ["blue", "red", "olive"]
-const GRADE_FLOOR := Color(0.34, 0.37, 0.46)
-const GRADE_OUTSIDE := Color(0.17, 0.19, 0.26)
-const GRADE_WALL := Color(0.62, 0.66, 0.78)
-const GRADE_CRATE := Color(0.66, 0.69, 0.80)
-const GRADE_PROP := Color(0.70, 0.73, 0.84)
+const GRADE_FLOOR := Color(0.76, 0.86, 0.94)
+const GRADE_OUTSIDE := Color(0.40, 0.48, 0.58)
+const GRADE_WALL := Color(1.0, 0.98, 1.0)
+const GRADE_CRATE := Color(1.0, 0.98, 0.94)
+const GRADE_PROP := Color(0.95, 0.97, 1.0)
 const FLOOR := preload("res://assets/environment/depot/floor_real.png")
 const CRATE_TOP := preload("res://assets/environment/depot/crate_real_top.png")
 const CRATE_DEPTH := preload("res://assets/environment/depot/crate_real_depth.png")
@@ -84,8 +85,9 @@ func _draw() -> void:
 			draw_rect(sr, Color(0.05, 0.07, 0.12, 0.18))
 
 func _wall_colour(r: Rect2) -> String:
-	# Use the original pre-growth origin to keep every container's colour stable.
-	var original_pos := r.position + Vector2.ONE * OBSTACLE_GROW
+	# Recover the original unscaled grid origin to keep colour stable.
+	var original_size := r.size / OBSTACLE_SCALE - Vector2.ONE * OBSTACLE_GROW * 2.0
+	var original_pos := r.get_center() - original_size * 0.5
 	return CONTAINER_KEYS[int(abs(original_pos.x * 7 + original_pos.y * 13)) % CONTAINER_KEYS.size()]
 
 func _draw_wall(r: Rect2) -> void:
@@ -101,13 +103,7 @@ func _draw_wall(r: Rect2) -> void:
 	var depth_h := float(dt.get_size().y) * sc
 	# Cast shadow (down-right, like the concept).
 	draw_rect(Rect2(r.position + Vector2(6, 9) * maxf(sc, 0.5), r.size + Vector2(2, depth_h)), Color(0, 0, 0, 0.30))
-	# Depth face first so the lid overlaps it cleanly. Corrugation keeps its
-	# original pitch instead of being squeezed once per container-width.
-	var unit_d := maxf(float(dt.get_size().x) * sc, 8.0)
-	var dn := maxi(1, int(ceil(r.size.x / unit_d)))
-	var dw := r.size.x / float(dn)
-	for i in range(dn):
-		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y), Vector2(dw, depth_h)), false, GRADE_WALL)
+	# The entire visible lid and depth face stay inside r, matching collision.
 	if horizontal:
 		var mid_w := r.size.x - cap_a - cap_b
 		draw_texture_rect(_c_cap_l[key], Rect2(r.position, Vector2(cap_a, thick)), false, GRADE_WALL)
@@ -130,9 +126,16 @@ func _draw_wall(r: Rect2) -> void:
 			var seg := mid_h / float(n)
 			for i in range(n):
 				draw_texture_rect(tex, Rect2(Vector2(r.position.x, r.position.y + cap_a + i * seg), Vector2(thick, seg)), false, GRADE_WALL)
+	# Draw the front face INSIDE the collision footprint, not over open floor.
+	depth_h = minf(depth_h, r.size.y * 0.25)
+	var unit_d := maxf(float(dt.get_size().x) * sc, 8.0)
+	var dn := maxi(1, int(ceil(r.size.x / unit_d)))
+	var dw := r.size.x / float(dn)
+	for i in range(dn):
+		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y - depth_h), Vector2(dw, depth_h)), false, GRADE_WALL)
 
 func _draw_crate(r: Rect2) -> void:
 	var dh := r.size.y * 0.24
-	draw_rect(Rect2(r.position + Vector2(5, 8), r.size + Vector2(0, dh)), Color(0, 0, 0, 0.30))
-	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y), Vector2(r.size.x, dh)), false, GRADE_CRATE)
+	draw_rect(Rect2(r.position + Vector2(5, 8), r.size), Color(0, 0, 0, 0.22))
 	draw_texture_rect(CRATE_TOP, r, false, GRADE_CRATE)
+	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y - dh), Vector2(r.size.x, dh)), false, GRADE_CRATE)

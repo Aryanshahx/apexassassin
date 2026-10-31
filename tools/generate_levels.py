@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate 100 validated industrial stealth levels for Apex Assassin."""
 import json, random
+from repair_levels_v62 import repair
 from collections import deque
 from pathlib import Path
 
@@ -148,10 +149,12 @@ def build(level: int):
 
 
 def main():
-    levels = [build(i) for i in range(1, 101)]
+    # Generate the original seeded maps, then repair them for 20%-larger cover.
+    # This preserves each crate and guard count while opening safe doorways.
+    levels = [repair(build(i))[0] for i in range(1, 101)]
     out = ROOT / "data" / "levels" / "levels.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"schema": 3, "levels": levels}))
+    out.write_text(json.dumps({"schema": 3, "levels": levels, "layout_revision": "0.6.2"}, separators=(",", ":")) + "\n")
     total_guards = sum(len(l["guards"]) for l in levels)
     print("Generated %d levels (%d guards total) -> %s" % (len(levels), total_guards, out))
     for i in (1, 4, 20, 50, 100):

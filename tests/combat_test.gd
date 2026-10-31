@@ -15,7 +15,7 @@ func _open_origin(lv: Node2D) -> Vector2:
 			var ok := true
 			for dy in range(6):
 				for dx in range(6):
-					if lv.grid.is_point_solid(Vector2i(x + dx, y + dy)):
+					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
 						ok = false
 			if ok:
 				return lv._cell_center(x + 1, y + 2)
@@ -51,7 +51,7 @@ func _run() -> void:
 	lv.player_pos = origin + Vector2(70, 30)
 	lv.player_rig.rotation = 2.1
 	lv._move_player(0.0)
-	check(lv.player_health_anchor.position.distance_to(lv.player_pos + Vector2(-42, -59)) < 0.01 and is_zero_approx(lv.player_health_anchor.rotation), "bar follows the player without rotating")
+	check(lv.player_health_anchor.position.distance_to(lv.player_pos + Vector2(-lv.HEALTH_BAR_SIZE.x * 0.5, -52)) < 0.01 and is_zero_approx(lv.player_health_anchor.rotation), "bar follows the player without rotating")
 	lv.bullets.clear()
 	lv.bullets.append({"pos": lv.player_pos + Vector2(-20, 0), "vel": Vector2(420, 0), "life": 1.0})
 	lv.invuln = 0.0
