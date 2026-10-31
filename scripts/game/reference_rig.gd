@@ -3,7 +3,8 @@ extends Node2D
 ## displayed pose; the source screenshot did not contain animation frames, so
 ## the movement/attack/shoot clips below are new, approximate 2D animations.
 ## The knife is split from each still so the existing weapon selection remains
-## functional. The level's player/guard root scales and camera are unchanged.
+## functional. The player rig is enlarged for readability; guard scales and
+## the player-following camera are unchanged.
 
 const REF_PATH := "res://assets/reference/"
 const CUT_X := [61.0, 59.0, 63.0, 60.0, 51.0, 60.0, 60.0, 57.0, 62.0, 58.0, 62.0, 58.0]
@@ -113,11 +114,15 @@ func _process(delta: float) -> void:
 		guard_aim_offset = lerp_angle(guard_aim_offset, guard_aim_offset_target, 1.0 - exp(-12.0 * delta))
 		guard_gun.rotation = guard_aim_amount * (guard_raise_angle + guard_aim_offset)
 
-func set_aiming(value: bool, relative_angle: float = 0.0) -> void:
+func set_aiming(value: bool, relative_angle: float = 0.0, immediate: bool = false) -> void:
 	if role != "guard" or dead:
 		return
 	guard_aim_target = 1.0 if value else 0.0
 	guard_aim_offset_target = clampf(relative_angle, -0.65, 0.65) if value else 0.0
+	if immediate and guard_gun != null:
+		guard_aim_amount = guard_aim_target
+		guard_aim_offset = guard_aim_offset_target
+		guard_gun.rotation = guard_aim_amount * (guard_raise_angle + guard_aim_offset)
 
 func _build_guard() -> void:
 	var guard_name := "elite" if kind == "elite" else "guard"

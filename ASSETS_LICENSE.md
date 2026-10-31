@@ -50,3 +50,10 @@ selected v0.6.0 home concept. The home continues to display the project's
 warehouse and the player's actual selected character, so the screenshot-derived
 art and other rights cautions above still apply. Obtain necessary rights before
 publishing.
+
+
+The v0.6.1 Android launcher icon is derived from the AI-generated character
+logo selected by the user; it contains no text. The two small splash-label
+patches replace text on the existing project splash image; the rest of that
+image is unchanged. Review the rights of all original and screenshot-derived
+assets before publishing; selection does not establish third-party rights.

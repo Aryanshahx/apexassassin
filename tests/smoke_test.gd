@@ -89,7 +89,7 @@ func _run() -> void:
 	await process_frame
 	var level = current_scene
 	check(level != null and level.total == 5, "level 4 has 5 guards")
-	# Slightly larger physical cover must not scale actors, the camera or the grid.
+	# Cover retains its collision grid and camera; the player alone is enlarged.
 	check(level.OBSTACLE_GROW == 3.0, "cover expands by 3 world units per edge")
 	var wd: Array = level.data.walls[0]
 	var wall_original := Rect2(level.ORIGIN + Vector2(wd[0], wd[1]) * level.CELL, Vector2(wd[2], wd[3]) * level.CELL)
@@ -103,7 +103,7 @@ func _run() -> void:
 	check(level._wall_colour(level.wall_rects[0]) == original_key, "container colour unchanged")
 	var outer_probe := Vector2(wall_original.get_center().x, wall_original.position.y - 5.0)
 	check(not wall_original.grow(4.0).has_point(outer_probe) and level._solid(outer_probe), "larger cover blocks sight and bullets at its new edge")
-	check(level.player_rig.scale.is_equal_approx(Vector2.ONE * 0.92), "player size unchanged")
+	check(level.player_rig.scale.is_equal_approx(Vector2.ONE * level.PLAYER_SCALE) and level.PLAYER_SCALE > 0.98, "player is visibly larger than the guards")
 	var guard_scales_ok := true
 	for g in level.guards:
 		var expected_guard_scale := 0.98 if bool(g.elite) else 0.92
@@ -157,33 +157,52 @@ func _run() -> void:
 	var lv2 = current_scene
 	check(lv2 != null and lv2.guards.size() >= 3, "level 6 loaded")
 	# Backstab: stand directly behind an unaware guard -> instant silent kill.
+	lv2.set_physics_process(false)
 	var g0: Dictionary = lv2.guards[0]
-	var facing := Vector2.from_angle(g0.face)
-	lv2.player_pos = g0.pos - facing * 20.0
+	# Pick an unobstructed backstab fixture instead of assuming the random
+	# guard's spawn/facing leaves an empty 20-unit space behind it.
+	var clear_point := Vector2.ZERO
+	for yy in range(2, int(lv2.data.height) - 2):
+		for xx in range(2, int(lv2.data.width) - 2):
+			var point: Vector2 = lv2._cell_center(xx, yy)
+			if not lv2._solid(point) and not lv2._solid(point + Vector2(-20, 0)) and lv2._los(point, point + Vector2(-20, 0)):
+				clear_point = point
+				break
+		if clear_point != Vector2.ZERO:
+			break
+	g0.pos = clear_point
+	g0.face = 0.0
+	lv2.player_pos = clear_point + Vector2(-20, 0)
 	g0.state = 0
+	var other_lives := []
+	for index in range(1, lv2.guards.size()):
+		other_lives.append(lv2.guards[index].alive)
+		lv2.guards[index].alive = false
 	lv2.attack_cd = 0.0
 	var kills_before: int = lv2.kills
 	lv2._auto_attack()
+	for index in range(1, lv2.guards.size()):
+		lv2.guards[index].alive = other_lives[index - 1]
 	check(lv2.kills == kills_before + 1, "backstab kills unaware guard")
 	check(lv2.backstabs == 1, "backstab counted")
 	check(lv2.gems.size() >= 8, "backstab drops bonus gems")
-	# Level-wide alarm: a confirmed sighting sends patrolling guards to search.
+	# Gunfire informs only guards within hearing range.
 	var spotter: Dictionary = {}
 	for g in lv2.guards:
 		if g.alive:
 			spotter = g
 			break
 	if not spotter.is_empty():
-		var patrolling := 0
+		var nearby := 0
 		for g in lv2.guards:
-			if g.alive and g != spotter and g.state == 0:
-				patrolling += 1
+			if g.alive and g != spotter and g.state != lv2.GState.ALERT and g.pos.distance_to(spotter.pos) <= lv2.GUNSHOT_HEARING_RADIUS:
+				nearby += 1
 		lv2._alarm_others(spotter)
-		var searching := 0
+		var investigating := 0
 		for g in lv2.guards:
-			if g.alive and g != spotter and g.state == 3:
-				searching += 1
-		check(searching == patrolling, "alarm puts patrol guards into search")
+			if g.alive and g != spotter and g.pos.distance_to(spotter.pos) <= lv2.GUNSHOT_HEARING_RADIUS and g.state == lv2.GState.INVESTIGATE:
+				investigating += 1
+		check(investigating >= nearby, "gunfire alerts nearby guards to investigate")
 	# Drag steering re-paths toward the finger.
 	lv2.dragging = true
 	lv2.hunt_target = -1

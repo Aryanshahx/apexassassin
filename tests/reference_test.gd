@@ -61,7 +61,7 @@ func _run() -> void:
 		check(absf(float(gs.CHARACTERS[id].speed_bonus) - float(speeds[i])) < 0.001 and absf(float(gs.CHARACTERS[id].health_bonus) - float(healths[i])) < 0.001, "%s screenshot bonuses" % id)
 		check(gs.select_character(id) and gs.selected_assassin == id, "%s selectable" % id)
 		check(absf(gs.player_speed() - (190.0 * (1.0 + float(speeds[i])) + 14.0)) < 0.001, "%s speed applies" % id)
-		check(absf(gs.max_health() - (3.0 * (1.0 + float(healths[i])) + 1.0)) < 0.001, "%s health applies" % id)
+		check(absf(gs.max_health() - (1000.0 * (1.0 + float(healths[i])) + 100.0)) < 0.001, "%s 1000-point health and saved upgrade apply" % id)
 		# Force a fresh read of the file to ensure the free selection survives reload.
 		gs.selected_assassin = "ronin"
 		gs.load_game()
@@ -299,7 +299,7 @@ func _run() -> void:
 		if guard.rig.role != "guard" or not guard.rig.art.get_node("Pose").texture.resource_path.contains("/assets/reference/guards/parts/"):
 			enemies_correct = false
 	check(enemies_correct, "real level uses screenshot guards")
-	check(level.player_rig.scale.is_equal_approx(Vector2.ONE * 0.92), "real level player root scale unchanged")
+	check(level.player_rig.scale.is_equal_approx(Vector2.ONE * level.PLAYER_SCALE), "real level player is enlarged")
 
 	# Older v2 fallback save still migrates when the v3 file is absent.
 	var old_fixture := {"gems": 17, "cash": 219, "selected_assassin": 1, "unlocked_assassins": {"ronin": true, "nova": true}, "unlocked_level": 9}

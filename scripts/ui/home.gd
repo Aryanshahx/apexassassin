@@ -666,7 +666,7 @@ func _open_settings() -> void:
 
 func _open_upgrades() -> void:
 	var box := _popup_base("Stat Upgrades")
-	var kinds := [["health", "Health (+1)"], ["damage", "Damage (+1)"], ["speed", "Speed (+14)"]]
+	var kinds := [["health", "Health (+100)"], ["damage", "Damage (+1)"], ["speed", "Speed (+14)"]]
 	for k in kinds:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)

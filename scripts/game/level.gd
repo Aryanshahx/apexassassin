@@ -2,10 +2,11 @@ extends Node2D
 ## Apex Assassin core stealth loop.
 ## Tap floor to move, tap a guard to hunt. Auto-blade in range. Guards patrol,
 ## investigate noise, chase on sight, fire line-of-sight bullets, and search.
-## Cover blocks sight/bullets; shadows slow detection. Kills drop gems.
+## Cover blocks sight/bullets; flashlight contact triggers immediate fire.
+## Nearby guards hear gunfire and investigate. Kills drop gems.
 
 const CELL := 32.0
-## Enlarge cover on all sides without changing player/guard or camera scale.
+## Enlarge cover on all sides independently of actor and camera scaling.
 ## A one-cell obstacle becomes 38 instead of 32 units (18.75% thicker).
 ## 3 + the existing 4-unit collision margin is less than half a cell, so
 ## centre-based AStar walkable cells stay the same across all levels.
@@ -44,10 +45,17 @@ const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
-const HEART_TEX := preload("res://assets/ui/heart.png")
 const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
-const GUARD_GAP := 48.0
+# Account for the guard artwork's visible footprint, not just its centre.
+const GUARD_GAP := 66.0
+const GUARD_WALL_MARGIN := 5.0
+const GUARD_AVOID_HOLD := 0.55
+const PLAYER_SCALE := 1.40
+const PLAYER_HIT_RADIUS := 16.0
+const PLAYER_LIGHT_RADIUS := 22.0
+const BULLET_DAMAGE := 100.0
+const GUNSHOT_HEARING_RADIUS := 320.0
 const DRAG_REPATH_INTERVAL := 0.045
 
 enum GState { PATROL, INVESTIGATE, ALERT, SEARCH, DEAD }
@@ -58,11 +66,13 @@ var wall_rects: Array[Rect2] = []
 var crate_rects: Array[Rect2] = []
 # Pre-grown once; used by movement, bullet blocking and the analytic vision rays.
 var blocking_rects: Array[Rect2] = []
+# Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
+var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
 var player_pos := Vector2.ZERO
 var player_face := -PI / 2
 var player_path := PackedVector2Array()
-var player_hp := 3.0
+var player_hp := 1000.0
 var invuln := 0.0
 var attack_cd := 0.0
 var hunt_target := -1
@@ -85,7 +95,9 @@ var status_label: Label
 var overlay: Control
 var hud: Control
 var hint: Label
-var hearts: Array[TextureRect] = []
+var player_health_anchor: Control
+var player_health_bar: ProgressBar
+var player_health_label: Label
 var rng := RandomNumberGenerator.new()
 var floor_details: Array[Dictionary] = []
 var shake := 0.0
@@ -142,7 +154,7 @@ func _ready() -> void:
 	_build_player()
 	_build_hud()
 	player_hp = GameState.max_health()
-	_build_hearts()
+	_build_player_health_bar()
 	get_viewport().size_changed.connect(_fit_world)
 	get_viewport().size_changed.connect(_layout_hud)
 	_fit_world()
@@ -203,10 +215,6 @@ func _layout_hud() -> void:
 		status_label.position = safe.position + Vector2(30, 96)
 	if pause_btn:
 		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
-	var spacing := minf(30.0, safe.size.x * 0.42 / maxf(1.0, hearts.size()))
-	for i in range(hearts.size()):
-		hearts[i].size = Vector2(spacing - 2, spacing - 2)
-		hearts[i].position = Vector2(safe.end.x - 24 - (hearts.size() - i) * spacing, safe.position.y + 96)
 	if hint:
 		hint.position = Vector2(safe.position.x, safe.end.y - 50)
 		hint.size = Vector2(safe.size.x, 40)
@@ -225,6 +233,9 @@ func _load_level(n: int) -> void:
 		blocking_rects.append(rect.grow(4.0))
 	for rect in crate_rects:
 		blocking_rects.append(rect.grow(4.0))
+	guard_blocking_rects.clear()
+	for rect in blocking_rects:
+		guard_blocking_rects.append(rect.grow(GUARD_WALL_MARGIN))
 
 func _cell_center(x: int, y: int) -> Vector2:
 	return ORIGIN + Vector2(x + 0.5, y + 0.5) * CELL
@@ -349,7 +360,8 @@ func _build_player() -> void:
 	player_rig = ActorRigScript.new()
 	player_rig.setup(GameState.selected_assassin, "player")
 	player_rig.set_knife(GameState.selected_knife)
-	player_rig.scale = Vector2.ONE * 0.92
+	# Player art was smaller than the guards; enlarge only its visual rig.
+	player_rig.scale = Vector2.ONE * PLAYER_SCALE
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
 	add_child(player_rig)
@@ -376,7 +388,8 @@ func _build_guards() -> void:
 			"speed": 48.0 if kind == "elite" else 58.0,
 			"vision": 220.0 if kind == "elite" else 250.0,
 			"roam_target": Vector2.ZERO, "roam_valid": false,
-			"blocked_t": 0.0, "avoid_side": 1.0,
+			"blocked_t": 0.0, "avoid_side": 1.0, "avoid_time": 0.0,
+			"avoid_direction": Vector2.ZERO, "walk_hold": 0.0, "sees_player": false,
 			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
 			"light_face": 0.0, "light_segments": [],
 		})
@@ -437,20 +450,46 @@ func _build_hud() -> void:
 	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(hint)
 
-func _build_hearts() -> void:
-	for i in range(int(ceil(GameState.max_health()))):
-		var h := TextureRect.new()
-		h.texture = HEART_TEX
-		h.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		h.position = Vector2(430 + i * 32, 96)
-		h.size = Vector2(30, 30)
-		h.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hud.add_child(h)
-		hearts.append(h)
+func _build_player_health_bar() -> void:
+	# Sibling of the rotating actor: stays horizontal and follows over their head.
+	player_health_anchor = Control.new()
+	player_health_anchor.name = "PlayerHealthBar"
+	player_health_anchor.size = Vector2(84, 18)
+	player_health_anchor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	player_health_anchor.z_index = 100
+	add_child(player_health_anchor)
+	player_health_bar = ProgressBar.new()
+	player_health_bar.name = "Fill"
+	player_health_bar.size = player_health_anchor.size
+	player_health_bar.show_percentage = false
+	player_health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color("1b2a22")
+	bg.border_color = Color("0b1611")
+	bg.set_border_width_all(2)
+	bg.set_corner_radius_all(5)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("39de5a")
+	fill.set_corner_radius_all(4)
+	player_health_bar.add_theme_stylebox_override("background", bg)
+	player_health_bar.add_theme_stylebox_override("fill", fill)
+	player_health_anchor.add_child(player_health_bar)
+	player_health_label = _label(16, 2)
+	player_health_label.name = "Value"
+	player_health_label.position = Vector2(0, -2)
+	player_health_label.size = Vector2(84, 22)
+	player_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	player_health_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	player_health_anchor.add_child(player_health_label)
+	_update_player_health_bar()
 
-func _update_hearts() -> void:
-	for i in range(hearts.size()):
-		hearts[i].modulate = Color.WHITE if i < player_hp else Color(1, 1, 1, 0.18)
+func _update_player_health_bar() -> void:
+	if player_health_anchor == null:
+		return
+	player_health_anchor.position = player_pos + Vector2(-42, -59)
+	player_health_bar.max_value = GameState.max_health()
+	player_health_bar.value = clampf(player_hp, 0.0, player_health_bar.max_value)
+	player_health_label.text = str(maxi(0, ceili(player_hp)))
 
 func _label(size: int, outline: int) -> Label:
 	var l := Label.new()
@@ -494,8 +533,10 @@ func _physics_process(delta: float) -> void:
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
-	_auto_attack()
+	# Resolve light contact before melee so a guard can fire immediately even
+	# when the player enters the beam at point-blank range.
 	_update_guards(delta)
+	_auto_attack()
 	_update_bullets(delta)
 	_update_gems(delta)
 	_update_effects(delta)
@@ -538,6 +579,8 @@ func _move_player(delta: float) -> void:
 		player_face = lerp_angle(player_face, displacement.angle(), 1.0 - exp(-16.0 * delta))
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
+	if player_health_anchor:
+		player_health_anchor.position = player_pos + Vector2(-42, -59)
 	player_rig.set_moving(moved)
 	if invuln > 0 and int(invuln * 12) % 2 == 0:
 		player_rig.modulate = Color(1, 0.5, 0.5)
@@ -597,9 +640,28 @@ func _route_arrow_points() -> PackedVector2Array:
 	if route.size() < 2:
 		return PackedVector2Array()
 	var tip: Vector2 = route[route.size() - 1]
-	var previous: Vector2 = route[route.size() - 2]
-	var direction := (tip - previous).normalized()
-	var size := minf(12.0, tip.distance_to(previous) * 0.8)
+	# Find a point a fixed distance back ALONG the real route, rather than
+	# scaling to the final tiny AStar fragment. Tiny end fragments used to make
+	# the arrow flash, shrink and rotate erratically while the player walked.
+	var remaining := 14.0
+	var anchor := tip
+	var length := 0.0
+	for i in range(route.size() - 1, 0, -1):
+		var end: Vector2 = route[i]
+		var start: Vector2 = route[i - 1]
+		var segment := end.distance_to(start)
+		if segment <= 0.001:
+			continue
+		var used := minf(segment, remaining)
+		anchor = end.lerp(start, used / segment)
+		length += used
+		remaining -= used
+		if remaining <= 0.001:
+			break
+	var direction := (tip - anchor).normalized()
+	if direction.length_squared() < 0.001 or length < 2.0:
+		return PackedVector2Array()
+	var size := minf(12.0, length * 0.80)
 	var side := Vector2(-direction.y, direction.x) * size * 0.48
 	var base := tip - direction * size
 	return PackedVector2Array([tip, base + side, base - side])
@@ -685,19 +747,31 @@ func _kill_guard(index: int, silent := false) -> void:
 		hunt_target = -1
 
 func _alarm_others(source: Dictionary) -> void:
-	# One confirmed sighting pulls the whole level into a search, like the reference.
+	# A gunshot alerts nearby guards, not the entire map. They investigate the
+	# last known player position and still need line of sight before shooting.
 	for other in guards:
-		if other != source and other.alive and other.state == GState.PATROL:
-			other.state = GState.SEARCH
-			other.last_seen = player_pos
-			other.search_t = 4.0
-			other.alert = maxf(other.alert, 0.35)
-			other.path.clear()
+		if other == source or not other.alive or other.state == GState.ALERT:
+			continue
+		if other.pos.distance_squared_to(source.pos) > GUNSHOT_HEARING_RADIUS * GUNSHOT_HEARING_RADIUS:
+			continue
+		var new_target := player_pos
+		var target_changed: bool = other.last_seen.distance_squared_to(new_target) > CELL * CELL * 4.0
+		if other.state == GState.SEARCH and not target_changed:
+			# Repeated bursts should not jerk a searching guard back into a
+			# new path toward the same overcrowded point every 0.14 seconds.
+			other.search_t = maxf(other.search_t, 3.0)
+		elif other.state != GState.INVESTIGATE or target_changed:
+			_investigate(other, new_target)
+		else:
+			other.last_seen = new_target
+			other.search_t = 3.0
 
 func _investigate(g: Dictionary, p: Vector2) -> void:
 	g.state = GState.INVESTIGATE
 	g.last_seen = p
 	g.search_t = 3.0
+	g.blocked_t = 0.0
+	g.avoid_time = 0.0
 	g.path.clear()
 
 func _update_guards(delta: float) -> void:
@@ -707,33 +781,41 @@ func _update_guards(delta: float) -> void:
 		var previous_position: Vector2 = g.pos
 		g.light_age += delta
 		var sees := _can_see(g.pos, g.face, player_pos, g.vision)
+		var first_contact: bool = sees and not g.sees_player
 		if sees:
-			var rate := 2.6
-			if in_shadow(player_pos):
-				rate *= 0.45
-			if player_pos.distance_to(g.pos) < 70:
-				rate *= 2.0
-			g.alert = minf(1.0, g.alert + delta * rate)
+			# Visible flashlight contact means immediate detection and the first
+			# shot in this physics tick, including after reacquiring the player.
+			if first_contact:
+				g.shoot = 0.0
+				g.burst = 0
+			if g.state != GState.ALERT:
+				Sfx.play("alert")
+				was_alerted = true
+			g.alert = 1.0
 			g.last_seen = player_pos
-			if g.alert >= 1.0:
-				if g.state != GState.ALERT:
-					Sfx.play("alert")
-					was_alerted = true
-					_alarm_others(g)
-				g.state = GState.ALERT
+			g.state = GState.ALERT
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
+		g.sees_player = sees
 		match g.state:
 			GState.PATROL:
 				_patrol(g, delta)
 			GState.INVESTIGATE:
 				_seek(g, g.last_seen, delta, g.speed * 1.25)
-				if g.pos.distance_to(g.last_seen) < 18:
+				if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
+					# If other guards occupy the target, search from here rather
+					# than endlessly squeezing together and jittering.
 					g.state = GState.SEARCH
 					g.search_t = 2.5
+					g.blocked_t = 0.0
+					g.path.clear()
 			GState.ALERT:
-				g.face = lerp_angle(g.face, (player_pos - g.pos).angle(), delta * 10)
+				var target_angle: float = (player_pos - g.pos).angle()
+				g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
 				if sees:
+					# Snap the gun to the target on the first frame so the visible
+					# muzzle matches the immediate shot instead of raising late.
+					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
 					if g.shoot <= 0:
 						if g.burst <= 0:
@@ -743,9 +825,11 @@ func _update_guards(delta: float) -> void:
 						g.shoot = 0.14 if g.burst > 0 else (0.9 if g.elite else 1.15)
 				else:
 					_seek(g, g.last_seen, delta, g.speed * 1.5)
-					if g.pos.distance_to(g.last_seen) < 18:
+					if g.pos.distance_to(g.last_seen) < 18 or g.blocked_t > 2.5:
 						g.state = GState.SEARCH
 						g.search_t = 3.0
+						g.blocked_t = 0.0
+						g.path.clear()
 			GState.SEARCH:
 				g.search_t -= delta
 				g.face += delta * 1.6
@@ -755,7 +839,9 @@ func _update_guards(delta: float) -> void:
 					g.path.clear()
 		g.rig.position = g.pos
 		g.rig.rotation = g.face + PI / 2
-		g.rig.set_moving(g.pos.distance_squared_to(previous_position) > 0.0001)
+		var did_move: bool = g.pos.distance_squared_to(previous_position) > 0.0001
+		g.walk_hold = 0.12 if did_move else maxf(0.0, g.walk_hold - delta)
+		g.rig.set_moving(did_move or g.walk_hold > 0.0)
 		var player_direction: Vector2 = player_pos - g.pos
 		var aim_offset: float = angle_difference(g.face, player_direction.angle()) if player_direction.length_squared() > 0.001 else 0.0
 		g.rig.set_aiming(sees, aim_offset)
@@ -767,10 +853,7 @@ func _fire(g: Dictionary) -> void:
 	# The muzzle flash is attached to the moving gun, not floating in the world.
 	g.rig.play_anim("shoot", true)
 	Sfx.play("shot")
-	# Gunfire is loud: nearby guards converge on the shooter's target.
-	for other in guards:
-		if other != g and other.alive and other.pos.distance_to(g.pos) < 320 and other.state == GState.PATROL:
-			_investigate(other, player_pos)
+	_alarm_others(g)
 
 func _choose_roam_target(g: Dictionary) -> bool:
 	var from := _to_cell(g.pos)
@@ -823,8 +906,19 @@ func _patrol(g: Dictionary, delta: float) -> void:
 		g.path.clear()
 		g.wait = rng.randf_range(0.15, 0.65)
 
+func _guard_line_clear(start: Vector2, finish: Vector2) -> bool:
+	if not grid.is_in_boundsv(_to_cell(finish)):
+		return false
+	for rect in guard_blocking_rects:
+		if rect.has_point(finish):
+			return false
+	var motion := finish - start
+	var distance := motion.length()
+	return distance <= 0.0001 or _raycast_distance(start, motion / distance, distance, guard_blocking_rects) >= distance - 0.001
+
 func _guard_step_clear(g: Dictionary, candidate: Vector2) -> bool:
-	if not grid.is_in_boundsv(_to_cell(candidate)) or _solid(candidate) or not _los(g.pos, candidate):
+	# Guard bodies need more wall clearance than the player-centre ray.
+	if not _guard_line_clear(g.pos, candidate):
 		return false
 	for other in guards:
 		if not other.alive or other.rig == g.rig:
@@ -839,18 +933,29 @@ func _guard_step_clear(g: Dictionary, candidate: Vector2) -> bool:
 			return false
 	return true
 
-func _guard_step(g: Dictionary, desired: Vector2) -> Vector2:
-	if _guard_step_clear(g, desired):
-		return desired
+func _guard_step(g: Dictionary, desired: Vector2, delta: float) -> Vector2:
 	var movement: Vector2 = desired - g.pos
 	if movement.length_squared() < 0.000001:
 		return g.pos
-	# Prefer passing on the right. If a wall blocks that side, try the other;
-	# if both sides are blocked, wait instead of overlapping or crossing cover.
+	# Commit to a brief passing direction rather than flipping sides each frame.
+	# This hysteresis prevents two approaching guards from vibrating in place.
+	if g.avoid_time > 0.0:
+		var held: Vector2 = g.pos + g.avoid_direction * movement.length()
+		g.avoid_time = maxf(0.0, g.avoid_time - delta)
+		if _guard_step_clear(g, held):
+			return held
+		g.avoid_time = 0.0
+	if _guard_step_clear(g, desired):
+		return desired
+	# Both oncoming guards choose their own right-hand side, so they pass on
+	# opposite sides. A blocked wall/guard causes a brief wait, not an overlap.
 	var side: float = g.avoid_side
-	for angle in [side * PI / 3.0, -side * PI / 3.0, side * PI / 2.0, -side * PI / 2.0]:
+	for angle in [side * PI / 3.0, side * PI / 2.0, -side * PI / 3.0, -side * PI / 2.0]:
 		var candidate: Vector2 = g.pos + movement.rotated(angle)
 		if _guard_step_clear(g, candidate):
+			g.avoid_direction = (candidate - g.pos).normalized()
+			g.avoid_time = GUARD_AVOID_HOLD
+			g.avoid_side = signf(angle)
 			return candidate
 	return g.pos
 
@@ -862,11 +967,16 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 			g.path = grid.get_point_path(from, to)
 			if from == to:
 				g.path.clear()
-				if g.pos.distance_to(target) > 0.5 and _los(g.pos, target):
+				if g.pos.distance_to(target) > 0.5 and _guard_line_clear(g.pos, target):
 					g.path.append(target)
-			elif g.path.size() > 1 and _los(g.pos, g.path[1]):
+			elif g.path.size() > 1 and _guard_line_clear(g.pos, g.path[1]):
 				g.path.remove_at(0)
 			g.pi = 0
+	# A sidestep may leave a cell-centre waypoint behind the guard. Skip any
+	# obsolete waypoint once the next one is safely visible, instead of
+	# repeatedly walking backward to that old centre and jittering.
+	while g.pi + 1 < g.path.size() and _guard_line_clear(g.pos, g.path[g.pi + 1]):
+		g.pi += 1
 	var budget := speed * delta
 	while g.pi < g.path.size() and budget > 0.0:
 		var waypoint: Vector2 = g.path[g.pi]
@@ -877,7 +987,7 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 		var start: Vector2 = g.pos
 		var step := minf(d, budget)
 		var wanted: Vector2 = start + (waypoint - start) * (step / d)
-		var accepted := _guard_step(g, wanted)
+		var accepted := _guard_step(g, wanted, delta)
 		g.pos = accepted
 		var displacement := accepted - start
 		if displacement.length_squared() > 0.00001:
@@ -895,12 +1005,13 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 
 func _can_see(from: Vector2, face: float, target: Vector2, vision: float = 250.0) -> bool:
 	var d := from.distance_to(target)
-	if in_shadow(target):
-		vision *= 0.6
-	if d > vision:
+	# Detection matches the visible 30-degree half-cone, including when the
+	# edge of the player's body touches it. Cover still blocks the whole ray.
+	if d > vision + PLAYER_LIGHT_RADIUS:
 		return false
 	var ang := (target - from).angle()
-	if absf(angle_difference(face, ang)) > deg_to_rad(32):
+	var body_margin := asin(clampf(PLAYER_LIGHT_RADIUS / maxf(d, 0.001), 0.0, 1.0))
+	if absf(angle_difference(face, ang)) > deg_to_rad(30) + body_margin:
 		return false
 	return _los(from, target)
 
@@ -915,17 +1026,20 @@ func _update_bullets(delta: float) -> void:
 	for i in range(bullets.size() - 1, -1, -1):
 		var b: Dictionary = bullets[i]
 		var old: Vector2 = b.pos
-		b.pos += b.vel * delta
+		var travel: Vector2 = b.vel * delta
+		var distance := travel.length()
+		var wall_distance := _raycast_distance(old, travel / distance, distance) if distance > 0.0001 else 0.0
+		var blocked := distance > 0.0001 and wall_distance < distance - 0.001
+		b.pos = old + (travel / distance * wall_distance if blocked else travel)
 		b.life -= delta
 		var hit := false
-		if _solid(b.pos) or b.life <= 0:
-			hit = true
-			effects.append({"pos": b.pos, "t": 0.15, "max": 0.15, "kind": "spark"})
-		elif invuln <= 0 and _segment_circle(old, b.pos, player_pos, 14):
-			player_hp -= 1.0
+		# Sweep to the first wall so a low-frame-rate bullet cannot tunnel
+		# through cover or hit someone who is behind it.
+		if invuln <= 0 and b.life > 0 and _segment_circle(old, b.pos, player_pos, PLAYER_HIT_RADIUS):
+			player_hp = maxf(0.0, player_hp - BULLET_DAMAGE)
 			damage_taken += 1
 			invuln = 0.9
-			_update_hearts()
+			_update_player_health_bar()
 			player_rig.play_anim("hurt", true)
 			effects.append({"pos": player_pos, "t": 0.3, "max": 0.3, "kind": "hurt"})
 			Sfx.play("hurt")
@@ -934,6 +1048,9 @@ func _update_bullets(delta: float) -> void:
 			if player_hp <= 0:
 				player_rig.die()
 				_lose()
+		elif blocked or _solid(b.pos) or b.life <= 0:
+			hit = true
+			effects.append({"pos": b.pos, "t": 0.15, "max": 0.15, "kind": "spark"})
 		if hit:
 			bullets.remove_at(i)
 

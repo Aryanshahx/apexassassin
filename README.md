@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.6.0 — fresh spotlight-style home with live controls, plus responsive highlighted routes, roaming guards and lower rendering overhead.
+v0.6.1 — improved guard movement and immediate flashlight detection, a 1,000-point player health bar, a selected character app icon and updated splash text.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -22,9 +22,16 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   A small arrowhead marks the end of that actual route; there is no tap ring.
   Taps on cover resolve to nearby reachable floor.
 - **Improved guards** roam across reachable map regions and avoid one another
-  and cover. They use separately animated boot and rifle layers, with a
-  steadier torso. They raise and aim the rifle at the player when in sight, then
-  lower it after sight is lost. These are approximations rebuilt from stills.
+  and cover with wider spacing and stable passing. Flashlight contact causes
+  an immediate shot; gunfire alerts nearby guards, which investigate the last
+  known location and still require line of sight to shoot. Boots and rifle aim
+  are approximations rebuilt from stills.
+- **Visible health**: the player starts at 1,000 base health, shown in a green
+  bar above the character. A standard shot removes 100 points; existing character
+  health bonuses and saved health upgrades continue to apply (+100 per upgrade).
+- **Chosen character logo** is used for the Android launcher. The original splash
+  artwork is retained, with its bottom labels changed to “Loading...” and
+  “Hyper Tech Labs”.
 - **Functional warehouse selector** based on the chosen demo: browse the full
   roster, preview stats, then explicitly select or unlock a legacy character.
 - **Hunter Assassin-style core loop**
@@ -33,7 +40,7 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   - Auto-blade when in range.
   - Guard vision cones, patrols, investigation, alert/chase, gunfire, search.
   - Walls and crates block sight and bullets.
-  - Shadows slow detection.
+  - Light touching the player is detected immediately, even in shadows.
   - Kills drop gems; collect them to unlock legacy assassins and special knives.
   - Clear all guards to finish the level.
 - **100 validated levels** with increasing guard counts and cover density.
@@ -63,7 +70,7 @@ Press **F5**.
 | Tap / click guard | Hunt that guard |
 | Esc / Android back / II | Pause |
 
-Stay out of flashlight cones. Use crates and walls as cover. Shadows make you harder to spot. Strike quickly and move before nearby guards investigate.
+Stay out of flashlight cones: guards shoot immediately on contact. Use crates and walls as cover, and move before nearby guards investigate gunfire.
 
 ## Tests
 
@@ -72,13 +79,17 @@ godot --headless --path . --import
 # Tests write save files; always use isolated, temporary user-data directories.
 SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"; MOVE_DATA="$(mktemp -d)"
 ROAM_DATA="$(mktemp -d)"; TRANS_DATA="$(mktemp -d)"; HOME_DATA="$(mktemp -d)"
+COMBAT_DATA="$(mktemp -d)"; COLLISION_DATA="$(mktemp -d)"; SPLASH_DATA="$(mktemp -d)"
 XDG_DATA_HOME="$SMOKE_DATA" godot --headless --path . --script tests/smoke_test.gd
 XDG_DATA_HOME="$REF_DATA" godot --headless --path . --script tests/reference_test.gd
 XDG_DATA_HOME="$MOVE_DATA" godot --headless --path . --script tests/movement_test.gd
 XDG_DATA_HOME="$ROAM_DATA" godot --headless --path . --script tests/roaming_test.gd
 XDG_DATA_HOME="$TRANS_DATA" godot --headless --path . --script tests/transition_test.gd
 XDG_DATA_HOME="$HOME_DATA" godot --headless --path . --script tests/home_test.gd
-rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA"
+XDG_DATA_HOME="$COMBAT_DATA" godot --headless --path . --script tests/combat_test.gd
+XDG_DATA_HOME="$COLLISION_DATA" godot --headless --path . --script tests/collision_test.gd
+XDG_DATA_HOME="$SPLASH_DATA" godot --headless --path . --script tests/splash_test.gd
+rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA" "$COMBAT_DATA" "$COLLISION_DATA" "$SPLASH_DATA"
 ```
 
 ## Push to GitHub + build APK
@@ -173,7 +184,7 @@ distribution. No original source animation frames were supplied.
   length keep the original shading. Concrete extends past the arena so tall phones show no bars.
 - **Backstab stealth**: striking an unaware guard from behind is an instant silent kill, drops bonus
   gems and makes no noise. Frontal attacks damage normally and raise the alarm.
-- **Level-wide alarm**: one confirmed sighting pulls every patrolling guard into a search.
+- **Historical v0.5 alarm**: sightings once alerted the whole level; v0.6.1 replaces this with nearby gunshot alerts.
 - **Drag steering**: hold and drag to walk continuously; tapping still auto-paths, tapping a guard hunts it.
 - **Takedown feedback**: shock ring, gem fountain, floating "+N", micro hit-stop and screen shake.
 - **Lucky Wheel** is a real spinning 8-segment wheel that decelerates onto the winning prize and
@@ -307,3 +318,21 @@ distribution. No original source animation frames were supplied.
 - Browser touch emulation and isolated headless tests cover the home and gameplay.
   No physical Android device test has been performed. Review `ASSETS_LICENSE.md`
   before publishing; screenshot-art rights are not established.
+
+## v0.6.1 — clearer combat, character logo and splash labels
+
+- The player sprite is larger while the camera and guard scales stay unchanged.
+- A green world-space health bar follows the player, starts at 1,000 base HP,
+  and updates after each hit. The HUD no longer displays heart lives.
+- Guard separation, wall clearance and persistent avoidance prevent the
+  head-on/crossing oscillation; crowded searches stop squeezing toward one point.
+- Arrow orientation and size use a short look-back along the real path, avoiding
+  the tiny end-segment flicker; the arrow tip remains at the route endpoint.
+- The first touch of the visible flashlight cone causes an immediate shot.
+  Nearby guards investigate gunfire, but neither detection nor bullets pass
+  through cover. Shadows no longer delay detection inside a visible beam.
+- The user-selected character-only app icon replaces the previous launcher icon.
+  Only the old splash's “Loading Assets” and “APEX GAMES” labels are changed to
+  “Loading...” and “Hyper Tech Labs”; the original splash artwork remains.
+- The Git publisher disables the pager so its review list and confirmation
+  cannot appear to stall on a long terminal screen.

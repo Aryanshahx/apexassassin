@@ -4,7 +4,9 @@ const SAVE_PATH := "user://apex_save_v3.json"
 const OLD_SAVE_PATH := "user://apex_save_v2.json"
 const TOTAL_LEVELS := 100
 const BASE_SPEED := 190.0
-const BASE_HEALTH := 3.0
+const BASE_HEALTH := 1000.0
+# One purchased upgrade still adds one standard enemy hit of protection.
+const HEALTH_UPGRADE_AMOUNT := 100.0
 
 const CHARACTERS := {
 	"ronin": {"name": "Ronin", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Standard raven-blade specialist."},
@@ -218,7 +220,7 @@ func knife() -> Dictionary:
 	return KNIVES.get(selected_knife, KNIVES.standard)
 
 func max_health() -> float:
-	return BASE_HEALTH * (1.0 + float(character().get("health_bonus", 0.0))) + float(upgrades.health)
+	return BASE_HEALTH * (1.0 + float(character().get("health_bonus", 0.0))) + float(upgrades.health) * HEALTH_UPGRADE_AMOUNT
 
 func player_damage() -> int:
 	return int(knife().damage) + int(upgrades.damage)

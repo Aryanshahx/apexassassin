@@ -131,6 +131,22 @@ func _run() -> void:
 	lv.player_path.clear()
 	check(lv._route_visual_points().is_empty() and lv._route_arrow_points().is_empty(), "path and arrow disappear when route is complete")
 
+	# A tiny final AStar fragment must not make the arrow shrink/flicker or
+	# point 90 degrees away from the highlighted route at a grid boundary.
+	lv.player_pos = Vector2(0, 0)
+	lv.player_path = PackedVector2Array([Vector2(80, 0), Vector2(80.1, 0.2)])
+	var tiny_arrow: PackedVector2Array = lv._route_arrow_points()
+	var tiny_base: Vector2 = (tiny_arrow[1] + tiny_arrow[2]) * 0.5
+	var tiny_dir: Vector2 = (tiny_arrow[0] - tiny_base).normalized()
+	check(tiny_arrow[0].distance_to(Vector2(80.1, 0.2)) < 0.01, "arrow tip is exactly the actual path endpoint")
+	check(tiny_arrow[0].distance_to(tiny_base) > 9.0, "tiny end fragment does not collapse arrow size")
+	check(tiny_dir.dot(Vector2.RIGHT) > 0.99, "tiny end fragment does not rotate the arrow away from the overall path")
+	lv.player_pos = Vector2(30, 0)
+	var moved_arrow: PackedVector2Array = lv._route_arrow_points()
+	var moved_dir: Vector2 = (moved_arrow[0] - (moved_arrow[1] + moved_arrow[2]) * 0.5).normalized()
+	check(tiny_dir.dot(moved_dir) > 0.999 and tiny_arrow[0].distance_to(moved_arrow[0]) < 0.01, "arrow remains stable while the player advances")
+	lv.player_path.clear()
+
 	# A touch on cover/outside the arena uses the nearest reachable floor, not a
 	# straight line or stale marker through the obstacle.
 	lv.player_pos = start
