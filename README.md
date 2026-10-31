@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.5.5 — 12 screenshot-derived characters, new approximate player/enemy motion, larger depot cover and the 15-cell follow camera.
+v0.6.0 — fresh spotlight-style home with live controls, plus responsive highlighted routes, roaming guards and lower rendering overhead.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -8,11 +8,25 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 
 - **12 reference characters**, immediately available in the character selector, with the
   speed/health bonuses shown in the supplied screenshot. You play as one at a time.
+- The twelve v0.5.6 `new01`–`new12` designs have been removed from the game.
+  Saves that selected one fall back to Ronin; other progress is preserved.
 - **10 legacy character IDs**, costs, bonuses, selected state and unlocks remain supported.
   Their visuals now use the reference art style.
 - **17 knives**, with their existing damage, speed, reach and unlock rules.
-- **New approximate node-based motion**: idle, run, attack, shoot, hurt and death.
-  These animations are recreated from still images, not the original animation frames.
+- **Reconstructed movement**: separate boot pivots for player and guards, smoothed
+  facing, idle, run, attack, shoot, hurt and death. The shader/node animation is recreated
+  from single still images, not original animation frames.
+- **Smoother steering**: route replans do not pull actors back to their current
+  cell centre; touch-emulated mouse events are de-duplicated, flashlight rays
+  use exact obstacle intersections, and the remaining walkable path is highlighted.
+  A small arrowhead marks the end of that actual route; there is no tap ring.
+  Taps on cover resolve to nearby reachable floor.
+- **Improved guards** roam across reachable map regions and avoid one another
+  and cover. They use separately animated boot and rifle layers, with a
+  steadier torso. They raise and aim the rifle at the player when in sight, then
+  lower it after sight is lost. These are approximations rebuilt from stills.
+- **Functional warehouse selector** based on the chosen demo: browse the full
+  roster, preview stats, then explicitly select or unlock a legacy character.
 - **Hunter Assassin-style core loop**
   - Tap floor to move.
   - Tap a guard to hunt it.
@@ -23,7 +37,13 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   - Kills drop gems; collect them to unlock legacy assassins and special knives.
   - Clear all guards to finish the level.
 - **100 validated levels** with increasing guard counts and cover density.
-- Home screen, character select, upgrades, missions, daily wheel, level select, stars, local save.
+- User-selected **classic-style home**: the old top-down warehouse backdrop,
+  purple character/knife cards, three mission rows and a large gold Start button.
+  Resources, selected character portrait, progress, mission claims, wheel,
+  settings, upgrades, level select, stars and local save are all live controls;
+  the example numbers from the design are not baked into the game.
+- Level and depot resources are cached; static map layers are retained, and
+  off-screen/near-cover guard beams are culled or cached to reduce work.
 - Original synthesized sound effects and mobile haptics.
 - **Debug-only Android APK workflow** for GitHub Actions. No release keystore or signing secrets.
 
@@ -50,10 +70,15 @@ Stay out of flashlight cones. Use crates and walls as cover. Shadows make you ha
 ```bash
 godot --headless --path . --import
 # Tests write save files; always use isolated, temporary user-data directories.
-SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"
+SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"; MOVE_DATA="$(mktemp -d)"
+ROAM_DATA="$(mktemp -d)"; TRANS_DATA="$(mktemp -d)"; HOME_DATA="$(mktemp -d)"
 XDG_DATA_HOME="$SMOKE_DATA" godot --headless --path . --script tests/smoke_test.gd
 XDG_DATA_HOME="$REF_DATA" godot --headless --path . --script tests/reference_test.gd
-rm -rf "$SMOKE_DATA" "$REF_DATA"
+XDG_DATA_HOME="$MOVE_DATA" godot --headless --path . --script tests/movement_test.gd
+XDG_DATA_HOME="$ROAM_DATA" godot --headless --path . --script tests/roaming_test.gd
+XDG_DATA_HOME="$TRANS_DATA" godot --headless --path . --script tests/transition_test.gd
+XDG_DATA_HOME="$HOME_DATA" godot --headless --path . --script tests/home_test.gd
+rm -rf "$SMOKE_DATA" "$REF_DATA" "$MOVE_DATA" "$ROAM_DATA" "$TRANS_DATA" "$HOME_DATA"
 ```
 
 ## Push to GitHub + build APK
@@ -64,6 +89,12 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 bash tools/publish_github.sh
 ```
+
+The script fetches `origin/main`, refuses to overwrite a newer remote or other
+staged changes, stages only the update paths, shows the proposed commit and asks
+for confirmation. Authenticate Git with GitHub first (for example, `gh auth
+login`); never put access tokens in the script. Check `ASSETS_LICENSE.md` before
+publishing. It does not force-push or automatically resolve divergent history.
 
 Then open:
 
@@ -90,6 +121,11 @@ python3 tools/generate_levels.py
 # Optional: rebuild the shipped screenshot-derived player and guard images.
 python3 -m pip install pillow numpy opencv-python
 python3 tools/build_reference_assets.py
+# Optional: regenerate the reconstructed boot layers and selector background.
+python3 tools/build_reference_gait.py
+python3 tools/build_guard_layers.py
+python3 tools/build_home_v59_background.py
+python3 tools/build_selector_background.py
 ```
 
 ## Project layout
@@ -98,9 +134,10 @@ python3 tools/build_reference_assets.py
 assets/characters/   original modular character parts
 assets/home/         home artwork
 assets/reference/    screenshot-derived player/guard poses and selectable cards
+assets/ui/selector/  chosen concept's reconstructed warehouse background
 assets/level/        floor, walls, crates
 assets/fx/           slash, spark, gem
-art_source/          editable SVG sources
+art_source/          editable SVGs, original concept images and source stills
 scripts/game/        gameplay, rigs, save state, sound
 scripts/ui/          splash + home
 data/levels/         100 generated levels
@@ -199,3 +236,74 @@ distribution. No original source animation frames were supplied.
 - The screenshots may contain third-party game artwork. Review `ASSETS_LICENSE.md`
   and confirm distribution rights. The Android workflow exports a **debug APK
   only**, not a release build.
+
+
+## v0.5.6 — historical additional roster + motion and steering
+
+- At that time twelve new designs were added; they were removed in v0.5.8. The 12 screenshot
+  choices, 10 legacy IDs, their save data and 17 knives remain intact.
+- Replanning now skips a safe current-cell centre behind the actor; a 90-frame
+  regression reproduces 45 backward frames on v0.5.5 and zero on this build.
+  Guard seek receives the same correction. Tap, drag, hunt and attack remain.
+- Hand and foot pixels sway in counterphase, knife swings while moving, and
+  generated sprites use mipmaps to avoid shimmer at the unchanged 55-unit extent.
+  Guard extent remains 60; root scales, 15-cell camera and enlarged cover remain.
+- Flashlight beams retain 40 rays, but exact rectangle intersections replace the
+  former 64 point samples per ray. The same enlarged cover blocks cones, LOS and
+  bullets; dense collision-sampling and movement tests cover the change.
+- The tap destination has a high-contrast pulsing ring and arrow; duplicate
+  emulated mouse events are ignored. The screenshot concept is a source image,
+  while the warehouse selector's controls and stats are fully interactive.
+- Headless suites use isolated saves and cover smoke, roster/animation/UI and
+  movement/LOS. Android export is debug-only. No device test is implied.
+
+## v0.5.7 — historical path highlight and guard improvements
+
+- Replaces the destination arrow, ring and tap mark with a line following the
+  remaining actual path. Touching cover or outside the arena routes to a nearby
+  reachable cell rather than showing a line through the obstacle.
+- Separately animated screenshot-derived guard boot and gun layers make patrol
+  motion steadier. The gun raises and follows the player while visible, and
+  the muzzle flash stays attached to the gun.
+- These are reconstructed motions, not original source animation frames.
+
+## v0.5.8 — home, movement, roaming and performance
+
+- Removes the twelve additional designs; keeps 12 reference characters, 10
+  legacy IDs and 17 knives. Removed selections safely fall back on load.
+- At that time implemented a different home concept with live currency and
+  controls; this was replaced by the user's selected classic style in v0.5.9.
+- Player and guard boot motion is reconstructed from stills; guards roam the
+  reachable map, avoid each other and keep aiming at visible players.
+- Adds an arrowhead to the remaining actual route, no tap/destination ring, and
+  coalesces drag repathing for more responsive touch.
+- Shares level/depot data, retains static floor and cover, limits off-screen
+  light work and caches clipped light meshes. Degenerate beam triangles are
+  handled without repeated rendering errors. Consecutive level transitions and
+  late levels were tested, but no physical Android device has been tested.
+
+## v0.5.9 — selected classic-style home
+
+- Recreates the chosen old-style design with a colour-matched original
+  warehouse background and real, responsive Godot controls. Currency, the
+  selected assassin, mission progress and claims, level, wheel, shop and
+  settings use live save state rather than values baked into a picture.
+- The reference and legacy rosters, selector, gameplay and movement changes
+  from v0.5.8 are retained. Home and gameplay were tested in browser touch
+  emulation and isolated headless suites; no physical Android test is implied.
+
+## v0.6.0 — original spotlight home
+
+- Recreates the newly chosen design as live Godot controls: title and resources,
+  a golden spotlight showing **only the currently selected** in-game assassin
+  and name, shortcut tiles, grouped missions and the saved-level Start button.
+  The concept's demonstration character and example resource numbers are not
+  baked in; the portrait and name refresh immediately when you choose another.
+- Retains the approved warehouse, 12 reference and 10 legacy IDs, 17 knives,
+  previous save migration, guarded roaming, reconstructed gait and route arrow.
+- The lightweight vector spotlight is `assets/home/character_stage.svg`. The
+  pure-Python `tools/build_reference_gait_stdlib.py` can regenerate the 24
+  reference gait layers from the retained screenshot sprites without Pillow.
+- Browser touch emulation and isolated headless tests cover the home and gameplay.
+  No physical Android device test has been performed. Review `ASSETS_LICENSE.md`
+  before publishing; screenshot-art rights are not established.

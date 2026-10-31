@@ -3,65 +3,108 @@ extends Control
 const FONT := preload("res://assets/fonts/Baloo2.ttf")
 const W := 720.0
 const MIN_H := 1180.0
+const HOME_BG := preload("res://assets/home/home_bg_v59.jpg")
+const STAGE := preload("res://assets/home/character_stage.svg")
 const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
+const AssassinSelectorScript := preload("res://scripts/ui/assassin_selector.gd")
 
 var canvas: Control
 var cash_label: Label
 var gems_label: Label
 var card_art: TextureRect
+var selected_name_label: Label
 var overlay: Control
 var start_button: Button
+var hero_stage: TextureRect
+var change_button: Button
+var mission_panel: Panel
 var mission_nodes: Array[Control] = []
 var action_nodes: Array[Control] = []
 var design_h := 1280.0
-var wheel_button: TextureButton
+var wheel_button: BaseButton
 var wheel_badge_pos := Vector2.ZERO
+var wheel_badge: Control
 
 func _ready() -> void:
+	# The warehouse remains the approved game artwork. The selected character,
+	# stage, missions, resources and buttons are separate live controls.
 	var bg := TextureRect.new()
-	bg.texture = preload("res://assets/home/home_bg.jpg")
+	bg.name = "SelectedHomeConcept"
+	bg.texture = HOME_BG
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+	var shade := ColorRect.new()
+	shade.color = Color(0.07, 0.05, 0.07, 0.23)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(shade)
 	canvas = Control.new()
+	canvas.name = "HomeCanvas"
+	canvas.size = Vector2(W, 1280)
+	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(canvas)
 	get_viewport().size_changed.connect(_fit)
 	_build_resources()
-	_build_side_icons()
+	_build_logo()
+	_build_character_stage()
 	_build_action_cards()
 	_build_missions()
 	_build_start()
 	_fit()
 
 func _fit() -> void:
-	var safe := ScreenUtil.safe_rect(get_viewport())
+	_layout_in_safe_rect(ScreenUtil.safe_rect(get_viewport()))
+
+func _layout_in_safe_rect(safe: Rect2) -> void:
 	var s := minf(safe.size.x / W, safe.size.y / MIN_H)
 	design_h = maxf(MIN_H, safe.size.y / s)
 	canvas.scale = Vector2(s, s)
 	canvas.position = safe.position + (safe.size - Vector2(W, design_h) * s) * 0.5
-	var start_y := design_h - 250.0
+	# Anchoring the menu and missions to the bottom leaves a spacious spotlight
+	# on tall phones and compresses it gracefully on shorter phone screens.
+	var start_y := design_h - 164.0
 	if start_button:
-		start_button.position = Vector2(170, start_y)
-	var mission_bottom := start_y - 24.0
-	var mission_top := mission_bottom - (3 * 128 + 2 * 16)
-	for i in range(mission_nodes.size()):
-		mission_nodes[i].position = Vector2(36, mission_top + i * 144)
-	var action_y := maxf(286.0, mission_top - 178.0)
+		start_button.position = Vector2(112, start_y)
+	var missions_y := start_y - 376.0
+	if mission_panel:
+		mission_panel.position = Vector2(34, missions_y)
+	var actions_y := missions_y - 154.0
 	for n in action_nodes:
-		n.position.y = action_y
+		n.position.y = actions_y
+	if wheel_button:
+		wheel_badge_pos = wheel_button.position + Vector2(118, -9)
+		if wheel_badge:
+			wheel_badge.position = wheel_badge_pos
+	var change_y := actions_y - 64.0
+	if change_button:
+		change_button.position = Vector2(203, change_y)
+	if selected_name_label:
+		selected_name_label.position = Vector2(140, change_y - 40.0)
+	var stage_top := 210.0
+	var stage_bottom := change_y + 20.0
+	var stage_size := minf(440.0, maxf(190.0, stage_bottom - stage_top))
+	var stage_y := stage_top + (stage_bottom - stage_top - stage_size) * 0.5
+	if hero_stage:
+		hero_stage.position = Vector2((W - stage_size) * 0.5, stage_y)
+		hero_stage.size = Vector2(stage_size, stage_size)
+	if card_art:
+		card_art.position = Vector2((W - stage_size * 0.68) * 0.5, stage_y + stage_size * 0.21)
+		card_art.size = Vector2(stage_size * 0.68, stage_size * 0.57)
 
 func _font(size: int, outline: int = 0) -> Label:
 	var l := Label.new()
 	var fv := FontVariation.new()
 	fv.base_font = FONT
-	fv.variation_embolden = 0.6
+	fv.variation_embolden = 1.2
 	l.add_theme_font_override("font", fv)
 	l.add_theme_font_size_override("font_size", size)
 	if outline > 0:
 		l.add_theme_constant_override("outline_size", outline)
-		l.add_theme_color_override("font_outline_color", Color("1d1f2a"))
+		l.add_theme_color_override("font_outline_color", Color("121a21"))
 	return l
 
 func _box(bg: Color, border: Color, radius: int, bw: int = 3) -> StyleBoxFlat:
@@ -76,8 +119,16 @@ func _box(bg: Color, border: Color, radius: int, bw: int = 3) -> StyleBoxFlat:
 	s.content_margin_bottom = 6
 	return s
 
-func _icon_button(tex: Texture2D, pos: Vector2, size: float, cb: Callable) -> TextureButton:
+func _raised_box(bg: Color, border: Color, radius: int, bw: int = 4) -> StyleBoxFlat:
+	var s := _box(bg, border, radius, bw)
+	s.shadow_color = Color(0.03, 0.02, 0.04, 0.65)
+	s.shadow_size = 5
+	s.shadow_offset = Vector2(0, 4)
+	return s
+
+func _icon_button(tex: Texture2D, pos: Vector2, size: float, cb: Callable, node_name: String) -> TextureButton:
 	var b := TextureButton.new()
+	b.name = node_name
 	b.texture_normal = tex
 	b.ignore_texture_size = true
 	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
@@ -88,68 +139,187 @@ func _icon_button(tex: Texture2D, pos: Vector2, size: float, cb: Callable) -> Te
 	canvas.add_child(b)
 	return b
 
-func _badge(parent_pos: Vector2) -> void:
+func _badge(parent_pos: Vector2) -> Panel:
 	var p := Panel.new()
-	p.add_theme_stylebox_override("panel", _box(Color("e63946"), Color("ffffff"), 13, 2))
+	p.add_theme_stylebox_override("panel", _box(Color("ffbd38"), Color("17242c"), 15, 3))
 	p.position = parent_pos
-	p.size = Vector2(26, 26)
+	p.size = Vector2(31, 31)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(p)
-	var l := _font(20, 3)
+	var l := _font(23, 0)
 	l.text = "!"
-	l.add_theme_color_override("font_color", Color.WHITE)
+	l.add_theme_color_override("font_color", Color("15252c"))
 	l.position = Vector2(0, -3)
-	l.size = Vector2(26, 26)
+	l.size = Vector2(31, 31)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(l)
+	return p
 
 func _build_resources() -> void:
-	var gem_pill := _resource_pill(Vector2(30, 24), preload("res://assets/ui/gem.png"), str(GameState.gems), func(): _popup("Gems", "Guards drop gems. Unlock assassins and special knives."), 190)
-	gems_label = gem_pill.get_meta("value_label")
-	var cash_pill := _resource_pill(Vector2(252, 24), preload("res://assets/ui/cash.png"), str(GameState.cash), func(): _popup("Cash", "Earn cash by completing levels and missions."), 196)
-	cash_label = cash_pill.get_meta("value_label")
-	_icon_button(preload("res://assets/ui/gear.png"), Vector2(618, 16), 76, _open_settings)
-	_badge(Vector2(672, 10))
+	var gems := _resource_pill("GEMS", Vector2(24, 20), preload("res://assets/ui/gem.png"), func(): _popup("Gems", "Guards drop gems. Unlock assassins and special knives."))
+	gems_label = gems.get_meta("value_label")
+	gems_label.name = "GemsValue"
+	var cash := _resource_pill("CASH", Vector2(285, 20), preload("res://assets/ui/cash.png"), func(): _popup("Cash", "Earn cash by completing levels and missions."))
+	cash_label = cash.get_meta("value_label")
+	cash_label.name = "CashValue"
+	_refresh_values()
+	var setting := Button.new()
+	setting.name = "SettingsButton"
+	setting.tooltip_text = "Settings"
+	setting.position = Vector2(553, 20)
+	setting.size = Vector2(143, 98)
+	setting.add_theme_stylebox_override("normal", _raised_box(Color("34434c"), Color("15242c"), 20, 5))
+	setting.add_theme_stylebox_override("hover", _raised_box(Color("4a5c64"), Color("15242c"), 20, 5))
+	setting.add_theme_stylebox_override("pressed", _raised_box(Color("27353e"), Color("15242c"), 20, 5))
+	setting.pressed.connect(_open_settings)
+	canvas.add_child(setting)
+	var gear := TextureRect.new()
+	gear.texture = preload("res://assets/ui/gear.png")
+	gear.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	gear.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	gear.position = Vector2(34, 10)
+	gear.size = Vector2(76, 76)
+	gear.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	setting.add_child(gear)
 
-func _resource_pill(pos: Vector2, icon: Texture2D, value: String, cb: Callable, width: float = 212) -> Panel:
+func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) -> Panel:
 	var p := Panel.new()
 	p.position = pos
-	p.size = Vector2(width, 58)
-	p.add_theme_stylebox_override("panel", _box(Color(0.04, 0.05, 0.08, 0.92), Color("000000"), 29, 2))
+	p.size = Vector2(257, 98)
+	p.add_theme_stylebox_override("panel", _raised_box(Color("34434c"), Color("15242c"), 20, 5))
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(p)
 	var ic := TextureRect.new()
 	ic.texture = icon
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	ic.position = Vector2(-14, -8)
-	ic.size = Vector2(66, 66)
+	ic.position = Vector2(12, 10)
+	ic.size = Vector2(58, 58)
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(ic)
-	var v := _font(28, 0)
-	v.text = value
-	v.add_theme_color_override("font_color", Color.WHITE)
-	v.position = Vector2(58, 8)
-	v.size = Vector2(width - 116, 42)
-	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	p.add_child(v)
-	p.set_meta("value_label", v)
-	var plus := TextureButton.new()
-	plus.texture_normal = preload("res://assets/ui/plus.png")
-	plus.ignore_texture_size = true
-	plus.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
-	plus.position = Vector2(width - 52, 5)
-	plus.size = Vector2(48, 48)
+	var heading := _font(25, 3)
+	heading.text = title
+	heading.position = Vector2(70, 3)
+	heading.size = Vector2(135, 34)
+	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(heading)
+	var value := _font(35, 3)
+	value.position = Vector2(24, 45)
+	value.size = Vector2(168, 47)
+	value.clip_text = true
+	value.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(value)
+	p.set_meta("value_label", value)
+	var plus := Button.new()
+	plus.name = title.capitalize() + "Button"
+	plus.tooltip_text = "About " + title.to_lower()
+	plus.text = "+"
+	plus.position = Vector2(193, 43)
+	plus.size = Vector2(48, 47)
+	plus.add_theme_font_override("font", FONT)
+	plus.add_theme_font_size_override("font_size", 34)
+	plus.add_theme_color_override("font_color", Color("0e534f"))
+	var plus_style := _box(Color("ffcc50"), Color("6c4319"), 11, 3)
+	plus_style.content_margin_left = 0
+	plus_style.content_margin_right = 0
+	plus_style.content_margin_top = 0
+	plus_style.content_margin_bottom = 0
+	plus.add_theme_stylebox_override("normal", plus_style)
+	plus.add_theme_stylebox_override("hover", _box(Color("ffe083"), Color("6c4319"), 11, 3))
 	plus.pressed.connect(cb)
 	p.add_child(plus)
 	return p
 
-func _build_side_icons() -> void:
-	# VIP / No Ads / Offers removed. Wheel + shop only.
-	wheel_button = _icon_button(preload("res://assets/ui/wheel.png"), Vector2(606, 104), 104, _spin_wheel)
-	wheel_badge_pos = Vector2(678, 98)
+func _build_logo() -> void:
+	var title := _font(68, 7)
+	title.name = "HomeTitle"
+	title.text = "APEX ASSASSIN"
+	title.add_theme_color_override("font_color", Color("ffce45"))
+	title.add_theme_color_override("font_outline_color", Color("17141b"))
+	title.position = Vector2(16, 126)
+	title.size = Vector2(688, 86)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(title)
+
+func _build_character_stage() -> void:
+	hero_stage = TextureRect.new()
+	hero_stage.name = "CharacterSpotlight"
+	hero_stage.texture = STAGE
+	hero_stage.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hero_stage.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	hero_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(hero_stage)
+	card_art = TextureRect.new()
+	card_art.name = "SelectedAssassinPortrait"
+	card_art.texture = _character_portrait(GameState.selected_assassin)
+	card_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	card_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	card_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(card_art)
+	selected_name_label = _font(29, 4)
+	selected_name_label.name = "SelectedAssassinName"
+	selected_name_label.text = str(GameState.character().get("name", "Ronin")).to_upper()
+	selected_name_label.size = Vector2(440, 38)
+	selected_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	selected_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	selected_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(selected_name_label)
+	change_button = Button.new()
+	change_button.name = "AssassinButton"
+	change_button.size = Vector2(314, 58)
+	change_button.add_theme_stylebox_override("normal", _raised_box(Color("8839a7"), Color("28152e"), 15, 4))
+	change_button.add_theme_stylebox_override("hover", _raised_box(Color("aa53c5"), Color("28152e"), 15, 4))
+	change_button.add_theme_stylebox_override("pressed", _raised_box(Color("682a86"), Color("28152e"), 15, 4))
+	change_button.pressed.connect(_open_assassins)
+	canvas.add_child(change_button)
+	var label := _font(30, 4)
+	label.text = "CHANGE ASSASSIN"
+	label.position = Vector2(0, 2)
+	label.size = Vector2(314, 52)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	change_button.add_child(label)
+
+func _build_action_cards() -> void:
+	var knives := _action_card("KnivesButton", "KNIVES", preload("res://assets/home/card_upgrade.png"), Color("17b7a7"), 108.0, _open_knives)
+	action_nodes.append(knives)
+	wheel_button = _action_card("WheelButton", "WHEEL", preload("res://assets/ui/wheel.png"), Color("8d48b7"), 286.0, _spin_wheel)
+	action_nodes.append(wheel_button)
+	var shop := _action_card("ShopButton", "SHOP", preload("res://assets/ui/shop.png"), Color("17b7a7"), 464.0, _open_knives)
+	action_nodes.append(shop)
 	if GameState.can_spin_wheel():
-		_badge(wheel_badge_pos)
-	_icon_button(preload("res://assets/ui/shop.png"), Vector2(612, 226), 98, func(): _open_knives())
+		wheel_badge = _badge(Vector2.ZERO)
+
+func _action_card(node_name: String, title: String, icon: Texture2D, color: Color, x: float, cb: Callable) -> Button:
+	var b := Button.new()
+	b.name = node_name
+	b.position = Vector2(x, 0)
+	b.size = Vector2(148, 132)
+	b.add_theme_stylebox_override("normal", _raised_box(color, Color("11252c"), 20, 5))
+	b.add_theme_stylebox_override("hover", _raised_box(color.lightened(0.15), Color("11252c"), 20, 5))
+	b.add_theme_stylebox_override("pressed", _raised_box(color.darkened(0.15), Color("11252c"), 20, 5))
+	b.pressed.connect(cb)
+	canvas.add_child(b)
+	var art := TextureRect.new()
+	art.texture = icon
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.position = Vector2(31, 4)
+	art.size = Vector2(86, 82)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(art)
+	var label := _font(29, 4)
+	label.text = title
+	label.position = Vector2(0, 88)
+	label.size = Vector2(148, 38)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(label)
+	return b
 
 func _spin_wheel() -> void:
 	_close_overlay()
@@ -160,117 +330,89 @@ func _spin_wheel() -> void:
 func _on_wheel_closed() -> void:
 	overlay = null
 	_refresh_values()
-	if wheel_button:
-		wheel_button.modulate = Color.WHITE if GameState.can_spin_wheel() else Color(0.72, 0.72, 0.78)
+	_sync_wheel_badge()
 
-func _build_action_cards() -> void:
-	var change := Button.new()
-	change.position = Vector2(36, 430)
-	change.size = Vector2(468, 150)
-	change.add_theme_stylebox_override("normal", _box(Color("9a45ee"), Color("2a0a4a"), 20, 4))
-	change.add_theme_stylebox_override("hover", _box(Color("a855f7"), Color("2a0a4a"), 20, 4))
-	change.add_theme_stylebox_override("pressed", _box(Color("7e35cf"), Color("2a0a4a"), 20, 4))
-	change.pressed.connect(_open_assassins)
-	canvas.add_child(change)
-	action_nodes.append(change)
-	var ct := _font(36, 5)
-	ct.text = "Change\nAssassin"
-	ct.add_theme_color_override("font_color", Color.WHITE)
-	ct.position = Vector2(56, 30)
-	ct.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	change.add_child(ct)
-	var art := TextureRect.new()
-	card_art = art
-	art.texture = _character_portrait(GameState.selected_assassin)
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	art.position = Vector2(238, -18)
-	art.size = Vector2(230, 180)
-	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	change.add_child(art)
-	var up := Button.new()
-	up.position = Vector2(520, 430)
-	up.size = Vector2(164, 150)
-	up.add_theme_stylebox_override("normal", _box(Color("9a45ee"), Color("2a0a4a"), 20, 4))
-	up.add_theme_stylebox_override("hover", _box(Color("a855f7"), Color("2a0a4a"), 20, 4))
-	up.add_theme_stylebox_override("pressed", _box(Color("7e35cf"), Color("2a0a4a"), 20, 4))
-	up.pressed.connect(_open_knives)
-	canvas.add_child(up)
-	action_nodes.append(up)
-	var ua := TextureRect.new()
-	ua.texture = preload("res://assets/home/card_upgrade.png")
-	ua.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ua.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	ua.position = Vector2(22, -16)
-	ua.size = Vector2(120, 110)
-	ua.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	up.add_child(ua)
-	var ut := _font(28, 4)
-	ut.text = "Knives"
-	ut.add_theme_color_override("font_color", Color.WHITE)
-	ut.position = Vector2(0, 100)
-	ut.size = Vector2(164, 40)
-	ut.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ut.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	up.add_child(ut)
+func _sync_wheel_badge() -> void:
+	if wheel_button == null:
+		return
+	if wheel_badge != null and not GameState.can_spin_wheel():
+		wheel_badge.queue_free()
+		wheel_badge = null
+	elif wheel_badge == null and GameState.can_spin_wheel():
+		wheel_badge = _badge(wheel_badge_pos)
 
 func _build_missions() -> void:
-	mission_nodes.append(_mission_card(Vector2(36, 600), "Eliminate 30 targets", "%d / 30" % mini(GameState.total_kills, 30), 150,
-		GameState.total_kills >= 30, GameState.mission1_claimed, _claim_mission.bind(1)))
-	mission_nodes.append(_mission_card(Vector2(36, 744), "Free supply drop", "Offline bonus", 200,
-		true, GameState.mission2_claimed, _claim_mission.bind(2)))
-	mission_nodes.append(_mission_card(Vector2(36, 888), "Complete a level with\nno damage taken", "%d / 1" % mini(GameState.flawless_count, 1), 200,
-		GameState.flawless_count >= 1, GameState.mission3_claimed, _claim_mission.bind(3)))
+	mission_panel = Panel.new()
+	mission_panel.name = "MissionsPanel"
+	mission_panel.size = Vector2(652, 360)
+	mission_panel.add_theme_stylebox_override("panel", _raised_box(Color("374b55"), Color("14232b"), 24, 5))
+	mission_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(mission_panel)
+	var title := _font(34, 4)
+	title.text = "MISSIONS"
+	title.add_theme_color_override("font_color", Color("6be2bd"))
+	title.position = Vector2(24, 8)
+	title.size = Vector2(330, 48)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mission_panel.add_child(title)
+	mission_nodes.append(_mission_card(1, "ELIMINATE TARGETS", "Progress: %d / 30" % mini(GameState.total_kills, 30), 150, GameState.total_kills >= 30, GameState.mission1_claimed, preload("res://assets/ui/target.png")))
+	mission_nodes.append(_mission_card(2, "FREE SUPPLY DROP", "OFFLINE BONUS", 200, true, GameState.mission2_claimed, preload("res://assets/environment/depot/crate_real_top.png")))
+	mission_nodes.append(_mission_card(3, "NO DAMAGE CHALLENGE", "Level perfect: %d / 1" % mini(GameState.flawless_count, 1), 200, GameState.flawless_count >= 1, GameState.mission3_claimed, preload("res://assets/ui/heart.png")))
+	for i in range(mission_nodes.size()):
+		mission_nodes[i].position = Vector2(20, 61 + i * 96)
 
-func _mission_card(pos: Vector2, title: String, progress: String, prize: int, complete: bool, claimed: bool, cb: Callable) -> Panel:
+func _mission_card(index: int, title: String, progress: String, prize: int, complete: bool, claimed: bool, icon: Texture2D) -> Panel:
 	var p := Panel.new()
-	p.position = pos
-	p.size = Vector2(648, 128)
-	p.add_theme_stylebox_override("panel", _box(Color("6a6d85"), Color("23252e"), 16, 4))
-	canvas.add_child(p)
-	var t := _font(26, 4)
+	p.name = "Mission%d" % index
+	p.size = Vector2(612, 88)
+	p.add_theme_stylebox_override("panel", _box(Color("253a44"), Color("1a2b34"), 16, 3))
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mission_panel.add_child(p)
+	var ic := TextureRect.new()
+	ic.texture = icon
+	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	ic.position = Vector2(10, 11)
+	ic.size = Vector2(63, 63)
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(ic)
+	var t := _font(25, 3)
 	t.text = title
-	t.add_theme_color_override("font_color", Color.WHITE)
-	t.position = Vector2(22, 12)
-	t.size = Vector2(400, 64)
+	t.position = Vector2(80, 9)
+	t.size = Vector2(325, 38)
 	t.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	t.clip_text = true
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(t)
-	var pr := _font(24, 4)
+	var pr := _font(20, 2)
 	pr.text = progress
-	pr.add_theme_color_override("font_color", Color.WHITE)
-	pr.position = Vector2(22, 88)
+	pr.add_theme_color_override("font_color", Color("c7d2d9"))
+	pr.position = Vector2(80, 48)
+	pr.size = Vector2(310, 30)
 	pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(pr)
 	var btn := Button.new()
-	btn.position = Vector2(432, 14)
-	btn.size = Vector2(200, 100)
+	btn.name = "Mission%dButton" % index
+	btn.position = Vector2(408, 15)
+	btn.size = Vector2(190, 58)
 	var claimable := complete and not claimed
-	if claimed:
-		btn.add_theme_stylebox_override("normal", _box(Color("4a4d60"), Color("23252e"), 14, 3))
-		btn.disabled = true
-	elif claimable:
-		btn.add_theme_stylebox_override("normal", _box(Color("4caf20"), Color("1d5a10"), 14, 3))
-	else:
-		btn.add_theme_stylebox_override("normal", _box(Color("9aa0b4"), Color("23252e"), 14, 3))
-	btn.pressed.connect(cb)
+	var bg := Color("5ce662") if claimable else (Color("40535c") if claimed else Color("596874"))
+	var edge := Color("1c6937") if claimable else Color("20343c")
+	var style := _raised_box(bg, edge, 13, 3)
+	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_stylebox_override("disabled", style)
+	btn.add_theme_stylebox_override("hover", style)
+	btn.disabled = claimed or not complete
+	btn.pressed.connect(_claim_mission.bind(index))
 	p.add_child(btn)
-	var lbl := _font(28, 4)
-	lbl.text = "Done" if claimed else ("Claim" if claimable else "Prize")
-	lbl.add_theme_color_override("font_color", Color("ffe23f") if claimable else Color.WHITE)
-	lbl.position = Vector2(0, 12)
-	lbl.size = Vector2(200, 40)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(lbl)
-	var amt := _font(24, 4)
-	amt.text = str(prize)
-	amt.add_theme_color_override("font_color", Color.WHITE)
-	amt.position = Vector2(0, 54)
-	amt.size = Vector2(200, 36)
-	amt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	amt.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(amt)
+	var label := _font(25, 3)
+	label.text = "CLAIMED" if claimed else ("CLAIM %d" % prize if claimable else "PRIZE %d" % prize)
+	label.position = Vector2(0, 3)
+	label.size = Vector2(190, 50)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(label)
 	return p
 
 func _claim_mission(index: int) -> void:
@@ -294,27 +436,28 @@ func _claim_mission(index: int) -> void:
 
 func _build_start() -> void:
 	var b := Button.new()
+	b.name = "StartGameButton"
 	start_button = b
-	b.position = Vector2(170, 1064)
-	b.size = Vector2(380, 140)
-	b.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 22, 5))
-	b.add_theme_stylebox_override("hover", _box(Color("ffd76a"), Color("6b4a00"), 22, 5))
-	b.add_theme_stylebox_override("pressed", _box(Color("e0a800"), Color("6b4a00"), 22, 5))
+	b.size = Vector2(496, 140)
+	b.add_theme_stylebox_override("normal", _raised_box(Color("ffbf35"), Color("8c5b13"), 25, 6))
+	b.add_theme_stylebox_override("hover", _raised_box(Color("ffd261"), Color("9e6c1f"), 25, 6))
+	b.add_theme_stylebox_override("pressed", _raised_box(Color("e5a521"), Color("744a0d"), 25, 6))
 	b.pressed.connect(func(): GameState.start_level(GameState.current_level))
 	canvas.add_child(b)
-	var t := _font(46, 6)
-	t.text = "Start Game"
-	t.add_theme_color_override("font_color", Color.WHITE)
-	t.position = Vector2(0, 16)
-	t.size = Vector2(380, 60)
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	b.add_child(t)
-	var lv := _font(28, 0)
-	lv.text = "Level %d" % GameState.current_level
-	lv.add_theme_color_override("font_color", Color("d2691e"))
-	lv.position = Vector2(0, 84)
-	lv.size = Vector2(380, 40)
+	var title := _font(60, 0)
+	title.text = "START GAME"
+	title.add_theme_color_override("font_color", Color("251b16"))
+	title.position = Vector2(0, 4)
+	title.size = Vector2(496, 75)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(title)
+	var lv := _font(30, 0)
+	lv.name = "CurrentLevelLabel"
+	lv.text = "LEVEL %d" % GameState.current_level
+	lv.add_theme_color_override("font_color", Color("754419"))
+	lv.position = Vector2(0, 87)
+	lv.size = Vector2(496, 40)
 	lv.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lv.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(lv)
@@ -331,6 +474,8 @@ func _character_portrait(id: String) -> Texture2D:
 func _refresh_card() -> void:
 	if card_art:
 		card_art.texture = _character_portrait(GameState.selected_assassin)
+	if selected_name_label:
+		selected_name_label.text = str(GameState.character().get("name", "Ronin")).to_upper()
 
 # ---------------- Full-screen collection screens ----------------
 func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
@@ -385,153 +530,15 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	return content
 
 func _open_assassins() -> void:
-	var box := _screen_base("Change Assassin", true)
-	box.get_parent().name = "AssassinScroll"
-	var grid := GridContainer.new()
-	grid.name = "ReferenceGrid"
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 8)
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(grid)
-	# All twelve user-selected reference characters are selectable immediately.
-	for id in GameState.REFERENCE_ORDER:
-		grid.add_child(_reference_character_card(id))
-	# Keep every previously earned character and bonus for existing saves.
-	var legacy_title := _font(24, 3)
-	legacy_title.text = "Previously available assassins"
-	legacy_title.add_theme_color_override("font_color", Color.WHITE)
-	box.add_child(legacy_title)
-	var legacy_grid := GridContainer.new()
-	legacy_grid.name = "LegacyGrid"
-	legacy_grid.columns = 2
-	legacy_grid.add_theme_constant_override("h_separation", 14)
-	legacy_grid.add_theme_constant_override("v_separation", 14)
-	legacy_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_child(legacy_grid)
-	for id in GameState.LEGACY_ORDER:
-		legacy_grid.add_child(_character_card(id))
+	_close_overlay()
+	overlay = AssassinSelectorScript.new()
+	add_child(overlay)
+	overlay.closed.connect(_close_overlay)
+	overlay.changed.connect(_on_assassin_changed)
 
-func _reference_character_card(id: String) -> Control:
-	var index := GameState.reference_art_index(id)
-	var card := Button.new()
-	card.name = "ReferenceCard%02d" % index
-	card.flat = true
-	card.custom_minimum_size = Vector2(0, 180)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.tooltip_text = String(GameState.CHARACTERS[id].name)
-	card.pressed.connect(func(): _on_character_pressed(id))
-	var image := TextureRect.new()
-	image.name = "ScreenshotCard"
-	image.texture = load("res://assets/reference/cards/%02d.png" % index)
-	image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	image.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	image.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(image)
-	if GameState.selected_assassin == id:
-		var frame := Panel.new()
-		frame.name = "SelectedFrame"
-		frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		frame.add_theme_stylebox_override("panel", _box(Color(0,0,0,0), Color("ffe06a"), 18, 4))
-		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.add_child(frame)
-		var label := _font(18, 3)
-		label.text = "Selected"
-		label.add_theme_color_override("font_color", Color("ffe06a"))
-		label.position = Vector2(12, 5)
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.add_child(label)
-	return card
-
-func _character_card(id: String) -> Control:
-	var c: Dictionary = GameState.CHARACTERS[id]
-	var unlocked := GameState.is_unlocked(id)
-	var selected := GameState.selected_assassin == id
-	var card := Button.new()
-	card.name = "LegacyCard_" + id
-	card.custom_minimum_size = Vector2(0, 250)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var bg := Color("8a8f98") if not unlocked else Color("6a6d85")
-	var border := Color("ffc93c") if selected else Color("23252e")
-	card.add_theme_stylebox_override("normal", _box(bg, border, 18, 4))
-	card.add_theme_stylebox_override("hover", _box(bg.lightened(0.08), border, 18, 4))
-	card.add_theme_stylebox_override("pressed", _box(bg.darkened(0.08), border, 18, 4))
-	card.pressed.connect(func(): _on_character_pressed(id))
-	var vb := VBoxContainer.new()
-	vb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vb.offset_left = 10
-	vb.offset_right = -10
-	vb.offset_top = 8
-	vb.offset_bottom = -8
-	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(vb)
-	var art := TextureRect.new()
-	art.texture = _character_portrait(id)
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	art.custom_minimum_size = Vector2(0, 140)
-	art.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if not unlocked:
-		art.modulate = Color(0.6, 0.6, 0.65, 0.9)
-	vb.add_child(art)
-	var bonus := "Standard"
-	var col := Color.WHITE
-	if float(c.speed_bonus) > 0:
-		bonus = "+%d%% Speed" % int(float(c.speed_bonus) * 100)
-		col = Color("3fc6ff")
-	elif float(c.health_bonus) > 0:
-		bonus = "+%d%% Health" % int(float(c.health_bonus) * 100)
-		col = Color("4caf20")
-	var bl := _font(26, 4)
-	bl.text = bonus
-	bl.add_theme_color_override("font_color", col)
-	bl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	bl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vb.add_child(bl)
-	var status := _font(20, 3)
-	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if selected:
-		status.text = "Selected"
-		status.add_theme_color_override("font_color", Color("ffe23f"))
-	elif unlocked:
-		status.text = c.name
-		status.add_theme_color_override("font_color", Color.WHITE)
-	else:
-		status.text = "Unlock %d gems" % int(c.cost)
-		status.add_theme_color_override("font_color", Color("ffd23f"))
-	vb.add_child(status)
-	return card
-
-func _reopen_assassins_preserving_scroll() -> void:
-	# Selecting a lower-row character should not jump the collection back to top.
-	var prior_scroll := 0
-	if is_instance_valid(overlay):
-		var previous := overlay.find_child("AssassinScroll", true, false) as ScrollContainer
-		if previous:
-			prior_scroll = previous.scroll_vertical
-	_open_assassins()
-	var refreshed := overlay.find_child("AssassinScroll", true, false) as ScrollContainer
-	await get_tree().process_frame
-	if is_instance_valid(refreshed):
-		refreshed.scroll_vertical = prior_scroll
-
-func _on_character_pressed(id: String) -> void:
-	if GameState.is_unlocked(id):
-		GameState.select_character(id)
-		Sfx.play("upgrade")
-		_refresh_card()
-		_reopen_assassins_preserving_scroll()
-	elif GameState.unlock_character(id):
-		Sfx.play("upgrade")
-		_refresh_values()
-		_refresh_card()
-		_reopen_assassins_preserving_scroll()
-		_toast("%s unlocked!" % GameState.CHARACTERS[id].name)
-	else:
-		_toast("Need %d gems." % int(GameState.CHARACTERS[id].cost))
+func _on_assassin_changed() -> void:
+	_refresh_values()
+	_refresh_card()
 
 func _open_knives() -> void:
 	var box := _screen_base("Special Knives")
@@ -756,6 +763,8 @@ func _close_overlay() -> void:
 	if overlay:
 		overlay.queue_free()
 		overlay = null
+		_refresh_values()
+		_sync_wheel_badge()
 
 func _toast(msg: String) -> void:
 	var l := _font(26, 4)

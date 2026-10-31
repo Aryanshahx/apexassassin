@@ -1,41 +1,79 @@
 #!/usr/bin/env bash
-# Commit + push Apex Assassin to GitHub. GitHub Actions then builds the debug APK.
-# Usage: bash tools/publish_github.sh ["commit message"]
+# Commit only the v0.6.0 update paths, then safely push the current main branch.
+# Usage: bash tools/publish_github.sh ["commit message"] [--yes]
+# This never stores a token, rewrites your remote, uses force, or pulls for you.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-REMOTE="https://github.com/Aryanshahx/apexassassin.git"
 BRANCH="main"
-MSG="${1:-Apex Assassin v0.5.5: twelve reference characters and new actor motion}"
-
-if ! command -v git >/dev/null 2>&1; then
-  echo "git is required: sudo apt install git" >&2; exit 1
-fi
-if [ ! -d .git ]; then git init -b "$BRANCH"; fi
-if git remote get-url origin >/dev/null 2>&1; then
-  git remote set-url origin "$REMOTE"
-else
-  git remote add origin "$REMOTE"
-fi
-if ! git config user.name >/dev/null 2>&1 || ! git config user.email >/dev/null 2>&1; then
-  echo "Set your Git identity first:" >&2
+MSG="Apex Assassin v0.6.0: spotlight home and gameplay update"
+CONFIRM=0
+for arg in "$@"; do
+  case "$arg" in --yes) CONFIRM=1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
+done
+command -v git >/dev/null || { echo 'Git is required. Install it before publishing.' >&2;exit 1; }
+[ -d .git ] || { echo 'This project is not a Git clone. Clone your GitHub project first.' >&2;exit 1; }
+[ "$(git branch --show-current)" = "$BRANCH" ] || { echo "Switch to your $BRANCH branch first; this script does not switch branches." >&2;exit 1; }
+[ -f tools/v060-update-files.txt ] || { echo 'Update file list is missing; re-run the update installer.' >&2;exit 1; }
+if ! git config user.name >/dev/null || ! git config user.email >/dev/null;then
+  echo 'Set your Git identity, for example:' >&2
   echo '  git config --global user.name "Your Name"' >&2
   echo '  git config --global user.email "you@example.com"' >&2
   exit 1
 fi
-git add -A
-if git diff --cached --quiet; then
-  echo "No changes to commit."
-else
-  git commit -m "$MSG"
+if ! git diff --cached --quiet;then
+  echo 'The index already contains staged changes. Review and unstage them before running this script.' >&2
+  git diff --cached --stat >&2;exit 1
 fi
-git fetch origin "$BRANCH" || true
-if git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
-  if ! git merge-base --is-ancestor "origin/$BRANCH" HEAD; then
-    echo "Remote has commits you do not have. Run: git pull --rebase origin $BRANCH" >&2
-    exit 1
-  fi
+URL=$(git remote get-url origin 2>/dev/null) || { echo 'No origin remote is configured; clone or add your GitHub remote first.' >&2;exit 1; }
+case "${URL%.git}" in
+  https://github.com/Aryanshahx/apexassassin|ssh://git@github.com/Aryanshahx/apexassassin|git@github.com:Aryanshahx/apexassassin) ;;
+  *) if [ "${APEX_ALLOW_OTHER_ORIGIN:-0}" != 1 ];then
+       echo "Unexpected origin: $URL" >&2
+       echo 'If this is deliberately your fork, set APEX_ALLOW_OTHER_ORIGIN=1 and retry.' >&2;exit 1
+     fi;;
+esac
+printf 'Fetching %s from %s...\n' "$BRANCH" "$URL"
+if ! git fetch --no-tags origin "$BRANCH";then
+  echo 'Fetch failed. Check network access and GitHub authentication; nothing was staged or committed.' >&2;exit 1
 fi
-git push -u origin "$BRANCH"
+REMOTE_TIP=$(git rev-parse FETCH_HEAD)
+if ! git merge-base --is-ancestor "$REMOTE_TIP" HEAD;then
+  echo "Remote $BRANCH has commits not in your current branch. Update/rebase safely first, then rerun." >&2
+  echo 'Your files and index were not changed by this script.' >&2;exit 1
+fi
+mapfile -t ALL < tools/v060-update-files.txt
+paths=()
+for path in "${ALL[@]}";do
+  [ -n "$path" ] || continue
+  case "$path" in \#*)continue;; /*|../*|*/../*)echo "Unsafe path in update list: $path" >&2;exit 1;;esac
+  if [ -e "$path" ] || [ -L "$path" ] || git ls-files --error-unmatch -- "$path" >/dev/null 2>&1;then paths+=("$path");fi
+done
+[ "${#paths[@]}" -gt 0 ] || { echo 'No update files found.' >&2;exit 1; }
+git add -A -- "${paths[@]}"
+if ! git diff --cached --check;then
+  git reset -q HEAD -- "${paths[@]}" || true
+  echo 'Whitespace checks failed; update paths were unstaged.' >&2;exit 1
+fi
+LOCAL_COMMITS=$(git rev-list --count "$REMOTE_TIP..HEAD")
+if git diff --cached --quiet && [ "$LOCAL_COMMITS" = 0 ];then
+  echo 'Nothing to commit or push.';exit 0
+fi
 echo
-echo "Pushed. Open: https://github.com/Aryanshahx/apexassassin/actions"
-echo "Download the artifact: apex-assassin-debug-<sha>"
+echo 'Staged update paths:'
+git diff --cached --stat
+echo "Existing local commits that would also be pushed: $LOCAL_COMMITS"
+if [ "$LOCAL_COMMITS" -gt 0 ];then git log --oneline "$REMOTE_TIP..HEAD";fi
+echo 'Review ASSETS_LICENSE.md and confirm you have the rights to publish the artwork.'
+if [ "$CONFIRM" != 1 ];then
+  printf 'Commit and push the listed changes to %s? [y/N] ' "$URL"
+  read -r answer || answer=''
+  case "$answer" in y|Y|yes|YES) ;; *)
+    git reset -q HEAD -- "${paths[@]}" || true
+    echo 'Cancelled. Update paths were unstaged; working files were kept.';exit 1;;
+  esac
+fi
+if ! git diff --cached --quiet;then git commit -m "$MSG";fi
+if ! git push -u origin "HEAD:refs/heads/$BRANCH";then
+  echo 'Push failed; any new commit remains safely on your local branch. Check credentials or remote changes, then retry.' >&2;exit 1
+fi
+echo 'Pushed successfully. GitHub Actions can build the debug APK.'

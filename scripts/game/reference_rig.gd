@@ -24,8 +24,18 @@ var custom_blade: Sprite2D
 var foot_a: Node2D
 var foot_b: Node2D
 var muzzle: Sprite2D
+# Guard-only layers reconstructed from the supplied still, not original frames.
+var guard_gun: Node2D
+var guard_aim_amount := 0.0
+var guard_aim_target := 0.0
+var guard_aim_offset := 0.0
+var guard_aim_offset_target := 0.0
+var guard_raise_angle := 0.0
 var anim: AnimationPlayer
 var _current := ""
+var _source_extent := 248.0
+var foot_rest_a := Vector2.ZERO
+var foot_rest_b := Vector2.ZERO
 
 func setup(p_kind: String, p_role: String = "player") -> void:
 	kind = p_kind
@@ -52,32 +62,33 @@ func _region_sprite(tex: Texture2D, region: Rect2, pos: Vector2) -> Sprite2D:
 	s.position = pos
 	return s
 
-func _build_feet(tex: Texture2D, region: Rect2, pivot: Vector2) -> void:
-	# Small duplicate patches from the still act as alternating trailing feet.
-	# They are hidden at rest, behind the full reference pose while running.
-	foot_a = Node2D.new()
-	foot_a.name = "FootA"
-	art.add_child(foot_a)
-	foot_a.add_child(_region_sprite(tex, region, region.position - pivot))
-	foot_a.visible = false
-	foot_b = Node2D.new()
-	foot_b.name = "FootB"
-	art.add_child(foot_b)
-	foot_b.add_child(_region_sprite(tex, region, region.position - pivot))
-	foot_b.visible = false
-
 func _build_player() -> void:
 	var index := clampi(GameState.reference_art_index(kind), 1, 12)
 	var tex: Texture2D = load(REF_PATH + "characters/%02d.png" % index)
+	var body_tex: Texture2D = load(REF_PATH + "characters/parts/%02d_body.png" % index)
+	var boot_tex: Texture2D = load(REF_PATH + "characters/parts/%02d_boot.png" % index)
 	var sz := tex.get_size()
+	_source_extent = maxf(sz.x, sz.y)
 	var pivot := Vector2(sz.x * 0.64, sz.y * 0.50)
 	art.rotation = PI / 2.0 # source pose faces left; default rig faces up
-	art.scale = Vector2.ONE * (ART_WORLD_EXTENT / maxf(sz.x, sz.y))
-	var foot_region := Rect2(Vector2(sz.x * 0.83, sz.y * 0.25), Vector2(sz.x * 0.17, sz.y * 0.50))
-	_build_feet(tex, foot_region, pivot)
+	art.scale = Vector2.ONE * (ART_WORLD_EXTENT / _source_extent)
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	# Each still has one visible trailing boot. Animate that real boot around
+	# its attachment point instead of cloning a second patch or warping limbs.
+	var boot_anchor := Vector2(round(sz.x * 0.82), sz.y * 0.5)
+	foot_a = Node2D.new()
+	foot_a.name = "FootA"
+	foot_rest_a = boot_anchor - pivot
+	foot_a.position = foot_rest_a
+	art.add_child(foot_a)
+	var boot := Sprite2D.new()
+	boot.texture = boot_tex
+	boot.centered = false
+	boot.position = -boot_anchor
+	foot_a.add_child(boot)
 	var cut: float = CUT_X[index - 1]
 	var cut_y: float = CUT_Y[index - 1]
-	var torso := _region_sprite(tex, Rect2(cut, 0, sz.x - cut, sz.y), Vector2(cut, 0) - pivot)
+	var torso := _region_sprite(body_tex, Rect2(cut, 0, sz.x - cut, sz.y), Vector2(cut, 0) - pivot)
 	torso.name = "Pose"
 	art.add_child(torso)
 	blade = Node2D.new()
@@ -95,25 +106,79 @@ func _build_player() -> void:
 	blade.add_child(custom_blade)
 	set_knife(knife_id)
 
+func _process(delta: float) -> void:
+	if role == "guard" and guard_gun != null and not dead:
+		# Pivot from patrol pose toward the player, compensating for body turn.
+		guard_aim_amount = move_toward(guard_aim_amount, guard_aim_target, delta * 4.5)
+		guard_aim_offset = lerp_angle(guard_aim_offset, guard_aim_offset_target, 1.0 - exp(-12.0 * delta))
+		guard_gun.rotation = guard_aim_amount * (guard_raise_angle + guard_aim_offset)
+
+func set_aiming(value: bool, relative_angle: float = 0.0) -> void:
+	if role != "guard" or dead:
+		return
+	guard_aim_target = 1.0 if value else 0.0
+	guard_aim_offset_target = clampf(relative_angle, -0.65, 0.65) if value else 0.0
+
 func _build_guard() -> void:
-	var file := "elite.png" if kind == "elite" else "guard.png"
-	var tex: Texture2D = load(REF_PATH + "guards/" + file)
+	var guard_name := "elite" if kind == "elite" else "guard"
+	var tex: Texture2D = load(REF_PATH + "guards/" + guard_name + ".png")
 	var sz := tex.get_size()
+	_source_extent = maxf(sz.x, sz.y)
 	var pivot := sz * 0.5
-	art.scale = Vector2.ONE * (GUARD_WORLD_EXTENT / maxf(sz.x, sz.y))
-	var foot_region := Rect2(Vector2(sz.x * 0.30, sz.y * 0.66), Vector2(sz.x * 0.40, sz.y * 0.34))
-	_build_feet(tex, foot_region, pivot)
+	art.scale = Vector2.ONE * (GUARD_WORLD_EXTENT / _source_extent)
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	# Unlike the old duplicate patches/UV warp, these two separate foot pieces
+	# alternate in counterphase behind an undistorted screenshot-derived torso.
+	var parts := REF_PATH + "guards/parts/" + guard_name + "_"
+	foot_a = Node2D.new()
+	foot_a.name = "FootA"
+	var front_anchor := Vector2(32, 12) if kind == "elite" else Vector2(35, 12)
+	foot_rest_a = front_anchor - pivot
+	foot_a.position = foot_rest_a
+	art.add_child(foot_a)
+	var front := Sprite2D.new()
+	front.texture = load(parts + "foot_front.png")
+	front.centered = false
+	front.position = -front_anchor
+	foot_a.add_child(front)
+	foot_b = Node2D.new()
+	foot_b.name = "FootB"
+	var back_anchor := Vector2(25, 58) if kind == "elite" else Vector2(25, 52)
+	foot_rest_b = back_anchor - pivot
+	foot_b.position = foot_rest_b
+	art.add_child(foot_b)
+	var back := Sprite2D.new()
+	back.texture = load(parts + "foot_back.png")
+	back.centered = false
+	back.position = -back_anchor
+	foot_b.add_child(back)
 	var pose := Sprite2D.new()
 	pose.name = "Pose"
-	pose.texture = tex
+	pose.texture = load(parts + "body.png")
+	pose.centered = false
+	pose.position = -pivot
 	art.add_child(pose)
+	# The rifle is cut from the same supplied image and pivots at the hand.
+	var anchor := Vector2(38, 22) if kind == "elite" else Vector2(39, 16)
+	var tip := Vector2(3, 5) if kind == "elite" else Vector2(9, 13)
+	guard_raise_angle = deg_to_rad(60.0 if kind == "elite" else 82.0)
+	guard_gun = Node2D.new()
+	guard_gun.name = "Gun"
+	guard_gun.position = anchor - pivot
+	art.add_child(guard_gun)
+	var weapon := Sprite2D.new()
+	weapon.name = "Weapon"
+	weapon.texture = load(parts + "weapon.png")
+	weapon.centered = false
+	weapon.position = -anchor
+	guard_gun.add_child(weapon)
 	muzzle = Sprite2D.new()
 	muzzle.name = "Muzzle"
 	muzzle.texture = preload("res://assets/fx/spark.png")
-	muzzle.scale = Vector2.ONE * 0.28
-	muzzle.position = Vector2(0, -27)
+	muzzle.scale = Vector2.ONE * 0.23
+	muzzle.position = tip - anchor
 	muzzle.modulate = Color(1, 1, 1, 0)
-	body.add_child(muzzle)
+	guard_gun.add_child(muzzle)
 
 func set_knife(id: String) -> void:
 	knife_id = id
@@ -137,12 +202,12 @@ func _draw() -> void:
 	draw_circle(Vector2.ZERO, 18.0, Color(0, 0, 0, 0.28))
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
-func _track(a: Animation, path: NodePath, times: Array, values: Array) -> void:
+func _track(a: Animation, path: NodePath, times: Array, values: Array, smooth := false) -> void:
 	var track := a.add_track(Animation.TYPE_VALUE)
 	a.track_set_path(track, path)
 	for i in range(times.size()):
 		a.track_insert_key(track, times[i], values[i])
-	a.track_set_interpolation_type(track, Animation.INTERPOLATION_LINEAR)
+	a.track_set_interpolation_type(track, Animation.INTERPOLATION_CUBIC if smooth else Animation.INTERPOLATION_LINEAR)
 
 func _build_animations() -> void:
 	anim = AnimationPlayer.new()
@@ -155,21 +220,36 @@ func _build_animations() -> void:
 	_track(idle, NodePath("Body:position"), [0.0, 0.75, 1.5], [Vector2.ZERO, Vector2(0, -0.7), Vector2.ZERO])
 	_track(idle, NodePath("Body:scale"), [0.0, 0.75, 1.5], [Vector2.ONE, Vector2(1.01, 0.99), Vector2.ONE])
 	_track(idle, NodePath("Body:rotation"), [0.0, 0.75, 1.5], [0.0, 0.015, 0.0])
+	_track(idle, NodePath("Body/Art/FootA:position"), [0.0], [foot_rest_a])
+	_track(idle, NodePath("Body/Art/FootA:rotation"), [0.0], [0.0])
 	if role == "player":
-		_track(idle, NodePath("Body/Art/Blade:rotation"), [0.0, 0.75, 1.5], [0.0, 0.03, 0.0])
+		_track(idle, NodePath("Body/Art/Blade:rotation"), [0.0, 0.75, 1.5], [0.0, 0.018, 0.0], true)
+	else:
+		_track(idle, NodePath("Body/Art/FootB:position"), [0.0], [foot_rest_b])
+		_track(idle, NodePath("Body/Art/FootB:rotation"), [0.0], [0.0])
 	lib.add_animation("idle", idle)
 
 	var run := Animation.new()
-	run.length = 0.42
+	run.length = 0.60 if role == "guard" else 0.54
 	run.loop_mode = Animation.LOOP_LINEAR
-	_track(run, NodePath("Body:position"), [0.0, 0.105, 0.21, 0.315, 0.42], [Vector2.ZERO, Vector2(0,-2), Vector2.ZERO, Vector2(0,-2), Vector2.ZERO])
-	_track(run, NodePath("Body:rotation"), [0.0, 0.21, 0.42], [-0.07, 0.07, -0.07])
-	_track(run, NodePath("Body:scale"), [0.0, 0.105, 0.21, 0.315, 0.42], [Vector2.ONE, Vector2(1.025,0.975), Vector2.ONE, Vector2(1.025,0.975), Vector2.ONE])
-	var stride := 15.0 if role == "player" else 5.0
-	_track(run, NodePath("Body/Art/FootA:position"), [0.0, 0.21, 0.42], [Vector2(0,-stride), Vector2(0,stride), Vector2(0,-stride)])
-	_track(run, NodePath("Body/Art/FootB:position"), [0.0, 0.21, 0.42], [Vector2(0,stride), Vector2(0,-stride), Vector2(0,stride)])
+	var half := run.length * 0.5
+	var quarter := run.length * 0.25
+	var times := [0.0, quarter, half, quarter * 3.0, run.length]
+	var bob := 0.55 if role == "guard" else 0.70
+	_track(run, NodePath("Body:position"), times, [Vector2.ZERO, Vector2(0,-bob), Vector2.ZERO, Vector2(0,-bob), Vector2.ZERO], true)
+	_track(run, NodePath("Body:rotation"), times, [0.0, -0.018, 0.0, 0.018, 0.0], true)
+	_track(run, NodePath("Body:scale"), [0.0], [Vector2.ONE])
 	if role == "player":
-		_track(run, NodePath("Body/Art/Blade:rotation"), [0.0, 0.21, 0.42], [-0.08, 0.08, -0.08])
+		var stride := 6.0 * _source_extent / 248.0
+		_track(run, NodePath("Body/Art/FootA:position"), times, [foot_rest_a, foot_rest_a + Vector2(-stride, -1.0), foot_rest_a, foot_rest_a + Vector2(stride, 1.0), foot_rest_a], true)
+		_track(run, NodePath("Body/Art/FootA:rotation"), times, [0.0, -0.045, 0.0, 0.045, 0.0], true)
+		_track(run, NodePath("Body/Art/Blade:rotation"), times, [0.0, -0.035, 0.0, 0.035, 0.0], true)
+	else:
+		var step := Vector2(0.0, 1.5)
+		_track(run, NodePath("Body/Art/FootA:position"), times, [foot_rest_a, foot_rest_a-step, foot_rest_a, foot_rest_a+step, foot_rest_a], true)
+		_track(run, NodePath("Body/Art/FootB:position"), times, [foot_rest_b, foot_rest_b+step, foot_rest_b, foot_rest_b-step, foot_rest_b], true)
+		_track(run, NodePath("Body/Art/FootA:rotation"), times, [0.0, -0.10, 0.0, 0.10, 0.0], true)
+		_track(run, NodePath("Body/Art/FootB:rotation"), times, [0.0, 0.10, 0.0, -0.10, 0.0], true)
 	lib.add_animation("run", run)
 
 	var attack := Animation.new()
@@ -186,7 +266,7 @@ func _build_animations() -> void:
 	_track(shoot, NodePath("Body:position"), [0.0, 0.05, 0.18], [Vector2.ZERO, Vector2(0,3), Vector2.ZERO])
 	_track(shoot, NodePath("Body:rotation"), [0.0, 0.18], [0.0, 0.0])
 	if muzzle:
-		_track(shoot, NodePath("Body/Muzzle:modulate"), [0.0, 0.03, 0.10, 0.18], [Color(1,1,1,0), Color.WHITE, Color(1,1,1,0.6), Color(1,1,1,0)])
+		_track(shoot, NodePath("Body/Art/Gun/Muzzle:modulate"), [0.0, 0.03, 0.10, 0.18], [Color(1,1,1,0), Color.WHITE, Color(1,1,1,0.6), Color(1,1,1,0)])
 	lib.add_animation("shoot", shoot)
 
 	var hurt := Animation.new()
@@ -211,14 +291,10 @@ func play_anim(name: String, force: bool = false) -> void:
 	if _current == name and not force:
 		return
 	_current = name
-	anim.play(name)
+	anim.play(name, 0.08 if name in ["idle", "run"] else -1.0)
 
 func set_moving(value: bool) -> void:
 	moving = value
-	if foot_a:
-		foot_a.visible = value and not dead
-	if foot_b:
-		foot_b.visible = value and not dead
 	if dead:
 		return
 	if _current in ["idle", "run"]:
@@ -226,10 +302,6 @@ func set_moving(value: bool) -> void:
 
 func die() -> void:
 	dead = true
-	if foot_a:
-		foot_a.visible = false
-	if foot_b:
-		foot_b.visible = false
 	play_anim("death", true)
 
 func _on_finished(name: StringName) -> void:

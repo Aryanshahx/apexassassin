@@ -31,10 +31,11 @@ const CHARACTERS := {
 	"ref10": {"name": "Boxer", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.30, "blurb": "+30% health"},
 	"ref11": {"name": "Blonde and Pink", "cost": 0, "speed_bonus": 0.35, "health_bonus": 0.0, "blurb": "+35% speed"},
 	"ref12": {"name": "Green Shell", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.35, "blurb": "+35% health"},
+
 }
 const REFERENCE_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12"]
 const LEGACY_ORDER := ["ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
-const CHARACTER_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12", "ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
+const CHARACTER_ORDER := REFERENCE_ORDER + LEGACY_ORDER
 # Give previously saved assassins the approved visual style without changing
 # their IDs, bonuses, selected state, unlocks or save schema.
 const LEGACY_ART_INDEX := {"ronin": 1, "sable": 2, "nova": 3, "aegis": 4, "dash": 5, "sentinel": 6, "sage": 7, "crimson": 8, "fiesta": 9, "oni": 10}
@@ -78,6 +79,32 @@ var selected_knife := "standard"
 var unlocked_knives := {"standard": true}
 var best_stars := {}
 var last_wheel_day := ""
+# Keep immutable level data and depot textures alive across level changes. This
+# avoids re-parsing the full 100-level file and re-uploading map art every win.
+var _level_catalog: Array = []
+var _depot_texture_cache := {}
+
+func level_data(number: int) -> Dictionary:
+	if _level_catalog.is_empty():
+		var f := FileAccess.open("res://data/levels/levels.json", FileAccess.READ)
+		if f == null:
+			push_error("levels.json missing")
+			return {}
+		var parsed: Variant = JSON.parse_string(f.get_as_text())
+		if not parsed is Dictionary or not parsed.has("levels"):
+			push_error("Invalid levels.json")
+			return {}
+		_level_catalog = parsed.levels
+	if _level_catalog.is_empty():
+		return {}
+	return _level_catalog[clampi(number - 1, 0, _level_catalog.size() - 1)]
+
+func depot_textures() -> Dictionary:
+	if _depot_texture_cache.is_empty():
+		for color in ["blue", "red", "olive"]:
+			for part in ["cap_a", "cap_b", "cap_l", "cap_r", "mid", "mid_h", "depth", "depth_h"]:
+				_depot_texture_cache[color + "_" + part] = load("res://assets/environment/depot/c_%s_%s.png" % [color, part])
+	return _depot_texture_cache
 
 func _ready() -> void:
 	load_game()
@@ -111,8 +138,12 @@ func load_game() -> void:
 	var old_sel: Variant = p.get("selected_assassin", "ronin")
 	if old_sel is String and CHARACTERS.has(old_sel):
 		selected_assassin = old_sel
-	else:
+	elif old_sel is int or old_sel is float:
 		selected_assassin = "nova" if int(old_sel) == 1 else "ronin"
+	else:
+		# Removed v0.5.6 roster IDs are no longer playable. Keep every other
+		# saved field and fall back safely to the original free assassin.
+		selected_assassin = "ronin"
 	var u: Variant = p.get("upgrades", {})
 	if u is Dictionary:
 		for k in upgrades:
@@ -225,8 +256,8 @@ func reference_art_index(id: String) -> int:
 	return int(LEGACY_ART_INDEX.get(id, 1))
 
 func is_unlocked(id: String) -> bool:
-	# The user selected every screenshot design; make all twelve available now.
-	return is_reference_character(id) or bool(unlocked_assassins.get(id, false))
+	# The twelve selected reference designs are free; legacy unlocks persist.
+	return CHARACTERS.has(id) and (is_reference_character(id) or bool(unlocked_assassins.get(id, false)))
 
 func unlock_character(id: String) -> bool:
 	if not CHARACTERS.has(id) or is_unlocked(id):

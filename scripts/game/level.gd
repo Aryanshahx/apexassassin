@@ -46,6 +46,9 @@ const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const HEART_TEX := preload("res://assets/ui/heart.png")
 const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
+const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
+const GUARD_GAP := 48.0
+const DRAG_REPATH_INTERVAL := 0.045
 
 enum GState { PATROL, INVESTIGATE, ALERT, SEARCH, DEAD }
 
@@ -53,6 +56,8 @@ var data: Dictionary = {}
 var grid := AStarGrid2D.new()
 var wall_rects: Array[Rect2] = []
 var crate_rects: Array[Rect2] = []
+# Pre-grown once; used by movement, bullet blocking and the analytic vision rays.
+var blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
 var player_pos := Vector2.ZERO
 var player_face := -PI / 2
@@ -89,29 +94,50 @@ var base_position := Vector2.ZERO
 var dragging := false
 var drag_target := Vector2.ZERO
 var drag_repath := 0.0
+var drag_dirty := false
+var walkable_regions: Array = []
+var region_by_cell := {}
+var map_backplate: Node2D
+var map_cover: Node2D
+var fx_font: FontVariation
 var backstabs := 0
 var pause_btn: Button
 var target_icon: TextureRect
 var gem_icon: TextureRect
 
 func _load_depot() -> void:
+	var shared := GameState.depot_textures()
 	for k in CONTAINER_KEYS:
-		_c_cap_a[k] = load(DEPOT + "c_%s_cap_a.png" % k)
-		_c_cap_b[k] = load(DEPOT + "c_%s_cap_b.png" % k)
-		_c_cap_l[k] = load(DEPOT + "c_%s_cap_l.png" % k)
-		_c_cap_r[k] = load(DEPOT + "c_%s_cap_r.png" % k)
-		_c_mid[k] = load(DEPOT + "c_%s_mid.png" % k)
-		_c_mid_h[k] = load(DEPOT + "c_%s_mid_h.png" % k)
-		_c_depth[k] = load(DEPOT + "c_%s_depth.png" % k)
-		_c_depth_h[k] = load(DEPOT + "c_%s_depth_h.png" % k)
+		_c_cap_a[k] = shared[k + "_cap_a"]
+		_c_cap_b[k] = shared[k + "_cap_b"]
+		_c_cap_l[k] = shared[k + "_cap_l"]
+		_c_cap_r[k] = shared[k + "_cap_r"]
+		_c_mid[k] = shared[k + "_mid"]
+		_c_mid_h[k] = shared[k + "_mid_h"]
+		_c_depth[k] = shared[k + "_depth"]
+		_c_depth_h[k] = shared[k + "_depth_h"]
 
 func _ready() -> void:
 	_load_depot()
 	rng.seed = 9000 + GameState.current_level
 	_load_level(GameState.current_level)
 	_build_grid()
+	_build_walkable_regions()
 	_build_shadows()
 	_build_floor_details()
+	# Static floor and cover are recorded once instead of rebuilt every frame.
+	map_backplate = WorldBackplate.new()
+	map_backplate.setup(self)
+	map_backplate.show_behind_parent = true
+	add_child(map_backplate)
+	# A separate retained cover layer sits above path/flashlights and below
+	# actors, so the original obstacle/lighting appearance remains unchanged.
+	map_cover = WorldBackplate.new()
+	map_cover.setup(self, true)
+	add_child(map_cover)
+	fx_font = FontVariation.new()
+	fx_font.base_font = FONT
+	fx_font.variation_embolden = 1.0
 	_build_guards()
 	_build_player()
 	_build_hud()
@@ -186,18 +212,19 @@ func _layout_hud() -> void:
 		hint.size = Vector2(safe.size.x, 40)
 
 func _load_level(n: int) -> void:
-	var f := FileAccess.open("res://data/levels/levels.json", FileAccess.READ)
-	if f == null:
-		push_error("levels.json missing")
+	data = GameState.level_data(n)
+	if data.is_empty():
 		return
-	var parsed: Variant = JSON.parse_string(f.get_as_text())
-	var levels: Array = parsed.levels
-	data = levels[clampi(n - 1, 0, levels.size() - 1)]
 	player_pos = _cell_center(data.spawn[0], data.spawn[1])
 	for w in data.walls:
 		wall_rects.append(Rect2(ORIGIN + Vector2(w[0], w[1]) * CELL, Vector2(w[2], w[3]) * CELL).grow(OBSTACLE_GROW))
 	for c in data.crates:
 		crate_rects.append(Rect2(ORIGIN + Vector2(c[0], c[1]) * CELL, Vector2(c[2], c[3]) * CELL).grow(OBSTACLE_GROW))
+	blocking_rects.clear()
+	for rect in wall_rects:
+		blocking_rects.append(rect.grow(4.0))
+	for rect in crate_rects:
+		blocking_rects.append(rect.grow(4.0))
 
 func _cell_center(x: int, y: int) -> Vector2:
 	return ORIGIN + Vector2(x + 0.5, y + 0.5) * CELL
@@ -218,14 +245,69 @@ func _build_grid() -> void:
 			if _solid(_cell_center(x, y)):
 				grid.set_point_solid(Vector2i(x, y), true)
 
+# The movement grid may have disconnected pockets. Flood-fill its four-way
+# components once so roaming and touch destinations never cross walls.
+func _build_walkable_regions() -> void:
+	walkable_regions.clear()
+	region_by_cell.clear()
+	var directions := [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
+	for y in range(int(data.height)):
+		for x in range(int(data.width)):
+			var cell := Vector2i(x, y)
+			if grid.is_point_solid(cell) or region_by_cell.has(cell):
+				continue
+			var rid := walkable_regions.size()
+			var queue: Array[Vector2i] = [cell]
+			region_by_cell[cell] = rid
+			var cursor := 0
+			while cursor < queue.size():
+				var here := queue[cursor]
+				cursor += 1
+				for d in directions:
+					var next: Vector2i = here + d
+					if grid.is_in_boundsv(next) and not grid.is_point_solid(next) and not region_by_cell.has(next):
+						region_by_cell[next] = rid
+						queue.append(next)
+			walkable_regions.append(queue)
+
 func _solid(p: Vector2) -> bool:
-	for r in wall_rects:
-		if r.grow(4).has_point(p):
-			return true
-	for r in crate_rects:
-		if r.grow(4).has_point(p):
+	for rect in blocking_rects:
+		if rect.has_point(p):
 			return true
 	return false
+
+# Exact ray/rectangle intersections replace repeated 64-step point sampling.
+# The light still uses 40 rays, but this eliminates thousands of rectangle
+# checks per guard per frame, a major source of mobile frame-time spikes.
+func _raycast_distance(origin: Vector2, direction: Vector2, max_distance: float, nearby: Array[Rect2] = []) -> float:
+	var closest := max_distance
+	var candidates: Array[Rect2] = nearby if not nearby.is_empty() else blocking_rects
+	for rect in candidates:
+		var enter := 0.0
+		var leave := closest
+		if absf(direction.x) < 0.000001:
+			if origin.x < rect.position.x or origin.x >= rect.end.x:
+				continue
+		else:
+			var ax := (rect.position.x - origin.x) / direction.x
+			var bx := (rect.end.x - origin.x) / direction.x
+			enter = maxf(enter, minf(ax, bx))
+			leave = minf(leave, maxf(ax, bx))
+			if enter > leave:
+				continue
+		if absf(direction.y) < 0.000001:
+			if origin.y < rect.position.y or origin.y >= rect.end.y:
+				continue
+		else:
+			var ay := (rect.position.y - origin.y) / direction.y
+			var by := (rect.end.y - origin.y) / direction.y
+			enter = maxf(enter, minf(ay, by))
+			leave = minf(leave, maxf(ay, by))
+			if enter > leave:
+				continue
+		if leave >= 0.0 and enter <= closest:
+			closest = maxf(0.0, enter)
+	return closest
 
 func _build_shadows() -> void:
 	# Cast short soft shadows down-right from every obstacle.
@@ -293,6 +375,10 @@ func _build_guards() -> void:
 			"last_seen": Vector2.ZERO, "search_t": 0.0, "rig": rig,
 			"speed": 48.0 if kind == "elite" else 58.0,
 			"vision": 220.0 if kind == "elite" else 250.0,
+			"roam_target": Vector2.ZERO, "roam_valid": false,
+			"blocked_t": 0.0, "avoid_side": 1.0,
+			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
+			"light_face": 0.0, "light_segments": [],
 		})
 	total = guards.size()
 
@@ -402,8 +488,9 @@ func _physics_process(delta: float) -> void:
 	# Continuous steering while dragging.
 	if dragging and hunt_target < 0:
 		drag_repath -= delta
-		if drag_repath <= 0.0:
-			drag_repath = 0.12
+		if drag_dirty and drag_repath <= 0.0:
+			drag_repath = DRAG_REPATH_INTERVAL
+			drag_dirty = false
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
@@ -431,20 +518,24 @@ func _update_hunt() -> void:
 func _move_player(delta: float) -> void:
 	var speed: float = GameState.player_speed()
 	var budget := speed * delta
-	var moved := false
-	while player_path.size() > 0 and budget > 0:
+	var before := player_pos
+	while player_path.size() > 0 and budget > 0.0:
 		var target: Vector2 = player_path[0]
 		var d := player_pos.distance_to(target)
-		if d <= budget:
+		if d <= 0.001:
+			player_path.remove_at(0)
+		elif d <= budget:
 			player_pos = target
 			player_path.remove_at(0)
 			budget -= d
 		else:
-			var dir: Vector2 = (target - player_pos) / d
-			player_pos += dir * budget
-			player_face = dir.angle()
-			budget = 0
-		moved = true
+			player_pos += (target - player_pos) / d * budget
+			budget = 0.0
+	var displacement := player_pos - before
+	var moved := displacement.length_squared() > 0.0001
+	if moved:
+		# Smooth facing across route corners instead of snapping to every grid turn.
+		player_face = lerp_angle(player_face, displacement.angle(), 1.0 - exp(-16.0 * delta))
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
 	player_rig.set_moving(moved)
@@ -455,11 +546,74 @@ func _move_player(delta: float) -> void:
 
 func _path_to(target: Vector2) -> void:
 	var from := _to_cell(player_pos)
-	var to := _to_cell(target)
-	to.x = clampi(to.x, 0, int(data.width) - 1)
-	to.y = clampi(to.y, 0, int(data.height) - 1)
-	if grid.is_in_boundsv(to) and not grid.is_point_solid(to):
-		player_path = grid.get_point_path(from, to)
+	var requested := _to_cell(target)
+	requested.x = clampi(requested.x, 0, int(data.width) - 1)
+	requested.y = clampi(requested.y, 0, int(data.height) - 1)
+	if not grid.is_in_boundsv(from) or grid.is_point_solid(from):
+		player_path.clear()
+		return
+	var rid := int(region_by_cell.get(from, -1))
+	if rid < 0:
+		player_path.clear()
+		return
+	var destination := requested
+	if int(region_by_cell.get(requested, -1)) != rid:
+		# Nearest reachable cell to a tap on cover/outside/disconnected space.
+		# This avoids AStar's expensive partial search toward a solid end node.
+		var closest := INF
+		for c in walkable_regions[rid]:
+			var dist: float = _cell_center(c.x, c.y).distance_squared_to(target)
+			if dist < closest:
+				closest = dist
+				destination = c
+	var route: PackedVector2Array = grid.get_point_path(from, destination)
+	if route.is_empty():
+		player_path.clear()
+		return
+	if route.size() == 1:
+		route.clear()
+	elif _los(player_pos, route[1]):
+		route.remove_at(0)
+	var map_rect := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
+	if destination == requested and map_rect.has_point(target) and not _solid(target):
+		var last: Vector2 = route[route.size() - 1] if not route.is_empty() else player_pos
+		if last.distance_to(target) > 0.5 and _los(last, target):
+			route.append(target)
+	player_path = route
+
+func _route_visual_points() -> PackedVector2Array:
+	# This is the actual remaining AStar route, not a straight-line guess.
+	var points := PackedVector2Array()
+	if player_path.is_empty():
+		return points
+	points.append(player_pos)
+	for waypoint in player_path:
+		if points[points.size() - 1].distance_squared_to(waypoint) > 0.01:
+			points.append(waypoint)
+	return points if points.size() > 1 else PackedVector2Array()
+
+func _route_arrow_points() -> PackedVector2Array:
+	var route := _route_visual_points()
+	if route.size() < 2:
+		return PackedVector2Array()
+	var tip: Vector2 = route[route.size() - 1]
+	var previous: Vector2 = route[route.size() - 2]
+	var direction := (tip - previous).normalized()
+	var size := minf(12.0, tip.distance_to(previous) * 0.8)
+	var side := Vector2(-direction.y, direction.x) * size * 0.48
+	var base := tip - direction * size
+	return PackedVector2Array([tip, base + side, base - side])
+
+func _draw_route() -> void:
+	var points := _route_visual_points()
+	if points.size() < 2:
+		return
+	draw_polyline(points, Color(0.02, 0.08, 0.12, 0.70), 7.0, true)
+	draw_polyline(points, Color(0.42, 0.94, 1.0, 0.92), 3.2, true)
+	# A small arrowhead belongs to the actual path endpoint, not a tap pulse.
+	var arrow := _route_arrow_points()
+	if arrow.size() == 3:
+		draw_colored_polygon(arrow, Color(0.42, 0.94, 1.0, 0.96))
 
 func _auto_attack() -> void:
 	if attack_cd > 0:
@@ -550,6 +704,8 @@ func _update_guards(delta: float) -> void:
 	for g in guards:
 		if not g.alive:
 			continue
+		var previous_position: Vector2 = g.pos
+		g.light_age += delta
 		var sees := _can_see(g.pos, g.face, player_pos, g.vision)
 		if sees:
 			var rate := 2.6
@@ -599,32 +755,104 @@ func _update_guards(delta: float) -> void:
 					g.path.clear()
 		g.rig.position = g.pos
 		g.rig.rotation = g.face + PI / 2
-		g.rig.set_moving(g.state in [GState.PATROL, GState.INVESTIGATE, GState.ALERT] and g.path.size() > 0)
+		g.rig.set_moving(g.pos.distance_squared_to(previous_position) > 0.0001)
+		var player_direction: Vector2 = player_pos - g.pos
+		var aim_offset: float = angle_difference(g.face, player_direction.angle()) if player_direction.length_squared() > 0.001 else 0.0
+		g.rig.set_aiming(sees, aim_offset)
 
 func _fire(g: Dictionary) -> void:
-	var dir: Vector2 = Vector2.from_angle(g.face)
+	var toward_player: Vector2 = player_pos - g.pos
+	var dir: Vector2 = toward_player.normalized() if toward_player.length_squared() > 0.001 else Vector2.from_angle(g.face)
 	bullets.append({"pos": g.pos + dir * 24, "vel": dir * 420.0, "life": 1.6})
+	# The muzzle flash is attached to the moving gun, not floating in the world.
 	g.rig.play_anim("shoot", true)
-	effects.append({"pos": g.pos + dir * 28, "t": 0.12, "max": 0.12, "kind": "muzzle"})
 	Sfx.play("shot")
 	# Gunfire is loud: nearby guards converge on the shooter's target.
 	for other in guards:
 		if other != g and other.alive and other.pos.distance_to(g.pos) < 320 and other.state == GState.PATROL:
 			_investigate(other, player_pos)
 
+func _choose_roam_target(g: Dictionary) -> bool:
+	var from := _to_cell(g.pos)
+	var region := int(region_by_cell.get(from, -1))
+	if region < 0:
+		return false
+	var cells: Array = walkable_regions[region]
+	if cells.size() < 2:
+		return false
+	var choice := from
+	var best_distance := 0.0
+	# Pick new long-range destinations across this connected portion of the
+	# warehouse; never assume two arbitrary floor cells are mutually reachable.
+	for attempt in range(mini(36, cells.size() * 2)):
+		var cell: Vector2i = cells[rng.randi_range(0, cells.size() - 1)]
+		var point := _cell_center(cell.x, cell.y)
+		var distance := point.distance_squared_to(g.pos)
+		var occupied := false
+		for other in guards:
+			if other.rig != g.rig and other.alive and point.distance_squared_to(other.pos) < (GUARD_GAP * 1.25) * (GUARD_GAP * 1.25):
+				occupied = true
+				break
+		if occupied:
+			continue
+		if distance > best_distance:
+			choice = cell
+			best_distance = distance
+		if distance >= (CELL * 6.0) * (CELL * 6.0):
+			break
+	if choice == from:
+		return false
+	g.roam_target = _cell_center(choice.x, choice.y)
+	g.roam_valid = true
+	g.blocked_t = 0.0
+	g.path.clear()
+	return true
+
 func _patrol(g: Dictionary, delta: float) -> void:
-	if g.route.size() < 2:
-		g.face += delta * 0.45
-		return
 	if g.wait > 0:
 		g.wait -= delta
-		g.rig.set_moving(false)
 		return
-	_seek(g, g.route[g.ri], delta, g.speed)
-	if g.pos.distance_to(g.route[g.ri]) < 10:
-		g.ri = (g.ri + 1) % g.route.size()
-		g.wait = rng.randf_range(0.6, 1.5)
+	if not g.roam_valid:
+		if not _choose_roam_target(g):
+			g.wait = 0.4
+			g.face += delta * 0.45
+			return
+	_seek(g, g.roam_target, delta, g.speed)
+	if g.pos.distance_to(g.roam_target) < 10.0 or g.blocked_t > 2.0:
+		g.roam_valid = false
 		g.path.clear()
+		g.wait = rng.randf_range(0.15, 0.65)
+
+func _guard_step_clear(g: Dictionary, candidate: Vector2) -> bool:
+	if not grid.is_in_boundsv(_to_cell(candidate)) or _solid(candidate) or not _los(g.pos, candidate):
+		return false
+	for other in guards:
+		if not other.alive or other.rig == g.rig:
+			continue
+		var before: float = g.pos.distance_to(other.pos)
+		var after := candidate.distance_to(other.pos)
+		if before < GUARD_GAP:
+			# If a prior placement was already close, only separate further.
+			if after < before - 0.0001:
+				return false
+		elif _segment_circle(g.pos, candidate, other.pos, GUARD_GAP - 0.05):
+			return false
+	return true
+
+func _guard_step(g: Dictionary, desired: Vector2) -> Vector2:
+	if _guard_step_clear(g, desired):
+		return desired
+	var movement: Vector2 = desired - g.pos
+	if movement.length_squared() < 0.000001:
+		return g.pos
+	# Prefer passing on the right. If a wall blocks that side, try the other;
+	# if both sides are blocked, wait instead of overlapping or crossing cover.
+	var side: float = g.avoid_side
+	for angle in [side * PI / 3.0, -side * PI / 3.0, side * PI / 2.0, -side * PI / 2.0]:
+		var candidate: Vector2 = g.pos + movement.rotated(angle)
+		if _guard_step_clear(g, candidate):
+			return candidate
+	return g.pos
 
 func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 	if g.path.size() == 0:
@@ -632,20 +860,36 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 		var to := _to_cell(target)
 		if grid.is_in_boundsv(from) and grid.is_in_boundsv(to) and not grid.is_point_solid(to):
 			g.path = grid.get_point_path(from, to)
+			if from == to:
+				g.path.clear()
+				if g.pos.distance_to(target) > 0.5 and _los(g.pos, target):
+					g.path.append(target)
+			elif g.path.size() > 1 and _los(g.pos, g.path[1]):
+				g.path.remove_at(0)
 			g.pi = 0
 	var budget := speed * delta
-	while g.pi < g.path.size() and budget > 0:
-		var t: Vector2 = g.path[g.pi]
-		var d: float = g.pos.distance_to(t)
-		if d <= budget:
-			g.pos = t
+	while g.pi < g.path.size() and budget > 0.0:
+		var waypoint: Vector2 = g.path[g.pi]
+		var d: float = g.pos.distance_to(waypoint)
+		if d < 0.001:
 			g.pi += 1
-			budget -= d
+			continue
+		var start: Vector2 = g.pos
+		var step := minf(d, budget)
+		var wanted: Vector2 = start + (waypoint - start) * (step / d)
+		var accepted := _guard_step(g, wanted)
+		g.pos = accepted
+		var displacement := accepted - start
+		if displacement.length_squared() > 0.00001:
+			g.face = lerp_angle(g.face, displacement.angle(), minf(1.0, delta * 8.0))
+		if accepted.distance_squared_to(wanted) > 0.0001:
+			g.blocked_t += delta
+			budget = 0.0
 		else:
-			var dir: Vector2 = (t - g.pos) / d
-			g.pos += dir * budget
-			g.face = lerp_angle(g.face, dir.angle(), delta * 8)
-			budget = 0
+			g.blocked_t = maxf(0.0, g.blocked_t - delta * 2.0)
+			budget -= step
+			if d <= step + 0.001:
+				g.pi += 1
 	if g.pi >= g.path.size():
 		g.path.clear()
 
@@ -661,13 +905,11 @@ func _can_see(from: Vector2, face: float, target: Vector2, vision: float = 250.0
 	return _los(from, target)
 
 func _los(a: Vector2, b: Vector2) -> bool:
-	var d := a.distance_to(b)
-	var steps := int(d / 6.0) + 1
-	for i in range(1, steps):
-		var p := a.lerp(b, float(i) / steps)
-		if _solid(p):
-			return false
-	return true
+	var v := b - a
+	var d := v.length()
+	if d <= 0.001:
+		return not _solid(a)
+	return _raycast_distance(a, v / d, d) >= d - 0.001
 
 func _update_bullets(delta: float) -> void:
 	for i in range(bullets.size() - 1, -1, -1):
@@ -739,107 +981,82 @@ func _update_stealth_hud() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if finished or overlay != null:
 		return
+	if event.is_action_pressed("ui_cancel"):
+		_pause()
+		return
 	var local := Vector2.ZERO
-	var has_pos := false
+	var press := false
+	var release := false
+	var motion := false
 	if event is InputEventScreenTouch:
-		has_pos = true
 		local = make_input_local(event).position
-		dragging = event.pressed
-		if not event.pressed:
-			drag_repath = 0.0
+		press = event.pressed
+		release = not event.pressed
 	elif event is InputEventScreenDrag:
-		has_pos = true
 		local = make_input_local(event).position
-		dragging = true
+		motion = true
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		has_pos = true
+		# A touch can also emit an emulated mouse event; handle it only once.
+		if event.device == InputEvent.DEVICE_ID_EMULATION:
+			return
 		local = make_input_local(event).position
-		dragging = event.pressed
+		press = event.pressed
+		release = not event.pressed
 	elif event is InputEventMouseMotion and dragging:
-		has_pos = true
+		if event.device == InputEvent.DEVICE_ID_EMULATION:
+			return
 		local = make_input_local(event).position
-	if has_pos:
+		motion = true
+	else:
+		return
+	if press:
+		dragging = true
 		drag_target = local
-		# Tap a guard -> hunt it. Otherwise path/steer to the finger.
 		var picked := -1
-		var pd := 44.0
+		var nearest := 44.0
 		for i in range(guards.size()):
-			if guards[i].alive and guards[i].pos.distance_to(local) < pd:
-				pd = guards[i].pos.distance_to(local)
+			if guards[i].alive and guards[i].pos.distance_to(local) < nearest:
+				nearest = guards[i].pos.distance_to(local)
 				picked = i
 		if picked >= 0:
 			hunt_target = picked
 			repath = 0.0
 			dragging = false
-			effects.append({"pos": guards[picked].pos, "t": 0.4, "max": 0.4, "kind": "mark"})
+			_path_to(guards[picked].pos)
 		else:
 			hunt_target = -1
 			_path_to(local)
-			drag_repath = 0.0
-	if event.is_action_pressed("ui_cancel"):
-		_pause()
+			drag_repath = DRAG_REPATH_INTERVAL
+			drag_dirty = false
+	elif motion and dragging:
+		# Update the target immediately; the physics tick throttles replanning.
+		if drag_target.distance_squared_to(local) > 1.0:
+			drag_target = local
+			drag_dirty = true
+	elif release:
+		if dragging and hunt_target < 0:
+			drag_target = local
+			_path_to(local)
+		dragging = false
+		drag_dirty = false
+		drag_repath = 0.0
 
 func _draw() -> void:
-	# Tiled floor, clipped to the map rectangle.
-	var map_rect := Rect2(ORIGIN, Vector2(data.width, data.height) * CELL)
-	# Surround: keep tiling concrete past the arena so tall phones never show
-	# black bars. Drawn darker so the playable arena still reads clearly.
+	# Highlight only the player's actual remaining path, below cover and actors.
+	_draw_route()
+	# Only cast cones that can actually reach the current viewport.
 	var safe := ScreenUtil.safe_rect(get_viewport())
 	var sc := maxf(scale.x, 0.001)
-	var view_world := Rect2((safe.position - position) / sc, safe.size / sc)
-	var out_rect := view_world.grow(64)
-	var ox := floorf(out_rect.position.x / FLOOR_TILE) * FLOOR_TILE
-	while ox < out_rect.end.x:
-		var oy := floorf(out_rect.position.y / FLOOR_TILE) * FLOOR_TILE
-		while oy < out_rect.end.y:
-			draw_texture_rect(FLOOR, Rect2(ox, oy, FLOOR_TILE, FLOOR_TILE), false, GRADE_OUTSIDE)
-			oy += FLOOR_TILE
-		ox += FLOOR_TILE
-	var tw := FLOOR_TILE
-	var th := FLOOR_TILE
-	var x := ORIGIN.x
-	while x < map_rect.end.x:
-		var y := ORIGIN.y
-		while y < map_rect.end.y:
-			var tile := Rect2(x, y, tw, th)
-			var vis := tile.intersection(map_rect)
-			if vis.size.x > 0 and vis.size.y > 0:
-				var region := Rect2((vis.position - tile.position) * (FLOOR.get_size() / Vector2(tw, th)), vis.size * (FLOOR.get_size() / Vector2(tw, th)))
-				draw_texture_rect_region(FLOOR, vis, region, GRADE_FLOOR)
-			y += th
-		x += tw
-	# Painted floor details, deterministic per level.
-	for d in floor_details:
-		if d.kind == "drain":
-			draw_texture_rect(DRAIN_TEX, Rect2(d.pos - Vector2(20, 20), Vector2(40, 40)), false, GRADE_PROP)
-		else:
-			draw_set_transform(d.pos, d.rot, Vector2.ONE)
-			draw_texture_rect(ARROW_TEX, Rect2(-23, -17, 46, 35), false, GRADE_PROP)
-			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-	# Shadows.
-	for r in shadow_rects:
-		var sr := r.intersection(map_rect)
-		if sr.size.x > 0 and sr.size.y > 0:
-			draw_rect(sr, Color(0.05, 0.07, 0.12, 0.18))
-	# Vision cones.
+	var view_world := Rect2((safe.position - position) / sc, safe.size / sc).grow(16.0)
 	for g in guards:
-		if g.alive:
+		var vision: float = g.vision
+		var reach := Rect2(g.pos - Vector2.ONE * vision, Vector2.ONE * vision * 2.0)
+		if g.alive and view_world.intersects(reach):
 			_draw_cone(g)
-	# Walls.
-	for r in wall_rects:
-		_draw_wall(r)
-	# Crates.
-	for i in range(crate_rects.size()):
-		var c: Array = data.crates[i]
-		_draw_crate(crate_rects[i])
 	# Gems.
 	for gm in gems:
 		var bob := sin(gm.t * 6) * 3
 		draw_texture_rect(GEM_TEX, Rect2(gm.pos + Vector2(-12, -12 + bob), Vector2(24, 24)), false)
-	# Path dots.
-	if player_path.size() > 1:
-		for i in range(1, player_path.size()):
-			draw_circle(player_path[i], 3, Color(1, 1, 1, 0.25))
 	# Bullets.
 	for b in bullets:
 		draw_line(b.pos - b.vel.normalized() * 14, b.pos, Color(1, 0.9, 0.5, 0.9), 3)
@@ -859,9 +1076,7 @@ func _draw() -> void:
 			draw_arc(e.pos, rr * 0.72, 0, TAU, 32, Color(1.0, 0.85, 0.5, k * 0.5), 3.0)
 		elif e.kind == "backstab":
 			var rise2 := (1.0 - k) * 26.0
-			var fv2 := FontVariation.new()
-			fv2.base_font = FONT
-			fv2.variation_embolden = 1.0
+			var fv2 := fx_font
 			var t2 := "BACKSTAB!"
 			var w2 := fv2.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 			var p2: Vector2 = e.pos + Vector2(-w2 * 0.5, -rise2)
@@ -870,9 +1085,7 @@ func _draw() -> void:
 		elif e.kind == "gemtext":
 			var rise := (1.0 - k) * 34.0
 			var txt := "+%d" % int(e.amount)
-			var fv := FontVariation.new()
-			fv.base_font = FONT
-			fv.variation_embolden = 1.0
+			var fv := fx_font
 			var fs := 30
 			var tw2 := fv.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			var tp: Vector2 = e.pos + Vector2(-tw2 * 0.5, -rise)
@@ -884,8 +1097,7 @@ func _draw() -> void:
 			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 		elif e.kind == "hurt":
 			draw_circle(e.pos, 26, Color(1, 0.2, 0.2, k * 0.5))
-		elif e.kind == "mark":
-			draw_arc(e.pos, 30, 0, TAU, 32, Color(1, 0.3, 0.3, k), 3)
+
 	# Guard alert rings / state pips.
 	for g in guards:
 		if not g.alive:
@@ -898,75 +1110,42 @@ func _draw() -> void:
 			draw_circle(g.pos + Vector2(0, -34), 4, Color("ffd23f"))
 
 func _wall_colour(r: Rect2) -> String:
-	# Use the original pre-growth origin to keep every container's colour stable.
 	var original_pos := r.position + Vector2.ONE * OBSTACLE_GROW
 	return CONTAINER_KEYS[int(abs(original_pos.x * 7 + original_pos.y * 13)) % CONTAINER_KEYS.size()]
 
-func _draw_wall(r: Rect2) -> void:
-	# 9-slice the real container art: fixed hazard caps + tiled ribbed middle,
-	# then the original depth face along the bottom edge.
-	var key := _wall_colour(r)
-	var horizontal := r.size.x > r.size.y
-	var thick := minf(r.size.x, r.size.y)
-	var sc := thick / SRC_THICK
-	var cap_a := 21.0 * sc
-	var cap_b := 22.0 * sc
-	var dt: Texture2D = _c_depth_h[key] if horizontal else _c_depth[key]
-	var depth_h := float(dt.get_size().y) * sc
-	# Cast shadow (down-right, like the concept).
-	draw_rect(Rect2(r.position + Vector2(6, 9) * maxf(sc, 0.5), r.size + Vector2(2, depth_h)), Color(0, 0, 0, 0.30))
-	# Depth face first so the lid overlaps it cleanly. Corrugation keeps its
-	# original pitch instead of being squeezed once per container-width.
-	var unit_d := maxf(float(dt.get_size().x) * sc, 8.0)
-	var dn := maxi(1, int(ceil(r.size.x / unit_d)))
-	var dw := r.size.x / float(dn)
-	for i in range(dn):
-		draw_texture_rect(dt, Rect2(Vector2(r.position.x + i * dw, r.end.y), Vector2(dw, depth_h)), false, GRADE_WALL)
-	if horizontal:
-		var mid_w := r.size.x - cap_a - cap_b
-		draw_texture_rect(_c_cap_l[key], Rect2(r.position, Vector2(cap_a, thick)), false, GRADE_WALL)
-		draw_texture_rect(_c_cap_r[key], Rect2(Vector2(r.end.x - cap_b, r.position.y), Vector2(cap_b, thick)), false, GRADE_WALL)
-		if mid_w > 1.0:
-			var tex: Texture2D = _c_mid_h[key]
-			var unit := float(tex.get_size().x) * sc
-			var n := maxi(1, int(ceil(mid_w / maxf(unit, 1.0))))
-			var seg := mid_w / float(n)
-			for i in range(n):
-				draw_texture_rect(tex, Rect2(Vector2(r.position.x + cap_a + i * seg, r.position.y), Vector2(seg, thick)), false, GRADE_WALL)
-	else:
-		var mid_h := r.size.y - cap_a - cap_b
-		draw_texture_rect(_c_cap_a[key], Rect2(r.position, Vector2(thick, cap_a)), false, GRADE_WALL)
-		draw_texture_rect(_c_cap_b[key], Rect2(Vector2(r.position.x, r.end.y - cap_b), Vector2(thick, cap_b)), false, GRADE_WALL)
-		if mid_h > 1.0:
-			var tex: Texture2D = _c_mid[key]
-			var unit := float(tex.get_size().y) * sc
-			var n := maxi(1, int(ceil(mid_h / maxf(unit, 1.0))))
-			var seg := mid_h / float(n)
-			for i in range(n):
-				draw_texture_rect(tex, Rect2(Vector2(r.position.x, r.position.y + cap_a + i * seg), Vector2(thick, seg)), false, GRADE_WALL)
-
-func _draw_crate(r: Rect2) -> void:
-	var dh := r.size.y * 0.24
-	draw_rect(Rect2(r.position + Vector2(5, 8), r.size + Vector2(0, dh)), Color(0, 0, 0, 0.30))
-	draw_texture_rect(CRATE_DEPTH, Rect2(Vector2(r.position.x, r.end.y), Vector2(r.size.x, dh)), false, GRADE_CRATE)
-	draw_texture_rect(CRATE_TOP, r, false, GRADE_CRATE)
-
 func _draw_cone(g: Dictionary) -> void:
-	var pts := PackedVector2Array([g.pos])
 	var rays := 40
 	var vision: float = g.vision
-	for i in range(rays + 1):
-		var a: float = g.face - deg_to_rad(30) + deg_to_rad(60) * i / rays
-		var dir := Vector2.from_angle(a)
-		var dist := vision
-		var steps := 64
-		for s in range(1, steps + 1):
-			var p: Vector2 = g.pos + dir * (vision * s / steps)
-			if _solid(p):
-				dist = vision * (s - 1) / steps
-				break
-		pts.append(g.pos + dir * dist)
-	# Bright, layered flashlight beam so it reads clearly on the dark depot floor.
+	# Reuse the collision-clipped local light mesh for only a few frames. Move
+	# and rotate it smoothly with the guard; recompute when it shifts a few
+	# pixels, turns, or 75 ms elapse. Detection/LOS still run at full rate.
+	if not g.light_valid or g.light_age >= 0.075 or g.pos.distance_squared_to(g.light_pos) > 6.25 or absf(angle_difference(g.light_face, g.face)) > 0.04:
+		var reach := Rect2(g.pos - Vector2.ONE * vision, Vector2.ONE * vision * 2.0)
+		var nearby: Array[Rect2] = []
+		for rect in blocking_rects:
+			if reach.intersects(rect, true):
+				nearby.append(rect)
+		var segments: Array[PackedVector2Array] = []
+		var points := PackedVector2Array([Vector2.ZERO])
+		for i in range(rays + 1):
+			var a: float = g.face - deg_to_rad(30) + deg_to_rad(60) * i / rays
+			var dir := Vector2.from_angle(a)
+			var dist := _raycast_distance(g.pos, dir, vision, nearby)
+			if dist < 0.25:
+				if points.size() >= 3:
+					segments.append(points)
+				points = PackedVector2Array([Vector2.ZERO])
+			else:
+				var pt: Vector2 = dir * dist
+				if pt.distance_squared_to(points[points.size() - 1]) > 0.01:
+					points.append(pt)
+		if points.size() >= 3:
+			segments.append(points)
+		g.light_segments = segments
+		g.light_pos = g.pos
+		g.light_face = g.face
+		g.light_age = 0.0
+		g.light_valid = true
 	var col := Color(1.0, 0.93, 0.55, 0.30)
 	var edge := Color(1.0, 0.96, 0.70, 0.55)
 	if g.state == GState.ALERT:
@@ -975,15 +1154,37 @@ func _draw_cone(g: Dictionary) -> void:
 	elif g.state in [GState.INVESTIGATE, GState.SEARCH]:
 		col = Color(1.0, 0.72, 0.22, 0.36)
 		edge = Color(1.0, 0.85, 0.45, 0.68)
-	draw_polygon(pts, PackedColorArray([col]))
-	# Hot inner core: same cone shrunk toward the guard.
-	var inner := PackedVector2Array([g.pos])
-	for i in range(1, pts.size()):
-		inner.append(g.pos + (pts[i] - g.pos) * 0.62)
-	draw_polygon(inner, PackedColorArray([Color(col.r, col.g, col.b, col.a * 0.75)]))
-	# Crisp outline along the beam edges.
-	draw_polyline(pts, edge, 2.0)
+	draw_set_transform(g.pos, angle_difference(g.light_face, g.face), Vector2.ONE)
+	for segment in g.light_segments:
+		_draw_light_fan(segment, col)
+		var inner := PackedVector2Array([Vector2.ZERO])
+		for i in range(1, segment.size()):
+			inner.append(segment[i] * 0.62)
+		_draw_light_fan(inner, Color(col.r, col.g, col.b, col.a * 0.75))
+		draw_polyline(segment, edge, 2.0)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_circle(g.pos, 5.0, Color(edge.r, edge.g, edge.b, 0.85))
+
+func _draw_light_fan(points: PackedVector2Array, color: Color) -> void:
+	# The rays are angle-ordered around the origin, so this is a triangle fan.
+	# Supplying indices directly avoids the renderer's polygon triangulation and
+	# remains valid even when a guard grazes a cover edge.
+	if points.size() < 3:
+		return
+	var indices := PackedInt32Array()
+	for i in range(1, points.size() - 1):
+		var left: Vector2 = points[i] - points[0]
+		var right: Vector2 = points[i + 1] - points[0]
+		if absf(left.cross(right)) > 0.01:
+			indices.append(0)
+			indices.append(i)
+			indices.append(i + 1)
+	if indices.is_empty():
+		return
+	var colors := PackedColorArray()
+	colors.resize(points.size())
+	colors.fill(color)
+	RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), indices, points, colors)
 
 # ---------------- End states ----------------
 func _win() -> void:
