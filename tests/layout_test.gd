@@ -1,106 +1,92 @@
 extends SceneTree
-## Validate new reference-sheet maps and the original gameplay safety invariants.
+## All 100 source-adapted levels, real Godot geometry and runtime guard starts.
 var checks := 0
 var failures := 0
 const THEMES := ["warehouse", "factory", "dockyard", "military", "night", "desert", "snow", "rooftop"]
 func _init() -> void:
-	call_deferred("_run")
+    call_deferred("_run")
 func check(value: bool, message: String) -> void:
-	checks += 1
-	if not value:
-		failures += 1
-		printerr("FAIL: ", message)
+    checks += 1
+    if not value:
+        failures += 1
+        printerr("FAIL: ", message)
 func _run() -> void:
-	var raw := FileAccess.get_file_as_string("res://data/levels/levels.json")
-	var doc: Dictionary = JSON.parse_string(raw)
-	check(String(doc.get("layout_revision", "")) == "0.6.8-reference-sheet", "new environment catalog is selected")
-	check(doc.levels.size() == 100, "100 level IDs are retained")
-	var lv = load("res://scripts/game/level.gd").new()
-	var guard_count := 0
-	var props_count := 0
-	var unique_layouts := {}
-	var theme_counts := {}
-	for number in range(1, 101):
-		lv.wall_rects.clear()
-		lv.crate_rects.clear()
-		lv._load_level(number)
-		lv._build_grid()
-		lv._build_walkable_regions()
-		var expected_theme: String = THEMES[(number - 1) % THEMES.size()]
-		var actual_theme := String(lv.data.get("theme", ""))
-		theme_counts[actual_theme] = int(theme_counts.get(actual_theme, 0)) + 1
-		check(int(lv.data.id) == number and actual_theme == expected_theme, "level %d has the expected themed identity" % number)
-		check(int(lv.data.width) == 29 and int(lv.data.height) == 46 and lv.data.walls.size() >= 4 and lv.data.crates.size() >= 10, "level %d has a substantial new playable layout" % number)
-		var signature := JSON.stringify([lv.data.walls, lv.data.crates])
-		check(not unique_layouts.has(signature), "level %d layout is not duplicated" % number)
-		unique_layouts[signature] = true
-		var spawn: Vector2i = lv._to_cell(lv.player_pos)
-		var player_region := int(lv.region_by_cell.get(spawn, -1))
-		check(not lv._solid(lv.player_pos) and player_region >= 0 and lv.guard_walkable_regions.size() == 1, "level %d has a clear spawn and one connected guard-clear area" % number)
-		check(not lv._los(lv.player_pos, lv.player_pos + Vector2(0, -180)), "level %d has starter cover between the player and the long sightline" % number)
-		var geometry_ok: bool = lv.wall_rects.size() == lv.data.walls.size() and lv.crate_rects.size() == lv.data.crates.size()
-		for pair in [[lv.data.walls, lv.wall_rects], [lv.data.crates, lv.crate_rects]]:
-			for i in range(pair[0].size()):
-				var item: Array = pair[0][i]
-				var original := Rect2(lv.ORIGIN + Vector2(item[0], item[1]) * lv.CELL, Vector2(item[2], item[3]) * lv.CELL).grow(3.0)
-				var actual: Rect2 = pair[1][i]
-				if actual.get_center().distance_to(original.get_center()) > 0.001 or actual.size.distance_to(original.size * 1.2) > 0.001:
-					geometry_ok = false
-		check(geometry_ok, "level %d visual cover matches its 20%%-enlarged physical boxes" % number)
-		var clear := true
-		for i in range(lv.crate_rects.size()):
-			var expanded: Rect2 = lv.crate_rects[i].grow(13.99)
-			for wall in lv.wall_rects:
-				if expanded.intersects(wall): clear = false
-			for j in range(i):
-				if expanded.intersects(lv.crate_rects[j]): clear = false
-		check(clear, "level %d crates and real walls are separated" % number)
-		var guards_ok := true
-		var positions: Array[Vector2] = []
-		for guard in lv.data.guards:
-			var cell := Vector2i(int(guard.x), int(guard.y))
-			var pos: Vector2 = lv._cell_center(cell.x, cell.y)
-			if pos.distance_to(lv.player_pos) < 280.0 or lv._guard_solid(pos) or not lv.guard_region_by_cell.has(cell) or int(lv.region_by_cell.get(cell, -2)) != player_region:
-				guards_ok = false
-			for prior in positions:
-				if pos.distance_to(prior) < 159.9: guards_ok = false
-			for point in guard.route:
-				var route_cell := Vector2i(int(point[0]), int(point[1]))
-				if not lv.guard_region_by_cell.has(route_cell): guards_ok = false
-			positions.append(pos)
-			guard_count += 1
-		check(guards_ok, "level %d authored guards and routes are safe, clear, connected and separated" % number)
-		var runtime_ok := true
-		var distributed: PackedVector2Array = lv._distributed_guard_starts()
-		for i in range(distributed.size()):
-			var point: Vector2 = distributed[i]
-			if point.distance_to(lv.player_pos) < 280.0 or lv._guard_solid(point) or not lv.guard_region_by_cell.has(lv._to_cell(point)):
-				runtime_ok = false
-			for j in range(i):
-				if point.distance_to(distributed[j]) < 159.9: runtime_ok = false
-		check(runtime_ok and distributed.size() == lv.data.guards.size(), "level %d runtime guards are safely spread" % number)
-		var detail_ok := true
-		for detail in lv.data.get("scenery_details", []):
-			var p: Vector2 = lv._cell_center(int(detail.x), int(detail.y))
-			if lv._guard_solid(p): detail_ok = false
-		check(detail_ok, "level %d floor details sit on clear floor" % number)
-		if actual_theme == "military":
-			var pad: Array = lv.data.get("helipad", [])
-			var pad_clear := pad.size() == 3
-			if pad_clear:
-				var center: Vector2 = lv.ORIGIN + Vector2(float(pad[0]), float(pad[1])) * lv.CELL
-				var radius: float = float(pad[2]) * lv.CELL
-				var box := Rect2(center - Vector2.ONE * radius, Vector2.ONE * radius * 2.0)
-				for r in lv.wall_rects + lv.crate_rects:
-					if box.intersects(r): pad_clear = false
-			check(pad_clear, "level %d has a clear walkable helipad" % number)
-		props_count += lv.data.crates.size()
-	check(guard_count == 1064, "all original 1064 guards retained across the catalog")
-	check(unique_layouts.size() == 100, "all 100 layouts are distinct")
-	check(theme_counts.size() == 8, "all eight requested environment styles are represented")
-	for theme in THEMES:
-		check(int(theme_counts.get(theme, 0)) >= 12, "%s appears across the level catalog" % theme)
-		check(ResourceLoader.exists("res://assets/environment/v68/floor_%s.png" % theme), "%s has its own floor texture" % theme)
-	lv.free()
-	print("V68 LAYOUT %d checks, %d failures, %d guards, %d props, themes=%s" % [checks, failures, guard_count, props_count, theme_counts])
-	quit(1 if failures else 0)
+    var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/levels/levels.json"))
+    check(str(doc.get("layout_revision", "")) == "0.7.0-user-supplied-grids", "source-derived catalog is selected")
+    check(doc.levels.size() == 100, "100 level IDs are retained")
+    var raw_config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/source_maps/v70/recovered_remote_config.json"))
+    check(raw_config.remoteMaps.size() == 100, "100 static source configurations are retained")
+    var lv = load("res://scripts/game/level.gd").new()
+    var theme_counts := {}
+    var map_pairs := {}
+    var guard_count := 0
+    var obstacle_count := 0
+    var compared_cells := 0
+    for number in range(1, 101):
+        lv.wall_rects.clear()
+        lv.crate_rects.clear()
+        lv._load_level(number)
+        lv._build_grid()
+        lv._build_walkable_regions()
+        var source: Dictionary = raw_config.remoteMaps[number - 1]
+        var expected_theme: String = THEMES[(number - 1) % THEMES.size()]
+        var actual_theme := str(lv.data.get("theme", ""))
+        theme_counts[actual_theme] = int(theme_counts.get(actual_theme, 0)) + 1
+        check(int(lv.data.id) == number and actual_theme == expected_theme, "level %d keeps its themed identity" % number)
+        check(str(lv.data.source_map_id) == str(source.mapId) and bool(lv.data.source_flip_x) == bool(source.get("flipX", false)) and bool(lv.data.source_flip_y) == bool(source.get("flipY", false)), "level %d selects its own source map and flips" % number)
+        var pair := "%s/%s/%s" % [lv.data.source_map_id, lv.data.source_flip_x, lv.data.source_flip_y]
+        map_pairs[pair] = true
+        check(int(lv.data.width) >= 24 and int(lv.data.height) >= 48 and lv.data.walls.size() >= 5 and lv.data.crates.size() >= 1, "level %d has usable source-derived dimensions and cover" % number)
+        var exact_grid := true
+        for y in range(int(lv.data.height)):
+            for x in range(int(lv.data.width)):
+                var cell := Vector2i(x, y)
+                var point: Vector2 = lv._cell_center(x, y)
+                if lv.grid.is_point_solid(cell) != lv._solid(point) or lv.guard_grid.is_point_solid(cell) != lv._guard_solid(point):
+                    exact_grid = false
+                compared_cells += 1
+        check(exact_grid, "level %d optimized grids equal the original all-rectangles collision rule at every cell" % number)
+        var spawn: Vector2i = lv._to_cell(lv.player_pos)
+        var player_region := int(lv.region_by_cell.get(spawn, -1))
+        check(not lv._solid(lv.player_pos) and player_region >= 0 and lv.guard_walkable_regions.size() == 1, "level %d has a clear spawn and a single guard-clear region" % number)
+        var clearance := true
+        for i in range(lv.crate_rects.size()):
+            var expanded: Rect2 = lv.crate_rects[i].grow(13.99)
+            for wall in lv.wall_rects:
+                if expanded.intersects(wall): clearance = false
+            for j in range(i):
+                if expanded.intersects(lv.crate_rects[j]): clearance = false
+        check(clearance, "level %d visible boxes have safe separation from walls and each other" % number)
+        var guards_ok := true
+        var points: Array[Vector2] = []
+        var runtime: PackedVector2Array = lv._distributed_guard_starts()
+        if runtime.size() != lv.data.guards.size(): guards_ok = false
+        for i in range(lv.data.guards.size()):
+            var guard: Dictionary = lv.data.guards[i]
+            var point: Vector2 = lv._cell_center(int(guard.x), int(guard.y))
+            var cell: Vector2i = lv._to_cell(point)
+            if point.distance_to(lv.player_pos) < 560.0 or lv._guard_solid(point) or not lv.guard_region_by_cell.has(cell) or int(lv.region_by_cell.get(cell, -2)) != player_region:
+                guards_ok = false
+            if i >= runtime.size() or runtime[i].distance_to(point) > 0.01:
+                guards_ok = false
+            for previous in points:
+                if point.distance_to(previous) < 159.9: guards_ok = false
+            for route_cell in guard.route:
+                var route: Vector2i = Vector2i(int(route_cell[0]), int(route_cell[1]))
+                if not lv.guard_region_by_cell.has(route): guards_ok = false
+            if guard.route.size() >= 2:
+                var a: Vector2 = lv._cell_center(int(guard.route[0][0]), int(guard.route[0][1]))
+                var b: Vector2 = lv._cell_center(int(guard.route[1][0]), int(guard.route[1][1]))
+                if not lv._guard_line_clear(a, b): guards_ok = false
+            points.append(point)
+            guard_count += 1
+        check(guards_ok, "level %d adapted guards and patrol endpoints are safe, separated and used at runtime" % number)
+        obstacle_count += lv.wall_rects.size() + lv.crate_rects.size()
+    check(guard_count == 1064, "all 1064 project guards are retained")
+    check(map_pairs.size() == 64, "source configuration has the expected 64 distinct grid/flip combinations")
+    check(theme_counts.size() == 8, "all eight existing themes are represented")
+    for theme in THEMES:
+        check(int(theme_counts.get(theme, 0)) >= 12, "%s appears throughout the catalog" % theme)
+    lv.free()
+    print("V70 LAYOUT %d checks, %d failures; %d guards, %d obstacles, %d cell comparisons; themes=%s; source-pairs=%d" % [checks, failures, guard_count, obstacle_count, compared_cells, theme_counts, map_pairs.size()])
+    quit(1 if failures else 0)

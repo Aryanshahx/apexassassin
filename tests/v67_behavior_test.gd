@@ -232,7 +232,9 @@ func _run() -> void:
 			old_nearest_sum += old_nearest
 			guard_total += 1
 	check(bad_levels.is_empty() and guard_total == 1064, "all 100 levels retain every guard with safe, reachable, separated starts")
-	check(new_nearest_sum > old_nearest_sum * 1.20, "guard starts are at least 20 percent more widely distributed on average")
+	# Source-derived starts are pre-separated in the catalog, so runtime now
+	# intentionally preserves them rather than redistributing a second time.
+	check(new_nearest_sum >= old_nearest_sum * 0.999 and new_nearest_sum >= 160.0 * guard_total, "adapted guard starts remain safely distributed without drifting from supplied hints")
 	print("DISTRIBUTION total=", guard_total, " old_mean=", old_nearest_sum / guard_total, " new_mean=", new_nearest_sum / guard_total, " invalid=", bad_levels.size())
 	catalog.free()
 	var hash := HashingContext.new()

@@ -344,16 +344,26 @@ func _build_grid() -> void:
 	# Cover is static between rebuilds, so invalidate cached visibility edges.
 	player_router = null
 	_configure_grid(grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
-	# Four-way guard routes stay inside the conservative body-clearance grid.
 	_configure_grid(guard_grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
-	for y in range(int(data.height)):
-		for x in range(int(data.width)):
-			var cell := Vector2i(x, y)
-			var point := _cell_center(x, y)
-			if _solid(point):
-				grid.set_point_solid(cell, true)
-			if _guard_solid(point):
-				guard_grid.set_point_solid(cell, true)
+	# Supplied maps may have 100 rectangles. Paint their bounded cells instead
+	# of testing every cell against every obstacle. has_point preserves the
+	# original exact cell-centre rule, including the existing safety margins.
+	for rect in blocking_rects:
+		_paint_grid_rect(grid, rect)
+	for rect in guard_blocking_rects:
+		_paint_grid_rect(guard_grid, rect)
+
+func _paint_grid_rect(target: AStarGrid2D, rect: Rect2) -> void:
+	# Conservative bounds plus has_point preserve the former inclusive/exclusive
+	# edge behavior exactly, including fractional-size source rectangles.
+	var x0 := clampi(floori((rect.position.x - ORIGIN.x) / CELL) - 1, 0, int(data.width) - 1)
+	var y0 := clampi(floori((rect.position.y - ORIGIN.y) / CELL) - 1, 0, int(data.height) - 1)
+	var x1 := clampi(ceili((rect.end.x - ORIGIN.x) / CELL) + 1, 0, int(data.width) - 1)
+	var y1 := clampi(ceili((rect.end.y - ORIGIN.y) / CELL) + 1, 0, int(data.height) - 1)
+	for y in range(y0, y1 + 1):
+		for x in range(x0, x1 + 1):
+			if rect.has_point(_cell_center(x, y)):
+				target.set_point_solid(Vector2i(x, y), true)
 
 # Separate connected regions stop patrol and search from selecting a cell
 # that is player-accessible but too narrow for a guard body.
@@ -565,6 +575,28 @@ func _enemy_variant(number: int, index: int, authored: Dictionary) -> String:
 # and farthest-point selection spreads the remaining starts deterministically.
 func _distributed_guard_starts() -> PackedVector2Array:
 	var selected := PackedVector2Array()
+	# V70 adapts supplied guard-position hints while retaining the old roster.
+	# Honour positions only if all runtime safety checks pass; malformed or
+	# older data still uses the original safe-distribution fallback.
+	if bool(data.get("use_authored_guard_starts", false)):
+		var authored_safe := true
+		var player_region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
+		for raw in data.guards:
+			var point := _cell_center(int(raw.get("x", 0)), int(raw.get("y", 0)))
+			var cell := _to_cell(point)
+			if point.distance_to(player_pos) < 280.0 or _guard_solid(point) or not guard_region_by_cell.has(cell) or int(region_by_cell.get(cell, -2)) != player_region_id:
+				authored_safe = false
+				break
+			for prior in selected:
+				if point.distance_to(prior) < 159.9:
+					authored_safe = false
+					break
+			if not authored_safe:
+				break
+			selected.append(point)
+		if authored_safe and selected.size() == data.guards.size():
+			return selected
+		selected.clear()
 	var player_region := int(region_by_cell.get(_to_cell(player_pos), -1))
 	for index in range(data.guards.size()):
 		var authored: Dictionary = data.guards[index]

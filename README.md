@@ -1,27 +1,38 @@
 # Apex Assassin
 
-v0.6.8 — eight reference-sheet environment styles and 100 newly designed layouts, while retaining v0.6.7 gameplay, recordings and save progress.
+v0.7.0 — 100 levels adapted from user-supplied Hunter Files maps and artwork, while retaining gameplay, recordings and save progress.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
 ## Environment asset source and updates
 
-The supplied 1536×1024 sheet is a flattened reference, not a package of the
-original separate sprites. The new environment tiles, props and containers are
-cropped or adapted from that sheet; lighting, certain variants and small theme
-details are reconstructed. Original pixels and full layouts that are not
-visible in the sheet cannot be recovered exactly. Check rights before sharing
-or distributing screenshot-derived artwork.
+The user supplied 212 PNGs and grid data from a public “Hunter Files” folder.
+All PNGs are retained byte-for-byte; the level backplate uses a subset of its
+floors, walls, gates and boxes. One hundred statically recovered level records
+reference 45 grids and 64 distinct grid/flip combinations, so some layouts
+repeat. These are adaptations, not a claim of original game source or exact
+runtime reconstruction. The supplied stripped library was inspected as inert
+data and was never executed or bundled.
 
-`apex_v068_update.sh` updates an existing completed v0.6.7 project and backs up
-replaced files, including the previous layouts. It contains the new environment
-textures but does not bundle or overwrite any personal recordings or saved data.
-It never commits or pushes. The preview's theme picker and browser save are
-separate from the real Pi project and save. To regenerate the texture PNGs,
-place the original reference at `art_source/environment/v68_reference_sheet.png`
-(or pass its path as an argument) and run `tools/build_v68_environment.py` with
-Pillow, NumPy and OpenCV installed. The original sheet is not bundled in the
-updater; the PNGs needed to play are included.
+Each source tile is mapped to two 32-unit Godot cells; visual cover uses the
+same enlarged cover rectangles and pre-existing collision clearances. The
+`NN` tile is conservatively treated as solid based on static inspection; its
+exact original semantics remain unverified. Source guard coordinates are
+hints, projected to safe positions when needed; the
+project's 1,064 original guards and their non-position attributes are retained.
+Starting guards are kept far enough away for at least three idle seconds under
+normal patrol. The eight existing theme names are retained, using supplied art.
+
+Source door, chest and trap placements are preserved in the recovered JSON
+for reference. Their original runtime behavior is unavailable and has **not**
+been implemented in this adaptation. Existing project keys and lockers remain
+separate mechanics. See `ASSETS_LICENSE.md`: permissions for supplied assets
+and maps are unknown; obtain appropriate rights before publishing or distributing.
+
+`apex_v070_update.sh` can update a verified v0.6.8 or v0.6.9 project. It
+checks conflicts before writing, backs up replaced files, preserves personal
+recordings, progress and unrelated files, and never commits or pushes. The
+browser preview is isolated from the user's Raspberry Pi project and save.
 
 ## What is in this build
 
@@ -60,15 +71,11 @@ updater; the PNGs needed to play are included.
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **New environments and layouts**: all 100 levels now use new 29×46-cell
-  layouts, inspired by the user's supplied top-down environment reference sheet.
-  Eight styles rotate by level: Warehouse, Factory, Dockyard, Military Base,
-  Night Ops, Desert Base, Snow Base and Urban Rooftop. Many crates, barrels,
-  barricades and details are isolated directly from that flattened image; small
-  preview-only details and container surfaces are approximated. This is not a
-  pixel-identical reconstruction of unseen original assets. Solid cover matches
-  gameplay collision, floor regions remain connected, and the original 1,064
-  guard counts, level IDs, rewards, saved progress and sound recordings remain.
+- **Supplied environments and layouts**: 212 supplied PNGs are retained; a
+  selection is used for eight themed floors, walls, gates and boxes. The 100
+  levels follow their source grid and flip records (64 distinct combinations),
+  adapted to this project's collision and guard scale. IDs, rewards, guard
+  counts, non-position attributes, save data and sound recordings remain.
 - **Faster movement**: player speed, including saved bonuses and upgrades, is
   20% above v0.6.3. Alerted chase speed is 15% above v0.6.3 (2.07× patrol);
   investigation remains 1.45× and bullets remain 660 units/s.
@@ -106,7 +113,7 @@ updater; the PNGs needed to play are included.
   - Light touching the player is detected immediately, even in shadows.
   - Kills award money and, rarely, diamonds; unlocks use the existing wallet.
   - Clear all guards to finish the level.
-- **100 validated new layouts** retain the existing level IDs, rewards and progressive guard counts.
+- **100 validated redesigned layouts** retain the existing level IDs, rewards and progressive guard counts.
 - User-selected **classic-style home**: the old top-down warehouse backdrop,
   purple character/knife cards, three mission rows and a large gold Start button.
   Resources, selected character portrait, progress, mission claims, wheel,
@@ -120,14 +127,14 @@ updater; the PNGs needed to play are included.
 
 ## Update on Raspberry Pi 5
 
-Place `apex_v068_update.sh` in `~/Downloads` and run it on the existing,
-completed v0.6.7 project:
+Place `apex_v069_update.sh` in `~/Downloads` and run it on the existing,
+completed v0.6.8 project:
 
 ```bash
-bash ~/Downloads/apex_v068_update.sh /home/aryan/apex-assassin
+bash ~/Downloads/apex_v069_update.sh /home/aryan/apex-assassin
 ```
 
-If the project is still on v0.6.6, install the v0.6.7 update first.
+If the project is still on v0.6.7, install the v0.6.8 update first.
 
 The installer checks all affected files before writing, refuses conflicting
 local edits, backs up replaced files, and preserves all five installed MP3s and
@@ -218,27 +225,29 @@ apex-assassin-debug-<commit-sha>
 
 Download the artifact and install the APK on an arm64 Android device.
 
-## Optional: rebuild reference environments
+## Optional: rebuild original environments
 
-All necessary PNGs and the 100 new layouts already ship with the update; no art
-regeneration is needed to play. To rebuild the environment images, supply the
-original reference sheet separately and run:
-
-```bash
-python3 -m pip install pillow numpy opencv-python
-python3 tools/build_v68_environment.py /path/to/your/reference-sheet.png
-```
-
-To regenerate the new level catalog, keep a separate unmodified v0.6.7
-`levels.json` (the update backs up the previous file) and write the result to a
-new file before reviewing it:
+All necessary PNGs and the 100 redesigned layouts ship with the update, so no
+art regeneration is required to play. To rebuild the original art from its
+procedural source, install Blender 4.3 plus Python Pillow, NumPy and OpenCV,
+then run from the project root:
 
 ```bash
-python3 tools/redesign_levels_v68.py /path/to/v067-levels.json /path/to/v068-levels.json
+blender --background --threads 3 --python tools/render_v69_props.py
+python3 tools/finalize_v69_props.py
+python3 tools/build_v69_floor_tiles.py
 ```
 
-Older `generate_levels.py` and v0.6.5/v0.6.6 redesign scripts are historical;
-using their output in the project would replace the current v0.6.8 layouts.
+To rebuild level data, keep a separate unmodified v0.6.8 `levels.json` (the
+updater backs up the old file) and write the result to new files before review:
+
+```bash
+python3 tools/redesign_levels_v69.py /path/to/v068-levels.json /tmp/v069-geometry.json
+python3 tools/refine_v69_scenery.py /tmp/v069-geometry.json /path/to/v069-levels.json
+```
+
+Older `generate_levels.py` and the v0.6.5–v0.6.8 redesign scripts are historical;
+using their output directly would replace the current layouts.
 
 ## Project layout
 
