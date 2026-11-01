@@ -1,0 +1,21 @@
+# Apex Assassin v0.6.7 code update paths. Personal audio is never staged or bundled.
+.github/workflows/android.yml
+README.md
+data/levels/levels.json
+export_presets.cfg
+project.godot
+scripts/game/level.gd
+scripts/game/world_backplate.gd
+scripts/ui/home.gd
+tests/combat_test.gd
+tests/enemy_types_test.gd
+tests/layout_test.gd
+tests/loot_speed_test.gd
+tests/smoke_test.gd
+tests/v64_combat_test.gd
+tests/v64_traffic_stress_test.gd
+tests/v65_combat_audio_test.gd
+tests/v66_mechanics_test.gd
+tests/v67_behavior_test.gd
+tools/publish_github.sh
+tools/v067-update-files.txt

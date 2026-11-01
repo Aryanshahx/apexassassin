@@ -36,7 +36,7 @@ func _run() -> void:
 		quit(1)
 		return
 	check(by_type.scout.rig.modulate != by_type.guard.rig.modulate and by_type.heavy.rig.modulate != by_type.guard.rig.modulate, "enemy variants have distinguishable artwork tints")
-	var scale := 1.0 + float(int(lv.data.id) - 1) * 0.004
+	var scale := (1.0 + float(int(lv.data.id) - 1) * 0.004) * 1.25
 	var damage_by_type := {"scout": 65.0 * scale, "guard": 100.0 * scale, "heavy": 160.0 * scale}
 	var interval_by_type := {"scout": 0.325, "guard": 0.5, "heavy": 0.725}
 	for kind in ["scout", "guard", "heavy"]:

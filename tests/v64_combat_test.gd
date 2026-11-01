@@ -34,6 +34,11 @@ func _reset(g: Dictionary, pos: Vector2, state: int) -> void:
 	g.yield_left = 0.0
 	g.sees_player = false
 	g.shoot = 0.0
+	g.chase_left = 8.0
+	g.route_goal = Vector2(INF, INF)
+	g.progress_anchor = pos
+	g.stuck_time = 0.0
+	g.recover_left = 0.0
 
 func _run() -> void:
 	var gs = root.get_node("GameState")
@@ -113,7 +118,7 @@ func _run() -> void:
 	lv.player_pos = origin + Vector2(160, 0)
 	lv.bullets.clear()
 	lv._update_guards(0.05)
-	check(g.state == lv.GState.ALERT and g.sees_player and lv.bullets.size() == 1, "visible contact detects and fires immediately")
+	check(g.state == lv.GState.ALERT and g.sees_player and lv.bullets.is_empty(), "visible contact starts pursuit before the short firing delay")
 	check(g.pos.distance_to(origin) >= 58.0 * 2.07 * 0.05 - 0.2 and g.rig.guard_aim_target == 1.0, "visible guard actually advances at increased chase speed with its gun raised")
 	var known: Vector2 = g.last_seen
 	check(known.distance_to(lv.player_pos) < 0.01 and g.chase_left >= 7.0, "sighting records last-known position and individual pursuit time")
@@ -153,8 +158,7 @@ func _run() -> void:
 	check(g.pos.distance_to(lv.player_pos) < previous_distance - 50.0, "out-of-range guard physically pursues the live player")
 	check(lv.bullets.is_empty() and g.rig.guard_aim_target == 0.0, "pursuit never fires at an unseen player")
 
-	# A raised alarm remains an active chase rather than silently turning into
-	# stationary search after the old seven-second memory expires.
+	# No new sighting or gunfire: chase expires into search, then patrol.
 	var other: Dictionary = actors[1]
 	lv.guards.append(other)
 	_reset(g, origin, lv.GState.ALERT)
@@ -165,9 +169,12 @@ func _run() -> void:
 	lv.bullets.clear()
 	for frame in range(200):
 		lv._update_guards(0.05)
-	check(g.state == lv.GState.ALERT and other.state == lv.GState.ALERT, "both guards remain actively alerted after ten seconds without a sightline")
-	check(g.last_seen.distance_to(lv.player_pos) < 0.01 and other.last_seen.distance_to(lv.player_pos) < 0.01, "both track the player's current position")
+	check(g.state != lv.GState.ALERT and other.state != lv.GState.ALERT, "both guards leave active pursuit after ten seconds without a sightline")
+	check(g.last_seen.distance_to(lv.player_pos) < 0.01 and other.last_seen.distance_to(lv.player_pos) < 0.01, "both remembered the moving target while pursuit lasted")
 	check(lv.bullets.is_empty(), "out-of-range pursuers do not shoot")
+	for frame in range(70):
+		lv._update_guards(0.05)
+	check(g.state == lv.GState.PATROL and other.state == lv.GState.PATROL, "both guards return to patrol after their finite search")
 
 	# Multiple pursuers approach a shared target from different sides.
 	_reset(g, origin, lv.GState.ALERT)

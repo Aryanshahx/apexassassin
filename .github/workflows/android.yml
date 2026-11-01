@@ -118,6 +118,8 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/v65-combat-audio" timeout 120 "$GODOT" --headless --path . --script tests/v65_combat_audio_test.gd
           mkdir -p "$TEST_DATA/v66-mechanics"
           XDG_DATA_HOME="$TEST_DATA/v66-mechanics" timeout 120 "$GODOT" --headless --path . --script tests/v66_mechanics_test.gd
+          mkdir -p "$TEST_DATA/v67-behavior"
+          XDG_DATA_HOME="$TEST_DATA/v67-behavior" timeout 120 "$GODOT" --headless --path . --script tests/v67_behavior_test.gd
 
       - name: Export debug APK
         run: |

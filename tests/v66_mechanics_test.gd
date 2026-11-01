@@ -27,7 +27,7 @@ func reset_guard(g: Dictionary, pos: Vector2, state: int) -> void:
 	g.wait = 999.0
 	g.sees_player = false
 	g.alert_repath = 0.0
-	g.chase_left = 0.0
+	g.chase_left = 9.0
 	g.blocked_t = 0.0
 	g.avoid_time = 0.0
 	g.avoid_direction = Vector2.ZERO
@@ -38,6 +38,7 @@ func reset_guard(g: Dictionary, pos: Vector2, state: int) -> void:
 	g.yield_left = 0.0
 	g.path.clear()
 	g.pi = 0
+	g.route_goal = Vector2(INF, INF)
 
 func route_length(start: Vector2, route: PackedVector2Array) -> float:
 	var length := 0.0
@@ -46,6 +47,27 @@ func route_length(start: Vector2, route: PackedVector2Array) -> float:
 		length += p.distance_to(point)
 		p = point
 	return length
+
+func guard_route_length(lv: Node2D, start: Vector2, finish: Vector2) -> float:
+	var from: Vector2i = lv._to_cell(start)
+	var to: Vector2i = lv._to_cell(finish)
+	var region: int = int(lv.guard_region_by_cell.get(from, -1))
+	if region < 0:
+		return INF
+	if int(lv.guard_region_by_cell.get(to, -2)) != region:
+		var best := INF
+		for candidate in lv.guard_walkable_regions[region]:
+			var d: float = lv._cell_center(candidate.x, candidate.y).distance_squared_to(finish)
+			if d < best:
+				best = d
+				to = candidate
+	var cells: PackedVector2Array = lv.guard_grid.get_point_path(from, to)
+	if cells.is_empty():
+		return INF
+	var total: float = start.distance_to(cells[0])
+	for i in range(1, cells.size()):
+		total += cells[i - 1].distance_to(cells[i])
+	return total
 
 func _run() -> void:
 	var gs = root.get_node("GameState")
@@ -210,12 +232,14 @@ func _run() -> void:
 		lv.set_physics_process(false)
 		var starts: Array[Vector2] = []
 		var distances: Array[float] = []
+		var route_before: Array[float] = []
 		var paths: Array[float] = []
 		var cover_hits := 0
 		for g in lv.guards:
 			reset_guard(g, g.pos, lv.GState.ALERT)
 			starts.append(g.pos)
 			distances.append(g.pos.distance_to(lv.player_pos))
+			route_before.append(guard_route_length(lv, g.pos, lv.player_pos))
 			paths.append(0.0)
 		for frame in range(360):
 			var old: Array[Vector2] = []
@@ -228,11 +252,14 @@ func _run() -> void:
 				if not lv._guard_line_clear(old[i], g.pos):
 					cover_hits += 1
 		var all_move := true
+		var route_after: Array[float] = []
 		for i in range(lv.guards.size()):
-			if paths[i] < 100.0 or lv.guards[i].pos.distance_to(lv.player_pos) > distances[i] - 60.0:
+			var remaining := guard_route_length(lv, lv.guards[i].pos, lv.player_pos)
+			route_after.append(remaining)
+			if paths[i] < 100.0 or not is_finite(remaining) or not is_finite(route_before[i]) or remaining > route_before[i] - 60.0:
 				all_move = false
 		check(cover_hits == 0, "level %d pursuing guards never cross cover" % number)
-		check(all_move, "level %d both real guards make sustained pursuit progress" % number)
-		print("CHASE level=", number, " travel=", paths, " initial=", distances, " final=", [lv.guards[0].pos.distance_to(lv.player_pos), lv.guards[1].pos.distance_to(lv.player_pos)])
+		check(all_move, "level %d all real guards move and shorten their navigable route" % number)
+		print("CHASE level=", number, " travel=", paths, " grid_before=", route_before, " grid_after=", route_after)
 	print("V66 MECHANICS %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

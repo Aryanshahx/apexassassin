@@ -51,17 +51,20 @@ const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
-const GUARD_GAP := 80.0
+const GUARD_GAP := 78.0
 # Body clearance beyond the universal four-unit blocker: wider than before.
 const GUARD_WALL_MARGIN := 20.0
 const GUARD_AVOID_HOLD := 0.55
 const PLAYER_SCALE := 1.40
 const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
-const BULLET_DAMAGE := 100.0 # fallback for legacy/test bullets
+const ENEMY_DAMAGE_MULTIPLIER := 1.25
+const BULLET_DAMAGE := 125.0 # 25% above the former 100-point fallback
 const BULLET_SPEED := 660.0 # faster than v0.6.2's 420 world units/second
 const ALERT_SPEED_MULTIPLIER := 2.07  # v0.6.3 chase speed * 1.15
-const CHASE_MEMORY_SECONDS := 7.0
+const CHASE_MEMORY_SECONDS := 7.0  # countdown while the player is not visible
+const FIRST_SHOT_DELAY := 0.50       # sight first; a real shot spreads the alarm
+const KILL_ALERT_RADIUS := 320.0    # ten 32-unit cells; all takedowns
 const INVESTIGATE_SPEED_MULTIPLIER := 1.45
 const ALERT_STOP_DISTANCE := 36.0  # close pursuit, not the old 128-unit stand-off
 const DIAMOND_LEVEL_CHANCE := 0.60 # at most one carrier per level
@@ -557,7 +560,42 @@ func _enemy_variant(number: int, index: int, authored: Dictionary) -> String:
 			return "ranger"
 	return "heavy" if bool(authored.get("elite", false)) or index % 5 == 2 else ("scout" if index % 3 == 1 else "guard")
 
+# Distribute guards over reachable floor instead of spawning a group together.
+# Preserve level geometry and guard count; the first authored guard is the seed
+# and farthest-point selection spreads the remaining starts deterministically.
+func _distributed_guard_starts() -> PackedVector2Array:
+	var selected := PackedVector2Array()
+	var player_region := int(region_by_cell.get(_to_cell(player_pos), -1))
+	for index in range(data.guards.size()):
+		var authored: Dictionary = data.guards[index]
+		var authored_cell := Vector2i(int(authored.x), int(authored.y))
+		var area := int(guard_region_by_cell.get(authored_cell, -1))
+		var authored_position := _cell_center(authored_cell.x, authored_cell.y)
+		var best := authored_position
+		var best_score := -INF
+		if area < 0:
+			selected.append(best)
+			continue
+		for cell in guard_walkable_regions[area]:
+			if int(region_by_cell.get(cell, -2)) != player_region:
+				continue
+			var point := _cell_center(cell.x, cell.y)
+			if point.distance_to(player_pos) < 280.0:
+				continue
+			var nearest := INF
+			for other in selected:
+				nearest = minf(nearest, point.distance_to(other))
+			# Keep one known-good authored seed; then maximize nearest-neighbor
+			# separation, using a small deterministic preference for its old area.
+			var score := -point.distance_to(authored_position) if selected.is_empty() else nearest - point.distance_to(authored_position) * 0.02
+			if score > best_score:
+				best_score = score
+				best = point
+		selected.append(best)
+	return selected
+
 func _build_guards() -> void:
+	var starts := _distributed_guard_starts()
 	var diamond_carrier := _diamond_carrier_for_level(int(data.id), data.guards.size())
 	for index in range(data.guards.size()):
 		var g: Dictionary = data.guards[index]
@@ -567,13 +605,13 @@ func _build_guards() -> void:
 		var variant := _enemy_variant(int(data.id), index, g)
 		var profile: Dictionary = ENEMY_PROFILES[variant]
 		var kind := "elite" if variant in ["heavy", "breacher", "captain"] else "guard"
-		var damage_scale := 1.0 + float(int(data.id) - 1) * 0.004
+		var damage_scale := (1.0 + float(int(data.id) - 1) * 0.004) * ENEMY_DAMAGE_MULTIPLIER
 		var extra_armor := int((int(data.id) - 1) / 40)
 		var rig := ActorRigScript.new()
 		rig.setup(kind, "guard")
 		rig.scale = Vector2.ONE * (0.98 if kind == "elite" else 0.92)
 		rig.modulate = profile.tint
-		rig.position = _cell_center(g.x, g.y)
+		rig.position = starts[index]
 		rig.rotation = deg_to_rad(float(g.face)) + PI / 2
 		add_child(rig)
 		# The red question mark is a world-space sibling, never rotated with the actor.
@@ -589,7 +627,7 @@ func _build_guards() -> void:
 		guards.append({
 			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage) * damage_scale,
 			"shot_interval": float(profile.interval), "mark": mark,
-			"pos": rig.position, "face": deg_to_rad(float(g.face)),
+			"pos": rig.position, "home_pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
 			"hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
 			"state": GState.PATROL, "alert": 0.0, "shoot": 0.0, "burst": 0,
@@ -600,7 +638,9 @@ func _build_guards() -> void:
 			"blocked_t": 0.0, "avoid_side": 1.0, "avoid_time": 0.0,
 			"avoid_direction": Vector2.ZERO, "walk_hold": 0.0, "sees_player": false,
 			"travel_dir": Vector2.ZERO, "traffic_wait": false, "traffic_stall": 0.0,
-			"alert_repath": 0.0, "chase_left": 0.0,
+			"alert_repath": 0.0, "chase_left": 0.0, "route_goal": Vector2(INF, INF),
+			"stuck_time": 0.0, "progress_anchor": rig.position,
+			"recover_left": 0.0, "recover_direction": Vector2.ZERO, "recover_count": 0, "recover_turns": 0,
 			"yield_partner": -1, "yield_forward": Vector2.ZERO,
 			"yield_side": Vector2.ZERO, "yield_left": 0.0,
 			"light_valid": false, "light_age": 0.0, "light_pos": Vector2.ZERO,
@@ -1146,7 +1186,8 @@ func _auto_attack() -> void:
 		return
 	var g: Dictionary = guards[best]
 	attack_cd = GameState.attack_cooldown()
-	# Behind the guard's facing arc => silent instant kill, no alert noise.
+	# Behind the guard's facing arc gives a silent-bonus instant kill. Nearby
+	# witnesses still react to any takedown, including from behind.
 	var to_player: Vector2 = (player_pos - g.pos).normalized()
 	var facing := Vector2.from_angle(g.face)
 	var from_behind := facing.dot(to_player) < -0.25
@@ -1194,11 +1235,16 @@ func _kill_guard(index: int, silent := false) -> void:
 	gems_collected += diamonds
 	GameState.add_combat_loot(money, diamonds)
 	_refresh_wallet()
-	# Nearby guards hear a non-silent takedown unless deep in shadow.
-	var noise := 0.0 if silent else (70.0 if in_shadow(player_pos) else 130.0)
+	# Any takedown, including a backstab, alerts nearby reachable guards.
+	# Unlike a gunshot this is local: distant guards stay on patrol.
+	var area := int(guard_region_by_cell.get(_to_cell(g.pos), -1))
 	for other in guards:
-		if other.alive and other.pos.distance_to(g.pos) < noise and other.state == GState.PATROL:
-			_investigate(other, g.pos)
+		if not other.alive or other.pos.distance_to(g.pos) > KILL_ALERT_RADIUS:
+			continue
+		if area < 0 or int(guard_region_by_cell.get(_to_cell(other.pos), -2)) != area:
+			continue
+		_alert_guard(other, player_pos)
+		was_alerted = true
 	if hunt_target == index:
 		hunt_target = -1
 
@@ -1212,6 +1258,29 @@ func _add_blood_splatter(point: Vector2) -> void:
 	# level/restart constructs a fresh instance and thus clears them naturally.
 	blood_splats.append({"pos": point, "drops": drops})
 
+func _alert_guard(g: Dictionary, reported: Vector2) -> void:
+	var target_changed: bool = g.last_seen.distance_squared_to(reported) > CELL * CELL * 4.0
+	var entering: bool = g.state != GState.ALERT
+	g.state = GState.ALERT
+	g.alert = 1.0
+	g.last_seen = reported
+	g.chase_left = _chase_duration(g)
+	if entering or target_changed:
+		g.blocked_t = 0.0
+		g.avoid_time = 0.0
+		g.path.clear()
+		g.pi = 0
+		g.route_goal = Vector2(INF, INF)
+	_sync_guard_marker(g)
+
+func _any_guard_alerted() -> bool:
+	# A search or investigation remains an alarm episode; suppress repeated
+	# detection audio until all living guards have returned to calm patrol.
+	for guard in guards:
+		if guard.alive and guard.state in [GState.ALERT, GState.INVESTIGATE, GState.SEARCH]:
+			return true
+	return false
+
 func _alarm_others(source: Dictionary) -> void:
 	# The connected, guard-traversable area defines who hears the alarm. This
 	# does not depend on each witness's cone or an arbitrary 480-pixel radius.
@@ -1224,18 +1293,7 @@ func _alarm_others(source: Dictionary) -> void:
 			continue
 		if int(guard_region_by_cell.get(_to_cell(other.pos), -2)) != area:
 			continue
-		var target_changed: bool = other.last_seen.distance_squared_to(reported) > CELL * CELL * 4.0
-		var entering: bool = other.state != GState.ALERT
-		other.state = GState.ALERT
-		other.alert = 1.0
-		other.last_seen = reported
-		other.chase_left = _chase_duration(other)
-		if entering or target_changed:
-			other.blocked_t = 0.0
-			other.avoid_time = 0.0
-			other.path.clear()
-			other.pi = 0
-		_sync_guard_marker(other)
+		_alert_guard(other, reported)
 
 func _investigate(g: Dictionary, p: Vector2) -> void:
 	g.state = GState.INVESTIGATE
@@ -1270,6 +1328,108 @@ func _pursuit_goal(g: Dictionary, target: Vector2) -> Vector2:
 	# makes an arrived guard orbit the player forever instead of settling.
 	return target + radial.normalized() * 40.0
 
+func _request_traffic_space(stuck: Dictionary) -> void:
+	# A guard can be pinned between cover and a row of teammates. Ask nearby
+	# alert guards that have room to step away; moving a guard farther back in
+	# the queue can release space for the entire line. No teleporting/pushing.
+	var helpers := 0
+	for other in guards:
+		if not other.alive or int(other.id) == int(stuck.id) or other.state != GState.ALERT:
+			continue
+		if float(other.speed) <= 0.0 or float(other.recover_left) > 0.0 or other.pos.distance_to(stuck.pos) > GUARD_GAP * 2.5:
+			continue
+		var away: Vector2 = (other.pos - stuck.pos).normalized()
+		var chosen := Vector2.ZERO
+		var best := 0.15
+		for probe_length in [80.0, 48.0, 24.0]:
+			for i in range(16):
+				var direction := Vector2.from_angle(float(i) * TAU / 16.0)
+				var score := direction.dot(away)
+				if score > best and _guard_step_clear(other, other.pos + direction * probe_length):
+					best = score
+					chosen = direction
+			if chosen != Vector2.ZERO:
+				break
+		if chosen == Vector2.ZERO:
+			continue
+		other.recover_direction = chosen
+		other.recover_left = 1.5
+		other.recover_turns = 0
+		other.stuck_time = 0.0
+		other.progress_anchor = other.pos
+		other.yield_left = 0.0
+		other.avoid_time = 0.0
+		other.path.clear()
+		other.pi = 0
+		helpers += 1
+		if helpers >= 2:
+			break
+
+func _begin_traffic_recovery(g: Dictionary, target: Vector2) -> bool:
+	# A queue can otherwise wait forever behind a stationary guard. Pick a
+	# collision-checked escape direction and commit briefly, making room before
+	# retrying pursuit. Never move through another guard or through cover.
+	var away: Vector2 = (g.pos - target).normalized()
+	var home_dir: Vector2 = (Vector2(g.get("home_pos", g.pos)) - g.pos).normalized()
+	var best := -INF
+	var chosen := Vector2.ZERO
+	var chosen_length := 0.0
+	for probe_length in [80.0, 48.0, 24.0, 8.0, 2.0]:
+		for i in range(16):
+			var direction := Vector2.from_angle(float(i) * TAU / 16.0)
+			var probe: Vector2 = g.pos + direction * probe_length
+			if not _guard_step_clear(g, probe):
+				continue
+			var side_preference := 1.0 if (int(g.id) + int(g.recover_count)) % 2 == 0 else -1.0
+			var lateral := Vector2(-away.y, away.x) * side_preference
+			var score := direction.dot(away) * 2.0 + direction.dot(home_dir) * 0.35 + direction.dot(lateral) * 0.65
+			if score > best:
+				best = score
+				chosen = direction
+				chosen_length = probe_length
+		if chosen != Vector2.ZERO:
+			break
+	if chosen_length < 24.0:
+		_request_traffic_space(g)
+	if chosen == Vector2.ZERO:
+		# Avoid requesting help on every frame if the jam cannot yet move.
+		g.stuck_time = 0.0
+		return false
+	g.recover_direction = chosen
+	g.recover_left = 2.5
+	g.recover_turns = 0
+	g.recover_count = int(g.recover_count) + 1
+	g.stuck_time = 0.0
+	g.progress_anchor = g.pos
+	g.yield_partner = -1
+	g.yield_side = Vector2.ZERO
+	g.yield_left = 0.0
+	g.avoid_time = 0.0
+	g.traffic_stall = 0.0
+	g.blocked_t = 0.0
+	g.path.clear()
+	g.pi = 0
+	return true
+
+func _redirect_traffic_recovery(g: Dictionary, target: Vector2) -> bool:
+	# A safe escape ray can eventually meet the end of a wall. Follow the
+	# corridor instead of instantly turning back into the original queue.
+	var away: Vector2 = (g.pos - target).normalized()
+	for probe_length in [80.0, 48.0, 24.0, 8.0]:
+		var chosen := Vector2.ZERO
+		var best := 0.0
+		for i in range(16):
+			var direction := Vector2.from_angle(float(i) * TAU / 16.0)
+			var score := direction.dot(away)
+			if score > best and _guard_step_clear(g, g.pos + direction * probe_length):
+				best = score
+				chosen = direction
+		if chosen != Vector2.ZERO:
+			g.recover_direction = chosen
+			g.recover_turns = int(g.recover_turns) + 1
+			return true
+	return false
+
 func _update_guards(delta: float) -> void:
 	for g in guards:
 		if not g.alive:
@@ -1285,18 +1445,24 @@ func _update_guards(delta: float) -> void:
 		var first_contact: bool = sees and not g.sees_player
 		if sees:
 			if first_contact:
-				g.shoot = 0.0
+				var already_in_alarm := _any_guard_alerted()
+				var newly_spotted: bool = g.state != GState.ALERT
+				if not already_in_alarm:
+					Sfx.play("suspect")
+				if newly_spotted:
+					# The spotter begins to chase first. Only an actual shot
+					# informs the other guards in this connected area.
+					g.shoot = FIRST_SHOT_DELAY
 				g.burst = 0
 				g.path.clear()
+				g.pi = 0
 				g.alert_repath = 0.0
-				Sfx.play("suspect")
+				g.route_goal = Vector2(INF, INF)
 				was_alerted = true
 			g.alert = 1.0
 			g.last_seen = player_pos
 			g.chase_left = _chase_duration(g)
 			g.state = GState.ALERT
-			if first_contact:
-				_alarm_others(g)
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
 		g.sees_player = sees
@@ -1314,14 +1480,24 @@ func _update_guards(delta: float) -> void:
 					g.blocked_t = 0.0
 					g.path.clear()
 			GState.ALERT:
-				# Once the connected-area alarm is raised, pursue the moving player
-				# for the rest of this level. This is deliberately live tracking,
-				# including behind cover, rather than merely facing a stale report.
-				# Direct line of sight is STILL required to aim and shoot.
-				g.last_seen = player_pos
-				g.chase_left = _chase_duration(g)
+				# Pursue the moving player for a bounded time after sight is lost.
+				# A fresh sighting or actual alarm resets the timer; without either,
+				# search and eventually resume patrol instead of alerting forever.
+				if not sees:
+					g.chase_left = maxf(0.0, float(g.chase_left) - delta)
+					if g.chase_left <= 0.0:
+						g.state = GState.SEARCH
+						g.search_t = _search_duration(g)
+						g.path.clear()
+						g.pi = 0
+						g.blocked_t = 0.0
+						g.avoid_time = 0.0
+						g.yield_partner = -1
+						g.rig.set_aiming(false)
+					else:
+						g.last_seen = player_pos  # live pursuit during the short memory window
 				var target_angle: float = (player_pos - g.pos).angle()
-				if sees:
+				if sees and g.state == GState.ALERT:
 					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
@@ -1330,25 +1506,37 @@ func _update_guards(delta: float) -> void:
 						g.shoot = float(g.shot_interval)
 				else:
 					g.rig.set_aiming(false)
-				# Recompute as the target moves, but keep the current route between
-				# replans so guards genuinely walk rather than constantly resetting.
-				g.alert_repath -= delta
-				if g.alert_repath <= 0.0:
-					g.path.clear()
-					g.pi = 0
-					g.alert_repath = 0.20
-				if g.pos.distance_to(player_pos) > ALERT_STOP_DISTANCE:
-					_seek(g, _pursuit_goal(g, player_pos), delta, g.speed * ALERT_SPEED_MULTIPLIER)
-					if sees:
-						var aim_after_move: float = (player_pos - g.pos).angle()
-						g.face = lerp_angle(g.face, aim_after_move, minf(1.0, delta * 10))
-				if g.blocked_t > 1.2:
-					# Do not abandon pursuit just because a doorway or a teammate
-					# blocked a previous route. Retry and retain physical separation.
-					g.path.clear()
-					g.pi = 0
-					g.avoid_time = 0.0
-					g.blocked_t = 0.0
+				if g.state == GState.ALERT:
+					# Keep a committed path until its goal has moved materially. The
+					# old unconditional 0.2-second reset caused doorway jitter/stalls.
+					var goal: Vector2 = _pursuit_goal(g, g.last_seen)
+					g.alert_repath -= delta
+					if g.alert_repath <= 0.0:
+						if g.route_goal.distance_squared_to(goal) > CELL * CELL * 2.25:
+							g.path.clear()
+							g.pi = 0
+						g.route_goal = goal
+						g.alert_repath = 0.35
+					if float(g.recover_left) > 0.0:
+						var escape: Vector2 = g.pos + Vector2(g.recover_direction) * g.speed * ALERT_SPEED_MULTIPLIER * delta
+						if _guard_step_clear(g, escape):
+							g.pos = escape
+							g.face = lerp_angle(g.face, Vector2(g.recover_direction).angle(), minf(1.0, delta * 8.0))
+							g.recover_left = maxf(0.0, float(g.recover_left) - delta)
+						elif int(g.recover_turns) >= 2 or not _redirect_traffic_recovery(g, g.last_seen):
+							g.recover_left = 0.0
+					elif g.pos.distance_to(g.last_seen) > ALERT_STOP_DISTANCE:
+						_seek(g, goal, delta, g.speed * ALERT_SPEED_MULTIPLIER)
+						if sees:
+							var aim_after_move: float = (player_pos - g.pos).angle()
+							g.face = lerp_angle(g.face, aim_after_move, minf(1.0, delta * 10))
+					if g.blocked_t > 1.2:
+						# A timed retry clears stale traffic state, without teleporting.
+						g.path.clear()
+						g.pi = 0
+						g.avoid_time = 0.0
+						g.yield_partner = -1
+						g.blocked_t = 0.0
 			GState.SEARCH:
 				g.search_t -= delta
 				g.face += delta * 1.6
@@ -1359,6 +1547,24 @@ func _update_guards(delta: float) -> void:
 		g.rig.position = g.pos
 		g.rig.rotation = g.face + PI / 2
 		var did_move: bool = g.pos.distance_squared_to(previous_position) > 0.0001
+		# A close guard with a clean firing lane may stand and shoot; do not
+		# make it jitter just because a teammate blocks further approach.
+		var needs_escape: bool = not sees or g.pos.distance_to(g.last_seen) > float(g.vision) * 0.80
+		if g.state == GState.ALERT and needs_escape and float(g.speed) > 0.0 and g.pos.distance_to(g.last_seen) > GUARD_GAP * 1.25:
+			# Tiny left/right oscillations are not progress. Require a real
+			# displacement from a rolling anchor before resetting the timeout.
+			if g.pos.distance_to(Vector2(g.progress_anchor)) >= 24.0:
+				g.progress_anchor = g.pos
+				g.stuck_time = 0.0
+			else:
+				g.stuck_time = float(g.stuck_time) + delta
+			if float(g.stuck_time) >= 1.8 and float(g.recover_left) <= 0.0:
+				_begin_traffic_recovery(g, g.last_seen)
+		else:
+			g.stuck_time = 0.0
+			g.progress_anchor = g.pos
+			if g.state != GState.ALERT:
+				g.recover_left = 0.0
 		g.walk_hold = 0.12 if did_move else maxf(0.0, g.walk_hold - delta)
 		g.rig.set_moving(did_move or g.walk_hold > 0.0)
 		var player_direction: Vector2 = player_pos - g.pos
@@ -1389,26 +1595,36 @@ func _choose_roam_target(g: Dictionary) -> bool:
 	var cells: Array = guard_walkable_regions[region]
 	if cells.size() < 2:
 		return false
-	var choice := from
-	var fallback := from
-	var best_distance := 0.0
-	var fallback_distance := 0.0
-	# Prefer a long-range route whose first step does not push directly into
-	# another guard. This also helps clear a queue after a crowded doorway.
-	for attempt in range(mini(36, cells.size() * 2)):
+	var home: Vector2 = g.get("home_pos", g.pos)
+	var candidates: Array[Dictionary] = []
+	for attempt in range(mini(60, cells.size() * 2)):
 		var cell: Vector2i = cells[rng.randi_range(0, cells.size() - 1)]
 		var point := _cell_center(cell.x, cell.y)
-		var distance := point.distance_squared_to(g.pos)
+		var distance: float = point.distance_to(g.pos)
+		if distance < CELL * 2.5:
+			continue
+		var nearest := 400.0
 		var occupied := false
 		for other in guards:
-			if other.rig != g.rig and other.alive and point.distance_squared_to(other.pos) < (GUARD_GAP * 1.25) * (GUARD_GAP * 1.25):
+			if other.rig == g.rig or not other.alive:
+				continue
+			var gap: float = point.distance_to(other.pos)
+			nearest = minf(nearest, gap)
+			if gap < GUARD_GAP * 1.30:
 				occupied = true
 				break
 		if occupied:
 			continue
-		if distance > fallback_distance:
-			fallback = cell
-			fallback_distance = distance
+		# Give patrols local territories and favor destinations away from one
+		# another, but still roam meaningfully across guard-reachable floor.
+		var score := minf(nearest, 350.0) * 1.4 + minf(distance, 300.0) * 0.65 - point.distance_to(home) * 0.55
+		candidates.append({"cell": cell, "point": point, "score": score})
+	if candidates.is_empty():
+		return false
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a.score) > float(b.score))
+	var choice: Vector2i = candidates[0].cell
+	for index in range(mini(12, candidates.size())):
+		var cell: Vector2i = candidates[index].cell
 		var route: PackedVector2Array = guard_grid.get_point_path(from, cell)
 		if route.size() < 2:
 			continue
@@ -1421,21 +1637,14 @@ func _choose_roam_target(g: Dictionary) -> bool:
 			if offset.length_squared() < (GUARD_GAP * 1.8) * (GUARD_GAP * 1.8) and initial.dot(offset.normalized()) > 0.35:
 				crowded = true
 				break
-		if crowded:
-			continue
-		if distance > best_distance:
+		if not crowded:
 			choice = cell
-			best_distance = distance
-		if distance >= (CELL * 6.0) * (CELL * 6.0):
 			break
-	if choice == from:
-		choice = fallback
-	if choice == from:
-		return false
 	g.roam_target = _cell_center(choice.x, choice.y)
 	g.roam_valid = true
 	g.blocked_t = 0.0
 	g.path.clear()
+	g.pi = 0
 	return true
 
 func _patrol(g: Dictionary, delta: float) -> void:

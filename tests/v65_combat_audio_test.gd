@@ -76,11 +76,14 @@ func _run() -> void:
 	stop_audio(sfx)
 	lv.bullets.clear()
 	lv._update_guards(1.0 / 60.0)
-	check(source.state == lv.GState.ALERT and witness.state == lv.GState.ALERT and far.state == lv.GState.ALERT, "spotter alerts every living guard in the same connected area, including beyond 480 units")
+	check(source.state == lv.GState.ALERT and witness.state == lv.GState.PATROL and far.state == lv.GState.PATROL and lv.bullets.is_empty(), "only the spotter chases before a shot")
+	check(suspect is AudioStream and is_playing(sfx, suspect), "first spotting triggers the selected suspect MP3")
+	for frame in range(35):
+		lv._update_guards(1.0 / 60.0)
+	check(witness.state == lv.GState.ALERT and far.state == lv.GState.ALERT, "gunfire alerts the same connected area, including beyond 480 units")
 	check(witness.last_seen.distance_to(lv.player_pos) < 0.01 and far.last_seen.distance_to(lv.player_pos) < 0.01, "the alarm communicates the player's position without the witnesses' original cones")
 	check(witness.sees_player and lv.bullets.size() >= 2, "an informed witness turns and fires when it has direct LOS, even outside its original cone")
-	check(suspect is AudioStream and is_playing(sfx, suspect), "spotting triggers the selected suspect MP3")
-	# The v0.6.6 alarm tracks the live position even behind cover, but
+	# The temporary alarm tracks the live position even behind cover, but
 	# physical cover still prevents aiming and shooting.
 	lv.guards.clear()
 	lv.guards.append(witness)

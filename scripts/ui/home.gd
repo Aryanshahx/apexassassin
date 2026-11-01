@@ -200,23 +200,30 @@ func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) 
 	p.add_theme_stylebox_override("panel", _raised_box(Color("34434c"), Color("15242c"), 20, 5))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(p)
+	# Icon, caption, actual amount and plus button share one horizontal
+	# centerline in each pill; both pills are on the same top-screen row.
 	var ic := TextureRect.new()
+	ic.name = title.capitalize() + "Icon"
 	ic.texture = icon
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	ic.position = Vector2(12, 10)
-	ic.size = Vector2(58, 58)
+	ic.position = Vector2(8, 29)
+	ic.size = Vector2(40, 40)
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(ic)
-	var heading := _font(25, 3)
-	heading.text = title
-	heading.position = Vector2(70, 3)
-	heading.size = Vector2(135, 34)
+	var heading := _font(19, 2)
+	heading.name = title.capitalize() + "Caption"
+	heading.text = "DIAMOND" if title == "DIAMONDS" else title
+	heading.position = Vector2(49, 29)
+	heading.size = Vector2(81, 40)
+	heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(heading)
-	var value := _font(35, 3)
-	value.position = Vector2(24, 45)
-	value.size = Vector2(168, 47)
+	var value := _font(26, 2)
+	value.position = Vector2(130, 29)
+	value.size = Vector2(69, 40)
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	value.clip_text = true
 	value.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(value)
@@ -225,10 +232,10 @@ func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) 
 	plus.name = title.capitalize() + "Button"
 	plus.tooltip_text = "About " + title.to_lower()
 	plus.text = "+"
-	plus.position = Vector2(193, 43)
-	plus.size = Vector2(48, 47)
+	plus.position = Vector2(203, 26)
+	plus.size = Vector2(46, 46)
 	plus.add_theme_font_override("font", FONT)
-	plus.add_theme_font_size_override("font_size", 34)
+	plus.add_theme_font_size_override("font_size", 26)
 	plus.add_theme_color_override("font_color", Color("0e534f"))
 	var plus_style := _box(Color("ffcc50"), Color("6c4319"), 11, 3)
 	plus_style.content_margin_left = 0
@@ -472,11 +479,22 @@ func _build_start() -> void:
 	lv.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(lv)
 
+func _fit_amount(label: Label) -> void:
+	# Preserve exact large saved balances without overlapping the neighboring
+	# label/button. Scale the amount text only as much as its actual width needs.
+	var size := 26
+	var font := label.get_theme_font("font")
+	while size > 10 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > label.size.x - 3.0:
+		size -= 1
+	label.add_theme_font_size_override("font_size", size)
+
 func _refresh_values() -> void:
 	if cash_label:
 		cash_label.text = str(GameState.cash)
+		_fit_amount(cash_label)
 	if gems_label:
 		gems_label.text = str(GameState.gems)
+		_fit_amount(gems_label)
 
 func _character_portrait(id: String) -> Texture2D:
 	return load(GameState.character_portrait_path(id))

@@ -1,5 +1,5 @@
 extends SceneTree
-## Immediate light contact, nearby gunshot alert and 1000-point health UI.
+## Immediate detection, delayed firing, connected-area alarm and health UI.
 var checks := 0
 var failures := 0
 func _init() -> void:
@@ -48,8 +48,8 @@ func _run() -> void:
 	lv.bullets.append({"pos": lv.player_pos + Vector2(-20, 0), "vel": Vector2(420, 0), "life": 1.0})
 	lv.invuln = 0.0
 	lv._update_bullets(1.0 / 60.0)
-	check(is_equal_approx(lv.player_hp, 900.0), "one bullet reduces health by 100")
-	check(is_equal_approx(lv.player_health_bar.value, 900.0) and lv.player_health_label.text == "900", "bar fill and number reflect damage")
+	check(is_equal_approx(lv.player_hp, 875.0), "one fallback bullet reduces health by 125")
+	check(is_equal_approx(lv.player_health_bar.value, 875.0) and lv.player_health_label.text == "875", "bar fill and number reflect damage")
 	check(lv.damage_taken == 1, "damage still counts against flawless missions")
 
 	# Only the spotter and near/far witnesses participate in the alert test.
@@ -84,8 +84,11 @@ func _run() -> void:
 	check(lv._can_see(spotter.pos, spotter.face, lv.player_pos, spotter.vision), "open player is inside the visible cone")
 	lv._update_guards(1.0 / 60.0)
 	check(spotter.state == lv.GState.ALERT and lv.was_alerted, "light contact alerts the spotter in the same tick")
-	check(lv.bullets.size() >= 1, "spotter fires on the first detection tick even with a previous cooldown")
-	check(spotter.rig.guard_aim_amount > 0.99 and spotter.rig.guard_aim_target == 1.0, "gun points at the player on the first shot")
+	check(lv.bullets.is_empty() and nearby.state == lv.GState.PATROL and far.state == lv.GState.PATROL, "spotter chases alone before any gunshot")
+	check(spotter.rig.guard_aim_amount > 0.99 and spotter.rig.guard_aim_target == 1.0, "gun aims immediately while the spotter closes in")
+	for frame in range(35):
+		lv._update_guards(1.0 / 60.0)
+	check(not lv.bullets.is_empty(), "spotter fires after the short reaction delay")
 	check(nearby.state == lv.GState.ALERT and nearby.last_seen.distance_to(lv.player_pos) < 0.01, "gunshot informs a nearby guard of the player's location")
 	check(far.state == lv.GState.ALERT, "gunshot also alerts a distant guard in the same connected area")
 	nearby.state = lv.GState.SEARCH
@@ -124,7 +127,10 @@ func _run() -> void:
 	lv.blocking_rects.remove_at(lv.blocking_rects.size() - 1)
 	spotter.shoot = 99.0
 	lv._update_guards(1.0 / 60.0)
-	check(lv.bullets.size() == 1, "re-entering the light fires immediately, regardless of cooldown")
+	check(spotter.state == lv.GState.ALERT and lv.bullets.is_empty(), "re-entering the light first starts pursuit, not an instant shot")
+	for frame in range(35):
+		lv._update_guards(1.0 / 60.0)
+	check(not lv.bullets.is_empty(), "re-entering the light eventually fires if sight remains")
 	# In the real physics order, contact is resolved even at melee distance.
 	lv.bullets.clear()
 	spotter.alive = true
@@ -143,7 +149,6 @@ func _run() -> void:
 	lv.total = 99
 	var hp_before_contact: float = lv.player_hp
 	lv._physics_process(1.0 / 60.0)
-	# A faster point-blank bullet may already hit and be removed this frame.
-	check(not spotter.alive and (lv.bullets.size() == 1 or lv.player_hp < hp_before_contact), "light contact fires before point-blank auto-melee in the live physics loop")
+	check(not spotter.alive and lv.bullets.is_empty() and is_equal_approx(lv.player_hp, hp_before_contact), "point-blank auto-melee can land during the spotter's reaction delay")
 	print("COMBAT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

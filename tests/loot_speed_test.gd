@@ -58,8 +58,11 @@ func _run() -> void:
 	lv.bullets.clear()
 	lv._update_guards(0.1)
 	check(g.state == lv.GState.ALERT, "flashlight contact enters alert immediately")
-	check(lv.bullets.size() == 1 and absf(lv.bullets[0].vel.length() - 660.0) < 0.01, "first-contact bullet travels at 660 units per second")
-	check(g.pos.distance_to(start) > g.speed * 0.1 * 1.5, "alert guard visibly pursues faster than patrol while firing")
+	check(lv.bullets.is_empty(), "a newly spotted player gets a short chase before the first shot")
+	check(g.pos.distance_to(start) > g.speed * 0.1 * 1.5, "alert guard visibly pursues faster than patrol before firing")
+	for frame in range(30):
+		lv._update_guards(1.0 / 60.0)
+	check(not lv.bullets.is_empty() and absf(lv.bullets[0].vel.length() - 660.0) < 0.01, "the first actual bullet travels at 660 units per second")
 	check(g.rig.guard_aim_target > 0.0, "moving alert guard keeps gun raised")
 	check(lv.INVESTIGATE_SPEED_MULTIPLIER > 1.0 and lv.ALERT_SPEED_MULTIPLIER > lv.INVESTIGATE_SPEED_MULTIPLIER, "investigation and pursuit both accelerate")
 	# Even faster projectiles must not tunnel through cover at low frame rates.
