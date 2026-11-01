@@ -99,3 +99,18 @@ The v0.6.6 updater contains none of the user's MP3 recordings. It copies
 `stab2.mp3` and `suspect2.mp3` directly from the Pi's `~/Downloads`, and leaves
 `stab.mp3`, `suspect.mp3`, and `ui_tap_audio.mp3` unchanged. Confirm rights for
 all recordings before separately reviewing and approving a GitHub publication.
+
+
+## v0.6.8 reference-sheet environments
+
+The user supplied a flattened top-down environment asset sheet. Most PNGs in
+`assets/environment/v68/` contain crops, masks, floor-texture derivatives or
+other adaptations of that sheet; the source image is retained locally under
+`art_source/environment/v68_reference_sheet.png` and is not included in the
+update package. The blue and red container bodies come from the small dockyard
+preview in the sheet; the red vertical variation is recoloured from its blue
+vertical crop. Edge accents, floor tints, glows, shadows, overlays and new
+layouts are reconstructed; they are not original separate assets or guaranteed
+pixel-identical. The reference's underlying rights are not established. Obtain
+appropriate rights before sharing, pushing to GitHub or distributing derivative
+artwork. This update does not include or replace personal sound recordings.

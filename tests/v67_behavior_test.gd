@@ -238,7 +238,7 @@ func _run() -> void:
 	var hash := HashingContext.new()
 	hash.start(HashingContext.HASH_SHA256)
 	hash.update(FileAccess.get_file_as_bytes("res://data/levels/levels.json"))
-	check(hash.finish().hex_encode() == "027ff49eb2a8880231b7de7530d89d56150c2c9ac92e7fafc4a9a17a02bf273a", "old v0.6.5 warehouse catalog is restored byte-for-byte")
+	check(hash.finish().hex_encode() != "027ff49eb2a8880231b7de7530d89d56150c2c9ac92e7fafc4a9a17a02bf273a", "the user-requested new layouts replace the v0.6.5 catalog")
 	check(is_equal_approx(lv.ENEMY_DAMAGE_MULTIPLIER, 1.25) and is_equal_approx(lv.BULLET_DAMAGE, 125.0), "enemy bullet damage and fallback are increased by exactly 25 percent")
 
 	# Home labels and both icons/amounts are aligned along the same actual row.

@@ -1,8 +1,27 @@
 # Apex Assassin
 
-v0.6.7 — restored v0.6.5 warehouses, more evenly spread enemies, finite event-driven alarms and 25% stronger enemy damage.
+v0.6.8 — eight reference-sheet environment styles and 100 newly designed layouts, while retaining v0.6.7 gameplay, recordings and save progress.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
+
+## Environment asset source and updates
+
+The supplied 1536×1024 sheet is a flattened reference, not a package of the
+original separate sprites. The new environment tiles, props and containers are
+cropped or adapted from that sheet; lighting, certain variants and small theme
+details are reconstructed. Original pixels and full layouts that are not
+visible in the sheet cannot be recovered exactly. Check rights before sharing
+or distributing screenshot-derived artwork.
+
+`apex_v068_update.sh` updates an existing completed v0.6.7 project and backs up
+replaced files, including the previous layouts. It contains the new environment
+textures but does not bundle or overwrite any personal recordings or saved data.
+It never commits or pushes. The preview's theme picker and browser save are
+separate from the real Pi project and save. To regenerate the texture PNGs,
+place the original reference at `art_source/environment/v68_reference_sheet.png`
+(or pass its path as an argument) and run `tools/build_v68_environment.py` with
+Pillow, NumPy and OpenCV installed. The original sheet is not bundled in the
+updater; the PNGs needed to play are included.
 
 ## What is in this build
 
@@ -41,11 +60,15 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **Restored warehouses**: levels 1–5 use the original full v0.6.5 29×46-cell
-  layouts and appearance again; levels 6–100 remain unchanged in the level
-  catalog. The complete 100-level catalog has 1,064 guards. To reduce clusters,
-  runtime guard starting positions are redistributed on reachable floor, without
-  changing the restored wall, crate, key or gate layout.
+- **New environments and layouts**: all 100 levels now use new 29×46-cell
+  layouts, inspired by the user's supplied top-down environment reference sheet.
+  Eight styles rotate by level: Warehouse, Factory, Dockyard, Military Base,
+  Night Ops, Desert Base, Snow Base and Urban Rooftop. Many crates, barrels,
+  barricades and details are isolated directly from that flattened image; small
+  preview-only details and container surfaces are approximated. This is not a
+  pixel-identical reconstruction of unseen original assets. Solid cover matches
+  gameplay collision, floor regions remain connected, and the original 1,064
+  guard counts, level IDs, rewards, saved progress and sound recordings remain.
 - **Faster movement**: player speed, including saved bonuses and upgrades, is
   20% above v0.6.3. Alerted chase speed is 15% above v0.6.3 (2.07× patrol);
   investigation remains 1.45× and bullets remain 660 units/s.
@@ -83,7 +106,7 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   - Light touching the player is detected immediately, even in shadows.
   - Kills award money and, rarely, diamonds; unlocks use the existing wallet.
   - Clear all guards to finish the level.
-- **100 validated levels** with increasing guard counts and cover density.
+- **100 validated new layouts** retain the existing level IDs, rewards and progressive guard counts.
 - User-selected **classic-style home**: the old top-down warehouse backdrop,
   purple character/knife cards, three mission rows and a large gold Start button.
   Resources, selected character portrait, progress, mission claims, wheel,
@@ -97,11 +120,14 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 
 ## Update on Raspberry Pi 5
 
-Run the v0.6.7 updater on the existing v0.6.6 project:
+Place `apex_v068_update.sh` in `~/Downloads` and run it on the existing,
+completed v0.6.7 project:
 
 ```bash
-bash ~/Downloads/apex_v067_update.sh /home/aryan/apex-assassin
+bash ~/Downloads/apex_v068_update.sh /home/aryan/apex-assassin
 ```
+
+If the project is still on v0.6.6, install the v0.6.7 update first.
 
 The installer checks all affected files before writing, refuses conflicting
 local edits, backs up replaced files, and preserves all five installed MP3s and
@@ -192,31 +218,27 @@ apex-assassin-debug-<commit-sha>
 
 Download the artifact and install the APK on an arm64 Android device.
 
-## Rebuild original art / levels
+## Optional: rebuild reference environments
 
-The game ships with generated PNGs and levels, so these are optional:
+All necessary PNGs and the 100 new layouts already ship with the update; no art
+regeneration is needed to play. To rebuild the environment images, supply the
+original reference sheet separately and run:
 
 ```bash
-python3 -m pip install pillow cairosvg
-python3 tools/build_art.py
-python3 tools/generate_levels.py
-# Optional: rebuild the shipped screenshot-derived player and guard images.
 python3 -m pip install pillow numpy opencv-python
-python3 tools/build_reference_assets.py
-# Optional: regenerate the reconstructed boot layers and selector background.
-python3 tools/build_reference_gait.py
-python3 tools/build_guard_layers.py
-python3 tools/build_home_v59_background.py
-python3 tools/build_selector_background.py
-# Optional: regenerate the v0.6.4 floor, secret character, key and head layers.
-python3 tools/build_v64_assets.py
-# Optional: rebuild screenshot-derived v0.6.5 warehouse textures.
-python3 tools/build_warehouse_v65_art.py
-# Level regeneration requires an unmodified saved copy of v0.6.4 levels.json:
-python3 tools/redesign_levels_v65.py /path/to/v064-levels.json /path/to/v065-levels.json
-# Historical only: redesign_first_five_v66.py overwrites the restored first-five
-# layouts. Do not run it unless you explicitly intend to replace them.
+python3 tools/build_v68_environment.py /path/to/your/reference-sheet.png
 ```
+
+To regenerate the new level catalog, keep a separate unmodified v0.6.7
+`levels.json` (the update backs up the previous file) and write the result to a
+new file before reviewing it:
+
+```bash
+python3 tools/redesign_levels_v68.py /path/to/v067-levels.json /path/to/v068-levels.json
+```
+
+Older `generate_levels.py` and v0.6.5/v0.6.6 redesign scripts are historical;
+using their output in the project would replace the current v0.6.8 layouts.
 
 ## Project layout
 
