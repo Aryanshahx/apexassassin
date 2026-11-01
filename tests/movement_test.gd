@@ -50,6 +50,9 @@ func _run() -> void:
 	await process_frame
 	var lv = current_scene
 	lv.set_physics_process(false)
+	var real_blocking: Array[Rect2] = lv.blocking_rects.duplicate()
+	var real_guard_blocking: Array[Rect2] = lv.guard_blocking_rects.duplicate()
+	load("res://tests/v65_test_fixtures.gd").open_arena(lv)
 	var lane := _find_clear_lane(lv)
 	check(not lane.is_empty(), "the redesigned map has an open straight test lane")
 	if lane.is_empty():
@@ -109,8 +112,10 @@ func _run() -> void:
 	lv._fire(guard)
 	check(lv.bullets.size() == 1 and lv.bullets[0].vel.normalized().dot((lv.player_pos - guard.pos).normalized()) > 0.999, "shot follows player-facing gun direction")
 	lv.player_pos = start + Vector2(0, 100)
+	lv.blocking_rects.append(Rect2(start + Vector2(-40, 35), Vector2(80, 12)))
 	lv._update_guards(0.1)
-	check(guard.rig.guard_aim_target == 0.0, "guard lowers gun after losing sight")
+	check(guard.rig.guard_aim_target == 0.0, "guard lowers gun after losing sight behind cover")
+	lv.blocking_rects.remove_at(lv.blocking_rects.size() - 1)
 	guard.rig._process(0.4)
 	check(is_zero_approx(guard.rig.guard_aim_amount), "gun eases back to patrol pose")
 
@@ -189,6 +194,13 @@ func _run() -> void:
 	check(tiny_dir.dot(moved_dir) > 0.999 and tiny_arrow[0].distance_to(moved_arrow[0]) < 0.01, "arrow remains stable while the player advances")
 	lv.player_path.clear()
 
+	# Restore the actual dense map for cover, enemy-tap and ray-cache tests.
+	lv.blocking_rects = real_blocking
+	lv.guard_blocking_rects = real_guard_blocking
+	lv._build_grid()
+	lv._build_walkable_regions()
+	start = lv._cell_center(int(lv.data.spawn[0]), int(lv.data.spawn[1]))
+	goal = lv._cell_center(int(lv.data.guards[0].x), int(lv.data.guards[0].y))
 	# A touch on cover/outside the arena uses the nearest reachable floor, not a
 	# straight line or stale marker through the obstacle.
 	lv.player_pos = start

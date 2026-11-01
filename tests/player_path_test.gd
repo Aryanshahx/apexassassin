@@ -86,5 +86,20 @@ func _run() -> void:
 	var goal := Vector2(144,252)
 	check(not lv._solid(lv.player_pos) and not lv._solid(goal) and lv._to_cell(lv.player_pos) == lv._to_cell(goal) and lv.grid.is_point_solid(lv._to_cell(goal)), "synthetic split cell reproduces an open start with a blocked grid centre")
 	check(follow(lv,goal) and lv.player_pos.distance_to(goal) < 0.05, "same-cell split around a corner is actually traversable")
+	# Reproduce a real sub-cell pocket from an earlier dense level: no grid
+	# centre is visible from its start, so escape around a cover corner first.
+	lv.data = {"width": 29, "height": 46}
+	lv.blocking_rects.clear()
+	lv.blocking_rects.append(Rect2(454.8, 929.2, 514.4, 53.6))
+	lv.blocking_rects.append(Rect2(576.4, 1114.8, 207.2, 130.4))
+	lv.blocking_rects.append(Rect2(451.6, 990.0, 168.8, 92.0))
+	lv.blocking_rects.append(Rect2(643.6, 990.0, 168.8, 92.0))
+	lv.guard_blocking_rects = lv.blocking_rects.duplicate()
+	lv._build_grid()
+	lv._build_walkable_regions()
+	lv.player_pos = Vector2(631.6959, 1069.838)
+	var pocket_target := Vector2(781.4766, 813.1845)
+	check(lv._visible_player_anchors(lv.player_pos).is_empty(), "dense pocket reproduces no direct grid anchor")
+	check(follow(lv, pocket_target) and lv.player_pos.distance_to(pocket_target) < 0.1, "off-centre pocket is escaped around a cover corner")
 	print("PLAYER PATH %d checks, %d failures; %d routes followed" % [checks, failures, routes])
 	quit(1 if failures else 0)

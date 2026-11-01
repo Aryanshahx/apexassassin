@@ -12,9 +12,15 @@ func _ready() -> void:
 			streams[n] = load(path)
 	# This optional resource is supplied by the user; no unrelated substitute is
 	# silently installed when it is absent.
-	var tap_path := "res://assets/audio/ui_tap_audio.mp3"
-	if ResourceLoader.exists(tap_path):
-		streams["ui_tap"] = load(tap_path)
+	var user_audio := {
+		"ui_tap": "res://assets/audio/ui_tap_audio.mp3",
+		"stab": "res://assets/audio/stab.mp3",
+		"suspect": "res://assets/audio/suspect.mp3",
+	}
+	for effect in user_audio:
+		var path: String = user_audio[effect]
+		if ResourceLoader.exists(path):
+			streams[effect] = load(path)
 	get_tree().node_added.connect(_register_button)
 	for i in range(10):
 		var p := AudioStreamPlayer.new()
@@ -30,9 +36,9 @@ func play(name: String, volume_db: float = -6.0) -> void:
 			p.volume_db = volume_db
 			p.play()
 			return
-	# A busy pool must not silently swallow a UI press. Reuse one voice for the
-	# button tap if all other sound effects are already playing.
-	if name == "ui_tap" and not players.is_empty():
+	# User-provided effects are important even if the ordinary pool is full.
+	# Reuse a voice so a stab, detection or button press is not silently lost.
+	if name in ["ui_tap", "stab", "suspect"] and not players.is_empty():
 		var p := players[0]
 		p.stop()
 		p.stream = streams[name]

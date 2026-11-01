@@ -9,6 +9,36 @@ func check(value: bool, message: String) -> void:
 	if not value:
 		failures += 1
 		printerr("FAIL: ", message)
+func coverage(rects: Array[Rect2], clip: Rect2) -> float:
+	var items: Array[Rect2] = []
+	var xs: Array[float] = []
+	for r in rects:
+		var c: Rect2 = r.intersection(clip)
+		if c.size.x > 0 and c.size.y > 0:
+			items.append(c)
+			xs.append(c.position.x)
+			xs.append(c.end.x)
+	xs.sort()
+	var area := 0.0
+	for i in range(xs.size() - 1):
+		var left := xs[i]
+		var right := xs[i + 1]
+		if right <= left:
+			continue
+		var spans: Array[Vector2] = []
+		for r in items:
+			if r.position.x < right and r.end.x > left:
+				spans.append(Vector2(r.position.y, r.end.y))
+		spans.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+		var length := 0.0
+		var end := -INF
+		for span in spans:
+			if span.y > end:
+				length += span.y - maxf(span.x, end)
+				end = span.y
+		area += (right - left) * length
+	return area / clip.get_area()
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	var script = load("res://scripts/game/level.gd")
@@ -26,7 +56,7 @@ func _run() -> void:
 		lv._build_walkable_regions()
 		var spawn: Vector2i = lv._to_cell(lv.player_pos)
 		var player_region := int(lv.region_by_cell.get(spawn, -1))
-		check(int(lv.data.width) == 29 and int(lv.data.height) == 46 and lv.data.get("partition_walls", []).size() == 4 and lv.data.get("gate_decor", []).size() == 2, "level %d is enlarged and has four green partitions and two open gates" % number)
+		check(int(lv.data.width) == 29 and int(lv.data.height) == 46 and lv.data.get("partition_walls", []).size() == 8 and lv.data.get("gate_decor", []).size() == 2, "level %d is enlarged and has eight connected green partition segments and two open gates" % number)
 		check(not lv._solid(lv.player_pos) and player_region >= 0, "level %d player spawn is clear" % number)
 		check(lv.guard_walkable_regions.size() == 1, "level %d guard-clear floor is connected" % number)
 		var geometry_ok: bool = lv.wall_rects.size() == lv.data.walls.size() and lv.crate_rects.size() == lv.data.crates.size()
@@ -49,6 +79,12 @@ func _run() -> void:
 					cover_clear = false
 		check(cover_clear, "level %d crates do not overlap walls or one another" % number)
 		crate_count += lv.crate_rects.size()
+		var cover: Array[Rect2] = []
+		for i in range(4, lv.wall_rects.size()): cover.append(lv.wall_rects[i])
+		for rect in lv.crate_rects: cover.append(rect)
+		var viewport := Rect2(lv.ORIGIN + Vector2(7, 13) * lv.CELL, Vector2(15, 32) * lv.CELL)
+		var ratio := coverage(cover, viewport)
+		check(ratio >= 0.4149 and ratio <= 0.4551, "level %d initial warehouse view matches the reference density" % number)
 		var spawn_safe := true
 		var positions: Array[Vector2] = []
 		for guard in lv.data.guards:
@@ -77,18 +113,18 @@ func _run() -> void:
 			used[bi] = true
 			var h: Array = lv.data.walls[ai]
 			var v: Array = lv.data.walls[bi]
-			if h[2] < 4 or h[3] != 1 or v[2] != 1 or v[3] < 3 or not lv.wall_rects[ai].intersects(lv.wall_rects[bi]):
+			if h[2] < 5 or h[3] < 3 or v[2] < 3 or v[3] < 1 or not lv.wall_rects[ai].intersects(lv.wall_rects[bi]):
 				shapes_ok = false
 			shape_count += 1
 		check(shapes_ok and lv.data.guards.size() >= 4, "level %d has six genuinely joined long L covers and retains guards" % number)
-		var accents_ok: bool = lv.data.crates.size() == 3
+		var accents_ok: bool = lv.data.crates.size() >= 7 and lv.data.crates.size() <= 16
 		for crate in lv.data.crates:
 			if int(crate[2]) * int(crate[3]) < 4:
 				accents_ok = false
-		check(accents_ok, "level %d has three large crate clusters and no tiny scattered crates" % number)
+		check(accents_ok, "level %d has 7–16 large crate stacks and no tiny scattered crates" % number)
 	check(guard_count == 1064, "all original 1064 guard spawns retained")
 	check(shape_count == 600, "600 long L-shaped cover groups across 100 enlarged levels")
-	check(crate_count == 300, "three large crate clusters per map")
+	check(crate_count == 1107, "1107 large crate stacks across 100 dense maps")
 	lv.free()
 	print("LAYOUT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

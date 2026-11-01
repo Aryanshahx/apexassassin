@@ -70,3 +70,17 @@ user-supplied screenshot artwork; their separated layers and animation are new
 approximations. The provenance and permission cautions above still apply.
 The installed user-provided tap audio is preserved unchanged; rights to publish
 that recording must be confirmed separately before any GitHub push.
+
+
+## v0.6.5 supplied warehouse reference and audio
+
+`art_source/environment/v65_user_warehouse_reference.jpg` is the user's supplied
+warehouse screenshot. `tools/build_warehouse_v65_art.py` extracts and tiles
+parts of it for floor, walls, gate and crate textures. The screenshot may depict
+third-party game artwork; ownership and permission are not established. Check
+rights before sharing or publishing any screenshot-derived files or builds.
+
+The updater does not contain or create `stab.mp3` or `suspect.mp3`: it copies
+those exact recordings from the user's Raspberry Pi `~/Downloads`. The earlier
+`ui_tap_audio.mp3` is left untouched. Confirm rights for all three recordings
+before separately reviewing and confirming a GitHub publication.

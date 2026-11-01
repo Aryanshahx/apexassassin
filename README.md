@@ -1,6 +1,6 @@
 # Apex Assassin
 
-v0.6.4 — larger warehouse maps, faster movement, improved pursuit, animated heads, progressive enemies and three-key lockers.
+v0.6.5 — screenshot-derived dense warehouses, connected-area guard alarms, doubled enemy fire rate, aligned HUD and level-permanent blood.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
@@ -23,31 +23,34 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   A small arrowhead marks the end of that actual route; there is no tap ring.
   Taps on cover resolve to nearby reachable floor.
 - **Improved guards** roam across reachable map regions and avoid one another
-  and cover with wider spacing and stable passing. Flashlight contact causes
-  an immediate shot; gunfire alerts nearby guards, which investigate the last
-  known location and still require line of sight to shoot. After losing sight,
-  guards lower their weapons, pursue the last-seen location for several seconds,
-  then search for individually varied durations. Their approach lanes and
-  separation rules reduce clustering.
+  and cover with wider spacing and stable passing. When one guard spots the
+  player or fires, every living guard in its connected guard-traversable area
+  receives the last-known position and pursues, even outside their own cones.
+  Alert guards can fire outside the old cone only with direct, in-range line of
+  sight; walls still stop vision and bullets. Once hidden, guards chase the last
+  report and then search. Their approach lanes and separation reduce clustering.
 - **Progressive enemy types**: scout, standard guard and heavy are joined by a
   ranger from level 8, a breacher from level 25 and a captain from level 50.
   Damage scales gradually with level and armor increases at higher tiers.
-  Gunshots alert nearby guards; a red `?` marks alert, investigation and search.
+  All enemy shot intervals are halved (twice the previous firing rate); a red
+  `?` marks alert, investigation and search.
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **Larger warehouse maps**: each of the 100 arenas is 29×46 cells, with six
-  long L-shaped covers, green partitions, open gates and three large crate
-  clusters. All 1,064 guards remain, with safely spaced positions and connected
-  routes; the maps are generated deterministically.
+- **Dense screenshot-derived warehouse maps**: each of the 100 arenas is 29×46
+  cells, with six thick L-shaped crate groups, green room partitions, open gates
+  and 7–16 large crate stacks. Floor, wall and crate textures use the supplied
+  screenshot. All 1,064 guards remain, with spaced positions and connected
+  routes. Coverage in the initial 15×32-cell view is 41.5–45.5%, close to the
+  screenshot's approximately 43.5% hand-traced lower-warehouse cover.
 - **Faster movement**: player speed, including saved bonuses and upgrades, is
   20% above v0.6.3. Alerted chase speed is 15% above v0.6.3 (2.07× patrol);
   investigation remains 1.45× and bullets remain 660 units/s.
 - **Money and rare diamonds**: each kill immediately saves +10 cash (+20 for a
   heavy, plus +5 for a silent kill). Some levels have one diamond carrier; a
-  carrier awards one diamond on defeat. Floating loot and top HUD totals show
-  the result. Existing saved gems retain their value and are shown as diamonds.
-  The in-level HUD keeps the icons and totals without currency backgrounds or captions.
+  carrier awards one diamond on defeat. Existing saved gems retain their value
+  and are shown as diamonds. Money, diamonds and keys share one straight HUD
+  row; kill rewards update there without kill-only floating loot effects.
 - **Random-level keys**: keys appear in a seeded subset of levels. A FIND KEY
   button highlights a walkable route when a key is present. Three collected keys
   open a 3×3 board with three unique picks. Most lockers award diamonds; one
@@ -55,6 +58,12 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
   prize are saved immediately and an unfinished board returns on the home screen.
 - **Button tap feedback**: buttons briefly compress and play the player's own
   `assets/audio/ui_tap_audio.mp3`, respecting the existing sound setting.
+- **Personal combat sounds**: the updater copies the user's actual `stab.mp3`
+  and `suspect.mp3` from `~/Downloads` without re-encoding. Stabs play the first;
+  detection plays the second. Both respect the sound setting.
+- **Blood-only kills**: a kill leaves a blood splatter until the level ends or
+  restarts, with no corpse, poof, ring or floating kill reward. Saved rewards
+  and counters are unchanged.
 - **Chosen character logo** is used for the Android launcher. The original splash
   artwork is retained, with its bottom labels changed to “Loading...” and
   “Hyper Tech Labs”.
@@ -82,15 +91,18 @@ Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 
 
 ## Update on Raspberry Pi 5
 
-Run the separate `apex_v064_update.sh` on your existing v0.6.3 project.
-The installer checks the affected files, protects local edits, backs up replaced
-files and preserves the already-installed tap audio byte-for-byte. Your save
-and unrelated files are not changed. It does not publish to GitHub. The separate
-code-only ZIP does not contain art or the MP3 and is not a standalone game.
+Place the actual `stab.mp3` and `suspect.mp3` in `~/Downloads` on the Pi.
+Run the v0.6.5 updater on the existing v0.6.4 project:
 
 ```bash
-bash ~/Downloads/apex_v064_update.sh /home/aryan/apex-assassin
+bash ~/Downloads/apex_v065_update.sh /home/aryan/apex-assassin
 ```
+
+The installer checks all affected files and both MP3s before writing, refuses
+conflicting local edits, backs up replaced files, and verifies the audio copies
+byte-for-byte. Existing tap audio and save data are left untouched. A missing
+or invalid Downloads sound stops the update without changing project files.
+It does not commit or publish. The optional code-only ZIP is not a full game.
 
 ## Run on Raspberry Pi 5
 
@@ -108,7 +120,7 @@ Press **F5**.
 | Tap / click guard | Hunt that guard |
 | Esc / Android back / II | Pause |
 
-Stay out of flashlight cones: guards shoot immediately on contact. Use crates and walls as cover, and move before nearby guards investigate gunfire.
+Stay out of flashlight cones. Once an alarm is raised, connected-area guards pursue the last report and can shoot with a direct line of sight. Use cover to break sight.
 
 ## Tests
 
@@ -136,8 +148,8 @@ XDG_DATA_HOME="$PATH_DATA" godot --headless --path . --script tests/player_path_
 XDG_DATA_HOME="$LOOT_DATA" godot --headless --path . --script tests/loot_speed_test.gd
 XDG_DATA_HOME="$BTN_DATA" godot --headless --path . --script tests/button_feedback_test.gd
 XDG_DATA_HOME="$AUDIO_DATA" godot --headless --path . --script tests/tap_audio_import_test.gd
-# Additional v0.6.4 suites (each directory must be isolated):
-for test in v64_lockers_test v64_combat_test v64_path_stress_test v64_traffic_stress_test; do
+# Additional v0.6.4/v0.6.5 suites (each directory must be isolated):
+for test in v64_lockers_test v64_combat_test v64_path_stress_test v64_traffic_stress_test v65_combat_audio_test; do
   TEMP_DATA="$(mktemp -d)"
   XDG_DATA_HOME="$TEMP_DATA" godot --headless --path . --script "tests/$test.gd"
   rm -rf "$TEMP_DATA"
@@ -158,7 +170,7 @@ The script fetches `origin/main`, refuses to overwrite a newer remote or other
 staged changes, stages only the update paths, shows the proposed commit and asks
 for confirmation. Authenticate Git with GitHub first (for example, `gh auth
 login`); never put access tokens in the script. Check `ASSETS_LICENSE.md` and
-make sure you have permission to publish the tap audio before publishing. It does not force-push or automatically resolve divergent history.
+make sure you have permission to publish the screenshot artwork and all three audio recordings before publishing. It does not force-push or automatically resolve divergent history.
 
 Then open:
 
@@ -192,6 +204,10 @@ python3 tools/build_home_v59_background.py
 python3 tools/build_selector_background.py
 # Optional: regenerate the v0.6.4 floor, secret character, key and head layers.
 python3 tools/build_v64_assets.py
+# Optional: rebuild screenshot-derived v0.6.5 warehouse textures.
+python3 tools/build_warehouse_v65_art.py
+# Level regeneration requires an unmodified saved copy of v0.6.4 levels.json:
+python3 tools/redesign_levels_v65.py /path/to/v064-levels.json /path/to/v065-levels.json
 ```
 
 ## Project layout

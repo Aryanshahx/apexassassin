@@ -14,17 +14,7 @@ func check(value: bool, message: String) -> void:
 		printerr("FAIL: ", message)
 
 func _open_origin(lv: Node2D) -> Vector2:
-	for y in range(2, int(lv.data.height) - 6):
-		for x in range(2, int(lv.data.width) - 6):
-			var ok := true
-			for dy in range(6):
-				for dx in range(6):
-					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
-						ok = false
-			var p: Vector2 = lv._cell_center(x, y + 2)
-			if ok and lv._guard_line_clear(p, p + Vector2(165, 0)):
-				return p
-	return Vector2.ZERO
+	return load("res://tests/v65_test_fixtures.gd").open_arena(lv)
 
 func _reset(g: Dictionary, pos: Vector2, state: int) -> void:
 	g.pos = pos
@@ -112,7 +102,7 @@ func _run() -> void:
 	lv.guards.clear()
 	lv.guards.append(g)
 	var origin := _open_origin(lv)
-	check(origin != Vector2.ZERO, "found an actual guard-clear lane for sight-loss testing")
+	check(origin != Vector2.ZERO, "found a clear synthetic lane for sight-loss testing")
 	if origin == Vector2.ZERO:
 		quit(1)
 		return
@@ -208,7 +198,7 @@ func _run() -> void:
 	check(min_gap >= lv.GUARD_GAP - 0.06, "pursuing guards stay physically separated")
 	check(travel_a > 15.0 and travel_b > 15.0, "both pursuing guards make progress instead of clustering motionless")
 
-	# Real kill invokes a bounded, fading blood-splatter with twelve drops.
+	# Real kill leaves level-permanent blood with twelve drops.
 	lv.guards.clear()
 	lv.guards.append(g)
 	g.alive = true
@@ -219,12 +209,11 @@ func _run() -> void:
 	check(gs.cash > cash_before, "blood effect does not remove existing kill money")
 	lv._kill_guard(0)
 	check(lv.blood_splats.size() == 1, "repeat kill cannot duplicate blood or loot")
-	lv._update_effects(1.0)
-	check(lv.blood_splats.size() == 1 and lv.blood_splats[0].t < 8.0, "blood persists and fades with time")
-	lv._update_effects(8.0)
-	check(lv.blood_splats.is_empty(), "expired blood is removed")
+	lv._update_effects(1000.0)
+	check(lv.blood_splats.size() == 1 and not lv.blood_splats[0].has("t"), "blood remains unchanged even after a long time")
+	check(not g.rig.visible, "the dead guard leaves no corpse animation")
 	for i in range(40):
 		lv._add_blood_splatter(origin)
-	check(lv.blood_splats.size() == 32, "blood effects are bounded for performance")
+	check(lv.blood_splats.size() == 41, "every stain remains for the duration of the level without a cap")
 	print("V64 COMBAT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

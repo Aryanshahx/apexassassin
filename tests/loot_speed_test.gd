@@ -10,13 +10,8 @@ func check(value: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 func _lane(lv: Node2D) -> Vector2:
-	for y in range(2, int(lv.data.height)-2):
-		for x in range(2, int(lv.data.width)-8):
-			var p: Vector2 = lv._cell_center(x,y)
-			var end: Vector2 = p + Vector2(200,0)
-			if not lv._guard_solid(p) and lv._guard_line_clear(p, end) and lv._los(p,end):
-				return p
-	return Vector2.ZERO
+	return load("res://tests/v65_test_fixtures.gd").open_arena(lv)
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
@@ -32,7 +27,8 @@ func _run() -> void:
 	check(not lv.money_caption.visible and not lv.gem_caption.visible and not lv.money_panel.visible and not lv.gem_panel.visible, "currency backgrounds and words are hidden during gameplay")
 	for safe in [Rect2(0,0,720,1280), Rect2(12,20,640,1100), Rect2(20,40,600,900)]:
 		lv._layout_hud_for_rect(safe)
-		check(not Rect2(lv.money_label.position, lv.money_label.size).intersects(Rect2(lv.gem_icon.position, lv.gem_icon.size)) and not Rect2(lv.gem_label.position, lv.gem_label.size).intersects(Rect2(lv.pause_btn.position, lv.pause_btn.size)), "wallet totals do not overlap at safe width %s" % safe.size.x)
+		check(not Rect2(lv.money_label.position, lv.money_label.size).intersects(Rect2(lv.gem_icon.position, lv.gem_icon.size)) and not Rect2(lv.gem_label.position, lv.gem_label.size).intersects(Rect2(lv.key_icon.position, lv.key_icon.size)) and not Rect2(lv.key_label.position, lv.key_label.size).intersects(Rect2(lv.pause_btn.position, lv.pause_btn.size)), "wallet totals do not overlap at safe width %s" % safe.size.x)
+		check(is_equal_approx(lv.money_icon.position.y, lv.gem_icon.position.y) and is_equal_approx(lv.gem_icon.position.y, lv.key_icon.position.y) and is_equal_approx(lv.money_label.position.y, lv.gem_label.position.y) and is_equal_approx(lv.gem_label.position.y, lv.key_label.position.y), "money, diamonds and keys are in one straight row at width %s" % safe.size.x)
 	lv._layout_hud()
 	gs.cash = 1234567890
 	gs.gems = 987654321
@@ -90,12 +86,10 @@ func _run() -> void:
 	check(gs.cash == 535 and gs.gems == 43, "silent heavy carrier awards bonus money plus one diamond")
 	check(lv.money_label.text == "535" and lv.gem_label.text == "43", "HUD shows both updated totals")
 	check(lv.gems_collected == diamonds_before + 1 and lv.money_collected == 35, "level collection totals reflect both kills")
-	var visual_money := 0
-	var visual_diamond := 0
+	var kill_visuals := 0
 	for e in lv.effects:
-		if e.kind == "moneytext": visual_money += 1
-		if e.kind == "diamondtext": visual_diamond += 1
-	check(visual_money == 2 and visual_diamond == 1, "every kill has money feedback, only carrier has diamond feedback")
+		if e.kind in ["moneytext", "diamondtext", "poof", "killring", "backstab"]: kill_visuals += 1
+	check(kill_visuals == 0 and lv.loot_particles.is_empty() and lv.blood_splats.size() == 2, "kill visuals are only persistent blood; rewards remain in the HUD")
 	lv._kill_guard(1, true)
 	check(gs.cash == 535 and gs.gems == 43, "repeated kill call cannot pay twice")
 	gs.cash = 0

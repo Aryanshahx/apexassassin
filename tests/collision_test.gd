@@ -10,16 +10,8 @@ func check(value: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 func _open_origin(lv: Node2D) -> Vector2:
-	for y in range(2, int(lv.data.height) - 6):
-		for x in range(2, int(lv.data.width) - 6):
-			var ok := true
-			for dy in range(6):
-				for dx in range(6):
-					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
-						ok = false
-			if ok:
-				return lv._cell_center(x + 1, y + 2)
-	return Vector2.ZERO
+	return load("res://tests/v65_test_fixtures.gd").open_arena(lv)
+
 func _reset_guard(g: Dictionary, point: Vector2) -> void:
 	g.pos = point
 	g.path.clear()

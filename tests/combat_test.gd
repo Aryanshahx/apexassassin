@@ -10,16 +10,8 @@ func check(value: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 func _open_origin(lv: Node2D) -> Vector2:
-	for y in range(2, int(lv.data.height) - 6):
-		for x in range(2, int(lv.data.width) - 6):
-			var ok := true
-			for dy in range(6):
-				for dx in range(6):
-					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
-						ok = false
-			if ok:
-				return lv._cell_center(x + 1, y + 2)
-	return Vector2.ZERO
+	return load("res://tests/v65_test_fixtures.gd").open_arena(lv)
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
@@ -94,13 +86,13 @@ func _run() -> void:
 	check(spotter.state == lv.GState.ALERT and lv.was_alerted, "light contact alerts the spotter in the same tick")
 	check(lv.bullets.size() >= 1, "spotter fires on the first detection tick even with a previous cooldown")
 	check(spotter.rig.guard_aim_amount > 0.99 and spotter.rig.guard_aim_target == 1.0, "gun points at the player on the first shot")
-	check(nearby.state == lv.GState.INVESTIGATE and nearby.last_seen.distance_to(lv.player_pos) < 0.01, "gunshot informs a nearby guard of the player's location")
-	check(far.state == lv.GState.PATROL, "gunshot does not alert a distant guard")
+	check(nearby.state == lv.GState.ALERT and nearby.last_seen.distance_to(lv.player_pos) < 0.01, "gunshot informs a nearby guard of the player's location")
+	check(far.state == lv.GState.ALERT, "gunshot also alerts a distant guard in the same connected area")
 	nearby.state = lv.GState.SEARCH
 	nearby.last_seen = lv.player_pos
 	nearby.search_t = 1.0
 	lv._alarm_others(spotter)
-	check(nearby.state == lv.GState.SEARCH and nearby.search_t >= 3.0, "repeated shots do not restart the same crowded search route")
+	check(nearby.state == lv.GState.ALERT and nearby.chase_left > 0.0, "a renewed alarm restarts pursuit from search")
 	# Touching an edge of the visible cone also counts; shadows cannot delay a shot.
 	var edge_angle := deg_to_rad(30.0) + asin(lv.PLAYER_LIGHT_RADIUS / 100.0) * 0.5
 	var edge_target: Vector2 = origin + Vector2.from_angle(edge_angle) * 100.0

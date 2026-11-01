@@ -10,16 +10,8 @@ func check(value: bool, message: String) -> void:
 		failures += 1
 		printerr("FAIL: ", message)
 func _open_origin(lv: Node2D) -> Vector2:
-	for y in range(2, int(lv.data.height) - 6):
-		for x in range(2, int(lv.data.width) - 6):
-			var ok := true
-			for dy in range(6):
-				for dx in range(6):
-					if lv.guard_grid.is_point_solid(Vector2i(x + dx, y + dy)):
-						ok = false
-			if ok:
-				return lv._cell_center(x + 1, y + 2)
-	return Vector2.ZERO
+	return load("res://tests/v65_test_fixtures.gd").open_arena(lv)
+
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
@@ -45,7 +37,7 @@ func _run() -> void:
 		return
 	check(by_type.scout.rig.modulate != by_type.guard.rig.modulate and by_type.heavy.rig.modulate != by_type.guard.rig.modulate, "enemy variants have distinguishable artwork tints")
 	var damage_by_type := {"scout": 65.0, "guard": 100.0, "heavy": 160.0}
-	var interval_by_type := {"scout": 0.65, "guard": 1.0, "heavy": 1.45}
+	var interval_by_type := {"scout": 0.325, "guard": 0.5, "heavy": 0.725}
 	for kind in ["scout", "guard", "heavy"]:
 		var g: Dictionary = by_type[kind]
 		check(is_equal_approx(g.shot_damage, damage_by_type[kind]) and is_equal_approx(g.shot_interval, interval_by_type[kind]), kind + " has its own damage and fire interval")
@@ -81,7 +73,7 @@ func _run() -> void:
 		counts[kind] = lv.bullets.size()
 	check(counts.scout > counts.guard and counts.guard > counts.heavy, "actual continuous fire rates differ: scout > guard > heavy")
 	print("FIRE COUNTS ", counts)
-	# A witness outside the old 320 radius but inside 480 now becomes alert.
+	# All guards in the same connected area respond regardless of distance.
 	var spotter: Dictionary = by_type.guard
 	var witness: Dictionary = by_type.scout
 	var distant: Dictionary = by_type.heavy
@@ -100,8 +92,8 @@ func _run() -> void:
 	lv._sync_guard_marker(witness)
 	lv._sync_guard_marker(distant)
 	lv._alarm_others(spotter)
-	check(is_equal_approx(lv.GUNSHOT_HEARING_RADIUS, 480.0) and witness.state == lv.GState.INVESTIGATE, "gunfire informs a guard 400 units away")
-	check(distant.state == lv.GState.PATROL and not distant.mark.visible, "distant guard outside alert radius remains unalerted")
+	check(witness.state == lv.GState.ALERT, "gunfire informs a guard 400 units away")
+	check(distant.state == lv.GState.ALERT and distant.mark.visible, "a guard beyond the old 480-unit radius responds in the connected area")
 	check(spotter.mark.visible and witness.mark.visible and spotter.mark.text == "?" and witness.mark.text == "?", "red question marks appear above spotter and alerted witness")
 	var red: Color = witness.mark.get_theme_color("font_color")
 	check(red.r > 0.9 and red.g < 0.3 and red.b < 0.3, "alert question mark is red")

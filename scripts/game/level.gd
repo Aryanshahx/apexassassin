@@ -67,15 +67,14 @@ const DIAMOND_LEVEL_CHANCE := 0.60 # at most one carrier per level
 const MONEY_STANDARD := 10
 const MONEY_HEAVY := 20
 const MONEY_SILENT_BONUS := 5
-const GUNSHOT_HEARING_RADIUS := 480.0
 const HEALTH_BAR_SIZE := Vector2(64, 8)
 const ENEMY_PROFILES := {
-	"scout": {"damage": 65.0, "interval": 0.65, "speed": 68.0, "vision": 250.0, "hp": 1, "tint": Color(0.55, 0.88, 1.0)},
-	"guard": {"damage": 100.0, "interval": 1.00, "speed": 58.0, "vision": 250.0, "hp": 1, "tint": Color.WHITE},
-	"heavy": {"damage": 160.0, "interval": 1.45, "speed": 48.0, "vision": 220.0, "hp": 2, "tint": Color(1.0, 0.78, 0.68)},
-	"ranger": {"damage": 120.0, "interval": 0.80, "speed": 70.0, "vision": 290.0, "hp": 2, "tint": Color(0.50, 0.86, 1.0)},
-	"breacher": {"damage": 185.0, "interval": 1.15, "speed": 62.0, "vision": 245.0, "hp": 3, "tint": Color(0.83, 0.64, 1.0)},
-	"captain": {"damage": 230.0, "interval": 0.95, "speed": 68.0, "vision": 285.0, "hp": 4, "tint": Color(1.0, 0.83, 0.38)},
+	"scout": {"damage": 65.0, "interval": 0.325, "speed": 68.0, "vision": 250.0, "hp": 1, "tint": Color(0.55, 0.88, 1.0)},
+	"guard": {"damage": 100.0, "interval": 0.50, "speed": 58.0, "vision": 250.0, "hp": 1, "tint": Color.WHITE},
+	"heavy": {"damage": 160.0, "interval": 0.725, "speed": 48.0, "vision": 220.0, "hp": 2, "tint": Color(1.0, 0.78, 0.68)},
+	"ranger": {"damage": 120.0, "interval": 0.40, "speed": 70.0, "vision": 290.0, "hp": 2, "tint": Color(0.50, 0.86, 1.0)},
+	"breacher": {"damage": 185.0, "interval": 0.575, "speed": 62.0, "vision": 245.0, "hp": 3, "tint": Color(0.83, 0.64, 1.0)},
+	"captain": {"damage": 230.0, "interval": 0.475, "speed": 68.0, "vision": 285.0, "hp": 4, "tint": Color(1.0, 0.83, 0.38)},
 }
 const DRAG_REPATH_INTERVAL := 0.045
 
@@ -248,14 +247,19 @@ func _layout_hud() -> void:
 	_layout_hud_for_rect(ScreenUtil.safe_rect(get_viewport()))
 
 func _layout_hud_for_rect(safe: Rect2) -> void:
-	var money_x := safe.position.x + safe.size.x * 0.314
-	var diamond_x := safe.position.x + safe.size.x * 0.570
+	# Money, diamonds and keys share one horizontal baseline at every safe size.
+	var wallet_left := safe.position.x + maxf(145.0, safe.size.x * 0.275)
+	var wallet_right := safe.end.x - 92.0
+	var slot := maxf(48.0, (wallet_right - wallet_left) / 3.0)
+	var money_x := wallet_left
+	var diamond_x := wallet_left + slot
+	var key_x := wallet_left + slot * 2.0
 	if money_panel:
-		money_panel.position = Vector2(money_x - 7, safe.position.y + 18)
-		money_panel.size = Vector2(maxf(1.0, diamond_x - money_x - 7), 62)
+		money_panel.position = Vector2(money_x - 4, safe.position.y + 18)
+		money_panel.size = Vector2(slot - 4, 62)
 	if gem_panel:
-		gem_panel.position = Vector2(diamond_x - 7, safe.position.y + 18)
-		gem_panel.size = Vector2(maxf(1.0, safe.end.x - 92 - (diamond_x - 7)), 62)
+		gem_panel.position = Vector2(diamond_x - 4, safe.position.y + 18)
+		gem_panel.size = Vector2(slot - 4, 62)
 	if target_icon:
 		target_icon.position = safe.position + Vector2(24, 26)
 	if counter:
@@ -263,25 +267,26 @@ func _layout_hud_for_rect(safe: Rect2) -> void:
 	if money_icon:
 		money_icon.position = Vector2(money_x, safe.position.y + 26)
 	if money_caption:
-		money_caption.position = Vector2(money_x + 47, safe.position.y + 20)
+		money_caption.position = Vector2(money_x + 43, safe.position.y + 20)
 	if money_label:
-		money_label.position = Vector2(money_x + 47, safe.position.y + 29)
-		money_label.size.x = maxf(50.0, diamond_x - money_x - 55.0)
+		money_label.position = Vector2(money_x + 43, safe.position.y + 29)
+		money_label.size.x = maxf(1.0, slot - 46.0)
 	if gem_icon:
 		gem_icon.position = Vector2(diamond_x, safe.position.y + 26)
 	if gem_caption:
-		gem_caption.position = Vector2(diamond_x + 48, safe.position.y + 20)
+		gem_caption.position = Vector2(diamond_x + 43, safe.position.y + 20)
 	if gem_label:
-		gem_label.position = Vector2(diamond_x + 48, safe.position.y + 29)
-		gem_label.size.x = maxf(50.0, safe.end.x - 92.0 - (diamond_x + 48.0))
+		gem_label.position = Vector2(diamond_x + 43, safe.position.y + 29)
+		gem_label.size.x = maxf(1.0, slot - 46.0)
+	if key_icon:
+		key_icon.position = Vector2(key_x, safe.position.y + 26)
+	if key_label:
+		key_label.position = Vector2(key_x + 43, safe.position.y + 29)
+		key_label.size.x = maxf(1.0, slot - 46.0)
 	if status_label:
 		status_label.position = safe.position + Vector2(30, 96)
-	if key_icon:
-		key_icon.position = Vector2(safe.end.x - 195, safe.position.y + 92)
-	if key_label:
-		key_label.position = Vector2(safe.end.x - 154, safe.position.y + 93)
 	if key_guide:
-		key_guide.position = Vector2(safe.end.x - 198, safe.position.y + 132)
+		key_guide.position = Vector2(safe.end.x - 198, safe.position.y + 92)
 	if pause_btn:
 		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
 	if hint:
@@ -779,7 +784,7 @@ func _fit_wallet_label(label: Label, amount: int) -> void:
 	label.text = str(amount)
 	var font: Font = label.get_theme_font("font")
 	var font_size := 32
-	while font_size > 14 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > label.size.x - 2.0:
+	while font_size > 9 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > label.size.x - 2.0:
 		font_size -= 1
 	label.add_theme_font_size_override("font_size", font_size)
 
@@ -914,6 +919,20 @@ func _visible_player_anchors(point: Vector2, only_region: int = -1) -> Array[Vec
 		nearby.resize(3)
 	return nearby
 
+func _smooth_segment_clear(a: Vector2, b: Vector2) -> bool:
+	# Do not shortcut exactly across a cover corner. Tiny floating-point drift
+	# during real movement can otherwise turn a nominal tangent into a hit.
+	var motion := b - a
+	var distance := motion.length()
+	if distance <= 0.001:
+		return not _solid(a)
+	var margin_rects: Array[Rect2] = []
+	for rect in blocking_rects:
+		var expanded: Rect2 = rect.grow(0.5)
+		# Valid user endpoints may already be within the half-pixel margin.
+		margin_rects.append(rect if expanded.has_point(a) or expanded.has_point(b) else expanded)
+	return _raycast_distance(a, motion / distance, distance, margin_rects) >= distance - 0.001
+
 func _simplify_player_route(points: PackedVector2Array) -> PackedVector2Array:
 	var result := PackedVector2Array()
 	var start := player_pos
@@ -921,7 +940,7 @@ func _simplify_player_route(points: PackedVector2Array) -> PackedVector2Array:
 	while index < points.size():
 		var last_visible := index
 		for j in range(index + 1, points.size()):
-			if not _los(start, points[j]):
+			if not _smooth_segment_clear(start, points[j]):
 				break
 			last_visible = j
 		var next: Vector2 = points[last_visible]
@@ -930,6 +949,29 @@ func _simplify_player_route(points: PackedVector2Array) -> PackedVector2Array:
 		start = next
 		index = last_visible + 1
 	return result
+
+func _player_anchor_options(point: Vector2, only_region: int = -1) -> Array[Dictionary]:
+	# A valid point may be inside a narrow corner pocket with no visible grid
+	# centre, even though it can escape by first walking around a cover corner.
+	var options: Array[Dictionary] = []
+	for cell in _visible_player_anchors(point, only_region):
+		options.append({"cell": cell, "has_corner": false, "cost": point.distance_to(_cell_center(cell.x, cell.y))})
+	if not options.is_empty():
+		return options
+	for rect in blocking_rects:
+		if not rect.grow(CELL * 3.0).has_point(point):
+			continue
+		var r: Rect2 = rect.grow(1.25)
+		for corner in [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]:
+			if _solid(corner) or not _los(point, corner):
+				continue
+			for cell in _visible_player_anchors(corner, only_region):
+				options.append({"cell": cell, "has_corner": true, "corner": corner,
+					"cost": point.distance_to(corner) + corner.distance_to(_cell_center(cell.x, cell.y))})
+	options.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a.cost) < float(b.cost))
+	if options.size() > 6:
+		options.resize(6)
+	return options
 
 func _path_to(target: Vector2) -> void:
 	player_path.clear()
@@ -941,18 +983,19 @@ func _path_to(target: Vector2) -> void:
 		if player_pos.distance_to(target) > 0.5:
 			player_path.append(target)
 		return
-	var starts := _visible_player_anchors(player_pos)
+	var starts := _player_anchor_options(player_pos)
 	var best_route := PackedVector2Array()
 	var best_distance := INF
 	var region_ends := {}
-	for first in starts:
+	for start in starts:
+		var first: Vector2i = start.cell
 		var rid := int(region_by_cell.get(first, -1))
 		if rid < 0:
 			continue
 		if not region_ends.has(rid):
-			var ends: Array[Vector2i] = []
+			var ends: Array[Dictionary] = []
 			if target_is_floor:
-				ends = _visible_player_anchors(target, rid)
+				ends = _player_anchor_options(target, rid)
 			if ends.is_empty():
 				# A tap on cover/outside/island ends at the nearest reachable
 				# grid point, not at a fictional point behind the obstacle.
@@ -963,12 +1006,17 @@ func _path_to(target: Vector2) -> void:
 					if dist < nearest:
 						nearest = dist
 						nearest_cell = c
-				ends.append(nearest_cell)
+				ends.append({"cell": nearest_cell, "has_corner": false})
 			region_ends[rid] = ends
-		for last in region_ends[rid]:
-			var route: PackedVector2Array = grid.get_point_path(first, last)
-			if route.is_empty():
+		for end in region_ends[rid]:
+			var last: Vector2i = end.cell
+			var cells_route: PackedVector2Array = grid.get_point_path(first, last)
+			if cells_route.is_empty():
 				continue
+			var route := PackedVector2Array()
+			if bool(start.has_corner):
+				route.append(start.corner)
+			route.append_array(cells_route)
 			var previous := player_pos
 			var cost := 0.0
 			var legal := true
@@ -980,6 +1028,10 @@ func _path_to(target: Vector2) -> void:
 				previous = waypoint
 			if not legal:
 				continue
+			if target_is_floor and bool(end.has_corner) and _los(previous, end.corner):
+				route.append(end.corner)
+				cost += previous.distance_to(end.corner)
+				previous = end.corner
 			if target_is_floor and _los(previous, target):
 				cost += previous.distance_to(target)
 				route.append(target)
@@ -1069,18 +1121,19 @@ func _auto_attack() -> void:
 	player_face = (g.pos - player_pos).angle()
 	player_rig.rotation = player_face + PI / 2
 	player_rig.play_anim("attack", true)
-	effects.append({"pos": g.pos, "t": 0.22, "max": 0.22, "kind": "slash", "angle": player_face})
-	Sfx.play("blade")
+	# The real MP3 supplied by the player is installed on their Pi.
+	Sfx.play("stab")
 	GameState.vibrate(18)
 	if from_behind and unaware:
 		g.hp = 0
 		backstabs += 1
-		effects.append({"pos": g.pos + Vector2(0, -34), "t": 0.8, "max": 0.8, "kind": "backstab"})
 	else:
 		g.hp -= GameState.player_damage()
 	if g.hp <= 0:
 		_kill_guard(best, from_behind and unaware)
 	else:
+		# The slash is non-lethal feedback only. A kill leaves blood alone.
+		effects.append({"pos": g.pos, "t": 0.22, "max": 0.22, "kind": "slash", "angle": player_face})
 		g.alert = 1.0
 		g.state = GState.ALERT
 		g.last_seen = player_pos
@@ -1095,13 +1148,11 @@ func _kill_guard(index: int, silent := false) -> void:
 	g.state = GState.DEAD
 	_sync_guard_marker(g)
 	g.rig.die()
+	g.rig.visible = false  # No corpse, poof, kill ring or kill-only animation.
 	kills += 1
 	_update_counter()
 	_add_blood_splatter(g.pos)
-	effects.append({"pos": g.pos, "t": 0.4, "max": 0.4, "kind": "poof"})
-	# Credit and save immediately; the particles below are visual only, so a
-	# level clear/retry cannot double-award or lose the last enemy's loot.
-	effects.append({"pos": g.pos, "t": 0.45, "max": 0.45, "kind": "killring"})
+	# Keep credit and save exactly as before; no kill-only particles or text.
 	var money := MONEY_HEAVY if g.elite else MONEY_STANDARD
 	if silent:
 		money += MONEY_SILENT_BONUS
@@ -1110,17 +1161,7 @@ func _kill_guard(index: int, silent := false) -> void:
 	gems_collected += diamonds
 	GameState.add_combat_loot(money, diamonds)
 	_refresh_wallet()
-	effects.append({"pos": g.pos + Vector2(0, -18), "t": 1.1, "max": 1.1, "kind": "moneytext", "amount": money})
-	if diamonds > 0:
-		effects.append({"pos": g.pos + Vector2(0, -56), "t": 1.1, "max": 1.1, "kind": "diamondtext", "amount": diamonds})
-	shake = maxf(shake, 5.0)
-	hit_stop = 0.055
-	for i in range(4):
-		var angle := TAU * float(i) / 4.0 + rng.randf_range(-0.3, 0.3)
-		loot_particles.append({"pos": g.pos, "vel": Vector2.from_angle(angle) * rng.randf_range(80, 135), "t": 0.0, "kind": "money"})
-	if diamonds > 0:
-		loot_particles.append({"pos": g.pos, "vel": Vector2(0, -140), "t": 0.0, "kind": "diamond"})
-	# Nearby guards hear the takedown unless deep in shadow.
+	# Nearby guards hear a non-silent takedown unless deep in shadow.
 	var noise := 0.0 if silent else (70.0 if in_shadow(player_pos) else 130.0)
 	for other in guards:
 		if other.alive and other.pos.distance_to(g.pos) < noise and other.state == GState.PATROL:
@@ -1134,29 +1175,33 @@ func _add_blood_splatter(point: Vector2) -> void:
 		var angle := rng.randf_range(0.0, TAU)
 		var distance := rng.randf_range(7.0, 43.0)
 		drops.append({"offset": Vector2.from_angle(angle) * distance, "radius": rng.randf_range(2.2, 6.4)})
-	blood_splats.append({"pos": point, "t": 8.0, "drops": drops})
-	if blood_splats.size() > 32:
-		blood_splats.remove_at(0)
+	# Stains belong to this level instance and are never faded or capped. A new
+	# level/restart constructs a fresh instance and thus clears them naturally.
+	blood_splats.append({"pos": point, "drops": drops})
 
 func _alarm_others(source: Dictionary) -> void:
-	# A gunshot alerts nearby guards, not the entire map. They investigate the
-	# last known player position and still need line of sight before shooting.
+	# The connected, guard-traversable area defines who hears the alarm. This
+	# does not depend on each witness's cone or an arbitrary 480-pixel radius.
+	var area := int(guard_region_by_cell.get(_to_cell(source.pos), -1))
+	if area < 0:
+		return
+	var reported: Vector2 = player_pos
 	for other in guards:
-		if int(other.id) == int(source.id) or not other.alive or other.state == GState.ALERT:
+		if int(other.id) == int(source.id) or not other.alive:
 			continue
-		if other.pos.distance_squared_to(source.pos) > GUNSHOT_HEARING_RADIUS * GUNSHOT_HEARING_RADIUS:
+		if int(guard_region_by_cell.get(_to_cell(other.pos), -2)) != area:
 			continue
-		var new_target := player_pos
-		var target_changed: bool = other.last_seen.distance_squared_to(new_target) > CELL * CELL * 4.0
-		if other.state == GState.SEARCH and not target_changed:
-			# Repeated bursts should not jerk a searching guard back into a
-			# new path toward the same overcrowded point every 0.14 seconds.
-			other.search_t = maxf(other.search_t, 3.0)
-		elif other.state != GState.INVESTIGATE or target_changed:
-			_investigate(other, new_target)
-		else:
-			other.last_seen = new_target
-			other.search_t = 3.0
+		var target_changed: bool = other.last_seen.distance_squared_to(reported) > CELL * CELL * 4.0
+		var entering: bool = other.state != GState.ALERT
+		other.state = GState.ALERT
+		other.alert = 1.0
+		other.last_seen = reported
+		other.chase_left = _chase_duration(other)
+		if entering or target_changed:
+			other.blocked_t = 0.0
+			other.avoid_time = 0.0
+			other.path.clear()
+			other.pi = 0
 		_sync_guard_marker(other)
 
 func _investigate(g: Dictionary, p: Vector2) -> void:
@@ -1198,23 +1243,26 @@ func _update_guards(delta: float) -> void:
 			continue
 		var previous_position: Vector2 = g.pos
 		g.light_age += delta
-		var sees := _can_see(g.pos, g.face, player_pos, g.vision)
+		var cone_sees := _can_see(g.pos, g.face, player_pos, g.vision)
+		# An informed guard can turn toward and fire at a directly visible
+		# player outside its old cone; walls and vision range still block shots.
+		var informed_sees: bool = g.state == GState.ALERT and not cone_sees and g.pos.distance_to(player_pos) <= float(g.vision) + PLAYER_LIGHT_RADIUS and _los(g.pos, player_pos)
+		var sees: bool = cone_sees or informed_sees
 		var first_contact: bool = sees and not g.sees_player
 		if sees:
-			# Visible flashlight contact means immediate detection and the first
-			# shot in this physics tick, including after reacquiring the player.
 			if first_contact:
 				g.shoot = 0.0
 				g.burst = 0
 				g.path.clear()
 				g.alert_repath = 0.0
-			if g.state != GState.ALERT:
-				Sfx.play("alert")
+				Sfx.play("suspect")
 				was_alerted = true
 			g.alert = 1.0
 			g.last_seen = player_pos
 			g.chase_left = _chase_duration(g)
 			g.state = GState.ALERT
+			if first_contact:
+				_alarm_others(g)
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
 		g.sees_player = sees
@@ -1235,7 +1283,7 @@ func _update_guards(delta: float) -> void:
 				if sees:
 					var target_angle: float = (player_pos - g.pos).angle()
 					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
-					# Shoot only while the player is actually inside the visible cone.
+					# A clear direct sightline is required for every shot, even after an alarm.
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
 					if g.shoot <= 0:
@@ -1708,10 +1756,7 @@ func _update_loot_particles(delta: float) -> void:
 			loot_particles.remove_at(i)
 
 func _update_effects(delta: float) -> void:
-	for i in range(blood_splats.size() - 1, -1, -1):
-		blood_splats[i].t -= delta
-		if blood_splats[i].t <= 0.0:
-			blood_splats.remove_at(i)
+	# Blood is level-permanent; only transient, non-kill effects expire.
 	for i in range(effects.size() - 1, -1, -1):
 		effects[i].t -= delta
 		if effects[i].t <= 0:
@@ -1798,12 +1843,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		drag_repath = 0.0
 
 func _draw() -> void:
-	# Blood remains underneath the character and gradually fades away.
+	# Only the blood remains under actors, at full opacity for this level.
 	for splat in blood_splats:
-		var opacity: float = clampf(float(splat.t) / 2.0, 0.0, 1.0)
-		draw_circle(splat.pos, 15.0, Color(0.42, 0.025, 0.035, 0.78 * opacity))
+		draw_circle(splat.pos, 15.0, Color(0.42, 0.025, 0.035, 0.78))
 		for drop in splat.drops:
-			draw_circle(splat.pos + drop.offset, float(drop.radius), Color(0.52, 0.035, 0.045, 0.82 * opacity))
+			draw_circle(splat.pos + drop.offset, float(drop.radius), Color(0.52, 0.035, 0.045, 0.82))
 	if key_on_floor:
 		var bob := sin(elapsed * 4.0) * 3.0
 		draw_texture_rect(KEY_TEX, Rect2(key_position + Vector2(-24, -24 + bob), Vector2(48, 48)), false)

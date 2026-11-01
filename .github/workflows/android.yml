@@ -82,6 +82,8 @@ jobs:
           set -euo pipefail
           GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
           test -s assets/audio/ui_tap_audio.mp3
+          test -s assets/audio/stab.mp3
+          test -s assets/audio/suspect.mp3
           "$GODOT" --headless --path . --import
           # All suites exercise saves; never write to an existing save.
           TEST_DATA="$(mktemp -d)"
@@ -110,6 +112,8 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/v64-combat" timeout 120 "$GODOT" --headless --path . --script tests/v64_combat_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-path" timeout 300 "$GODOT" --headless --path . --script tests/v64_path_stress_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd
+          mkdir -p "$TEST_DATA/v65-combat-audio"
+          XDG_DATA_HOME="$TEST_DATA/v65-combat-audio" timeout 120 "$GODOT" --headless --path . --script tests/v65_combat_audio_test.gd
 
       - name: Export debug APK
         run: |

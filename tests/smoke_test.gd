@@ -139,7 +139,7 @@ func _run() -> void:
 	check(level.kills == 1, "auto blade kill")
 	check(gs.cash > money_before_kill and level.money_collected > 0, "kill awards and shows money")
 	check(gs.gems == diamonds_before_kill + 1 and level.gems_collected == 1, "carrier awards one diamond")
-	check(level.loot_particles.size() >= 5 and level.gem_label.text == str(gs.gems), "money and diamond effects and total are visible")
+	check(level.loot_particles.is_empty() and level.blood_splats.size() == 1 and level.gem_label.text == str(gs.gems), "kill leaves blood while the saved diamond total is visible")
 	for i in range(level.guards.size()):
 		if level.guards[i].alive:
 			level._kill_guard(i)
@@ -183,23 +183,24 @@ func _run() -> void:
 	check(lv2.kills == kills_before + 1, "backstab kills unaware guard")
 	check(lv2.backstabs == 1, "backstab counted")
 	check(lv2.money_collected >= lv2.MONEY_STANDARD + lv2.MONEY_SILENT_BONUS, "backstab awards bonus money")
-	# Gunfire informs only guards within hearing range.
+	# Gunfire informs all living guards in the same traversable area.
 	var spotter: Dictionary = {}
 	for g in lv2.guards:
 		if g.alive:
 			spotter = g
 			break
 	if not spotter.is_empty():
-		var nearby := 0
+		var area: int = lv2.guard_region_by_cell.get(lv2._to_cell(spotter.pos), -1)
+		var expected := 0
 		for g in lv2.guards:
-			if g.alive and g != spotter and g.state != lv2.GState.ALERT and g.pos.distance_to(spotter.pos) <= lv2.GUNSHOT_HEARING_RADIUS:
-				nearby += 1
+			if g.alive and g != spotter and lv2.guard_region_by_cell.get(lv2._to_cell(g.pos), -2) == area:
+				expected += 1
 		lv2._alarm_others(spotter)
-		var investigating := 0
+		var alerted := 0
 		for g in lv2.guards:
-			if g.alive and g != spotter and g.pos.distance_to(spotter.pos) <= lv2.GUNSHOT_HEARING_RADIUS and g.state == lv2.GState.INVESTIGATE:
-				investigating += 1
-		check(investigating >= nearby, "gunfire alerts nearby guards to investigate")
+			if g.alive and g != spotter and lv2.guard_region_by_cell.get(lv2._to_cell(g.pos), -2) == area and g.state == lv2.GState.ALERT:
+				alerted += 1
+		check(alerted == expected, "gunfire alerts every living guard in the same area")
 	# Drag steering re-paths toward the finger.
 	lv2.dragging = true
 	lv2.hunt_target = -1
