@@ -84,6 +84,8 @@ jobs:
           test -s assets/audio/ui_tap_audio.mp3
           test -s assets/audio/stab.mp3
           test -s assets/audio/suspect.mp3
+          test -s assets/audio/stab2.mp3
+          test -s assets/audio/suspect2.mp3
           "$GODOT" --headless --path . --import
           # All suites exercise saves; never write to an existing save.
           TEST_DATA="$(mktemp -d)"
@@ -114,6 +116,8 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd
           mkdir -p "$TEST_DATA/v65-combat-audio"
           XDG_DATA_HOME="$TEST_DATA/v65-combat-audio" timeout 120 "$GODOT" --headless --path . --script tests/v65_combat_audio_test.gd
+          mkdir -p "$TEST_DATA/v66-mechanics"
+          XDG_DATA_HOME="$TEST_DATA/v66-mechanics" timeout 120 "$GODOT" --headless --path . --script tests/v66_mechanics_test.gd
 
       - name: Export debug APK
         run: |

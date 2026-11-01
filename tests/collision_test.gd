@@ -23,7 +23,7 @@ func _reset_guard(g: Dictionary, point: Vector2) -> void:
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
-	gs.start_level(1)
+	gs.start_level(6)
 	await process_frame
 	await process_frame
 	var lv = current_scene

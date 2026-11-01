@@ -17,7 +17,7 @@ func _run() -> void:
 	gs.sound_enabled = false
 	gs.selected_assassin = "ronin"
 	gs.upgrades = {"speed": 0, "health": 0, "damage": 0}
-	gs.start_level(1)
+	gs.start_level(6)
 	await process_frame
 	await process_frame
 	var lv = current_scene

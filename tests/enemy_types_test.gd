@@ -17,7 +17,7 @@ func _run() -> void:
 	gs.sound_enabled = false
 	gs.selected_assassin = "ronin"
 	gs.upgrades = {"speed": 0, "health": 0, "damage": 0}
-	gs.start_level(1)
+	gs.start_level(6)
 	await process_frame
 	await process_frame
 	var lv = current_scene
@@ -30,13 +30,14 @@ func _run() -> void:
 	for g in lv.guards:
 		if not by_type.has(g.variant):
 			by_type[g.variant] = g
-	check(by_type.has("scout") and by_type.has("guard") and by_type.has("heavy"), "three differentiated enemy types appear from level one")
+	check(by_type.has("scout") and by_type.has("guard") and by_type.has("heavy"), "three differentiated enemy types appear in the standard warehouse levels")
 	if by_type.size() != 3:
 		print("ENEMY TYPES %d checks, %d failures" % [checks, failures])
 		quit(1)
 		return
 	check(by_type.scout.rig.modulate != by_type.guard.rig.modulate and by_type.heavy.rig.modulate != by_type.guard.rig.modulate, "enemy variants have distinguishable artwork tints")
-	var damage_by_type := {"scout": 65.0, "guard": 100.0, "heavy": 160.0}
+	var scale := 1.0 + float(int(lv.data.id) - 1) * 0.004
+	var damage_by_type := {"scout": 65.0 * scale, "guard": 100.0 * scale, "heavy": 160.0 * scale}
 	var interval_by_type := {"scout": 0.325, "guard": 0.5, "heavy": 0.725}
 	for kind in ["scout", "guard", "heavy"]:
 		var g: Dictionary = by_type[kind]

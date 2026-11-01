@@ -118,8 +118,8 @@ func _run() -> void:
 	var known: Vector2 = g.last_seen
 	check(known.distance_to(lv.player_pos) < 0.01 and g.chase_left >= 7.0, "sighting records last-known position and individual pursuit time")
 
-	# Insert genuine LOS-blocking cover and keep the player behind it. No shot,
-	# raised gun, or last-known target may follow the unseen live position.
+	# Insert genuine LOS-blocking cover. v0.6.6 deliberately pursues the live
+	# player after alarm, but must never aim or shoot through the wall.
 	var wall := Rect2(origin + Vector2(75, -60), Vector2(16, 120))
 	lv.blocking_rects.append(wall)
 	lv.guard_blocking_rects.append(wall.grow(lv.GUARD_WALL_MARGIN))
@@ -137,7 +137,7 @@ func _run() -> void:
 		raised_hidden = raised_hidden or g.rig.guard_aim_target != 0.0
 	check(not lv._los(g.pos, lv.player_pos), "test player is really hidden behind cover")
 	check(stayed_alert and g.chase_left > 6.0, "guard keeps pursuing briefly instead of instantly giving up")
-	check(not tracked_hidden, "guard keeps the last-seen position rather than tracking a hidden player")
+	check(tracked_hidden, "the alarm follows the live position behind cover")
 	check(not raised_hidden and lv.bullets.is_empty(), "guard stops aiming and firing as soon as sight is lost")
 	g.rig._process(0.4)
 	check(is_zero_approx(g.rig.guard_aim_amount) and is_zero_approx(g.rig.guard_gun.rotation), "gun visibly lowers after sight loss")
@@ -146,31 +146,28 @@ func _run() -> void:
 	g.speed = 58.0
 	g.path.clear()
 	g.pi = 0
-	lv.player_pos = Vector2(-10000, -10000)
-	var previous_distance: float = g.pos.distance_to(known)
+	lv.player_pos = origin + Vector2(0, 500)
+	var previous_distance: float = g.pos.distance_to(lv.player_pos)
 	for frame in range(60):
 		lv._update_guards(1.0 / 60.0)
-	check(g.pos.distance_to(known) < previous_distance - 50.0, "after losing sight guard physically pursues the last-seen location")
+	check(g.pos.distance_to(lv.player_pos) < previous_distance - 50.0, "out-of-range guard physically pursues the live player")
 	check(lv.bullets.is_empty() and g.rig.guard_aim_target == 0.0, "pursuit never fires at an unseen player")
 
-	# Two guards arrive at different last-seen points on the same frame. They
-	# search for different durations, rather than all giving up together.
+	# A raised alarm remains an active chase rather than silently turning into
+	# stationary search after the old seven-second memory expires.
 	var other: Dictionary = actors[1]
 	lv.guards.append(other)
 	_reset(g, origin, lv.GState.ALERT)
 	_reset(other, origin + Vector2(160, 0), lv.GState.ALERT)
 	g.speed = 0.0
 	other.speed = 0.0
-	g.last_seen = g.pos
-	other.last_seen = other.pos
-	g.chase_left = lv._chase_duration(g)
-	other.chase_left = lv._chase_duration(other)
-	lv._update_guards(0.01)
-	check(g.state == lv.GState.SEARCH and other.state == lv.GState.SEARCH, "both guards independently transition to search at last-known points")
-	check(float(other.search_t) > float(g.search_t) and lv._chase_duration(other) > lv._chase_duration(g), "search and pursuit timing differs per guard")
-	for frame in range(64):
+	lv.player_pos = origin + Vector2(0, 500)
+	lv.bullets.clear()
+	for frame in range(200):
 		lv._update_guards(0.05)
-	check(g.state == lv.GState.PATROL and other.state == lv.GState.SEARCH, "guards do not abandon searching at the same moment")
+	check(g.state == lv.GState.ALERT and other.state == lv.GState.ALERT, "both guards remain actively alerted after ten seconds without a sightline")
+	check(g.last_seen.distance_to(lv.player_pos) < 0.01 and other.last_seen.distance_to(lv.player_pos) < 0.01, "both track the player's current position")
+	check(lv.bullets.is_empty(), "out-of-range pursuers do not shoot")
 
 	# Multiple pursuers approach a shared target from different sides.
 	_reset(g, origin, lv.GState.ALERT)
@@ -178,13 +175,14 @@ func _run() -> void:
 	g.speed = 58.0
 	other.speed = 58.0
 	var shared := origin + Vector2(80, 120)
+	lv.player_pos = shared
 	g.last_seen = shared
 	other.last_seen = shared
 	g.chase_left = lv._chase_duration(g)
 	other.chase_left = lv._chase_duration(other)
 	var goal_a: Vector2 = lv._pursuit_goal(g, shared)
 	var goal_b: Vector2 = lv._pursuit_goal(other, shared)
-	check(goal_a.distance_to(goal_b) > lv.GUARD_GAP and goal_a.distance_to(shared) > 50.0 and goal_b.distance_to(shared) > 50.0, "nearby pursuers use separate approach lanes")
+	check(goal_a.distance_to(goal_b) > 20.0 and goal_a.distance_to(shared) <= 40.1 and goal_b.distance_to(shared) <= 40.1, "nearby pursuers take distinct close approach lanes")
 	var min_gap := INF
 	var travel_a := 0.0
 	var travel_b := 0.0

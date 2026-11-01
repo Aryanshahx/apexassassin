@@ -39,7 +39,7 @@ func _run() -> void:
 	var sfx = root.get_node("Sfx")
 	gs.sound_enabled = true
 	gs.haptics_enabled = false
-	gs.start_level(1)
+	gs.start_level(6)
 	await process_frame
 	await process_frame
 	var lv = current_scene
@@ -47,7 +47,7 @@ func _run() -> void:
 	var stab: Variant = sfx.streams.get("stab")
 	var suspect: Variant = sfx.streams.get("suspect")
 	for pair in [["stab", stab], ["suspect", suspect]]:
-		var path: String = "res://assets/audio/%s.mp3" % pair[0]
+		var path: String = "res://assets/audio/%s2.mp3" % pair[0]
 		var bytes := FileAccess.get_file_as_bytes(path)
 		check(bytes.size() > 0 and ResourceLoader.exists(path), pair[0] + " MP3 was installed and imported")
 		check(pair[1] is AudioStreamMP3, pair[0] + " is registered as an MP3 stream")
@@ -80,8 +80,8 @@ func _run() -> void:
 	check(witness.last_seen.distance_to(lv.player_pos) < 0.01 and far.last_seen.distance_to(lv.player_pos) < 0.01, "the alarm communicates the player's position without the witnesses' original cones")
 	check(witness.sees_player and lv.bullets.size() >= 2, "an informed witness turns and fires when it has direct LOS, even outside its original cone")
 	check(suspect is AudioStream and is_playing(sfx, suspect), "spotting triggers the selected suspect MP3")
-	# Repeated contacts and shots share the current report; without direct LOS,
-	# a witness never acquires the player's new hidden position or fires at it.
+	# The v0.6.6 alarm tracks the live position even behind cover, but
+	# physical cover still prevents aiming and shooting.
 	lv.guards.clear()
 	lv.guards.append(witness)
 	reset_guard(witness, origin, lv.GState.ALERT)
@@ -93,7 +93,7 @@ func _run() -> void:
 	lv.bullets.clear()
 	stop_audio(sfx)
 	lv._update_guards(0.05)
-	check(not witness.sees_player and lv.bullets.is_empty() and witness.last_seen.distance_to(origin + Vector2(100, 0)) < 0.01, "an alerted guard cannot see, shoot or track through a wall")
+	check(not witness.sees_player and lv.bullets.is_empty() and witness.last_seen.distance_to(lv.player_pos) < 0.01, "an alerted guard tracks the live target but cannot see or shoot through a wall")
 	check(suspect is AudioStream and not is_playing(sfx, suspect), "a hidden player does not trigger suspect audio")
 	# A real wall splitting the navigation graph isolates the second room.
 	lv.blocking_rects.clear()

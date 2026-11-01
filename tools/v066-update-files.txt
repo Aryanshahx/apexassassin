@@ -1,0 +1,23 @@
+# Apex Assassin v0.6.6 code update paths. Personal MP3s are selected separately.
+.github/workflows/android.yml
+ASSETS_LICENSE.md
+README.md
+data/levels/levels.json
+export_presets.cfg
+project.godot
+scripts/game/level.gd
+scripts/game/sfx.gd
+scripts/game/visibility_router.gd
+scripts/game/visibility_router.gd.uid
+scripts/game/world_backplate.gd
+tests/collision_test.gd
+tests/combat_test.gd
+tests/enemy_types_test.gd
+tests/layout_test.gd
+tests/smoke_test.gd
+tests/v64_combat_test.gd
+tests/v65_combat_audio_test.gd
+tests/v66_mechanics_test.gd
+tools/publish_github.sh
+tools/redesign_first_five_v66.py
+tools/v066-update-files.txt

@@ -56,6 +56,25 @@ func _run() -> void:
 		lv._build_walkable_regions()
 		var spawn: Vector2i = lv._to_cell(lv.player_pos)
 		var player_region := int(lv.region_by_cell.get(spawn, -1))
+		if number <= 5:
+			check(int(lv.data.width) == 20 and int(lv.data.height) == 34 and not lv.data.get("walkthrough_reference", "").is_empty(), "level %d is a portrait, walkthrough-inspired layout" % number)
+			check(not lv._solid(lv.player_pos) and player_region >= 0 and lv.guard_region_by_cell.has(spawn), "level %d spawn is clear for both player and guards" % number)
+			check(lv.guard_walkable_regions.size() == 1 and lv.walkable_regions.size() == 1, "level %d is connected for player and guards" % number)
+			var g_ok: bool = lv.data.guards.size() == 2
+			var positions: Array[Vector2] = []
+			for guard in lv.data.guards:
+				var c := Vector2i(int(guard.x), int(guard.y))
+				var point: Vector2 = lv._cell_center(c.x, c.y)
+				if lv._guard_solid(point) or not lv.guard_region_by_cell.has(c) or int(lv.region_by_cell.get(c, -2)) != player_region or point.distance_to(lv.player_pos) < 280.0:
+					g_ok = false
+				for previous in positions:
+					if previous.distance_to(point) < lv.GUARD_GAP:
+						g_ok = false
+				positions.append(point)
+			check(g_ok, "level %d has two safely placed reachable guards" % number)
+			guard_count += lv.data.guards.size()
+			crate_count += lv.crate_rects.size()
+			continue
 		check(int(lv.data.width) == 29 and int(lv.data.height) == 46 and lv.data.get("partition_walls", []).size() == 8 and lv.data.get("gate_decor", []).size() == 2, "level %d is enlarged and has eight connected green partition segments and two open gates" % number)
 		check(not lv._solid(lv.player_pos) and player_region >= 0, "level %d player spawn is clear" % number)
 		check(lv.guard_walkable_regions.size() == 1, "level %d guard-clear floor is connected" % number)
@@ -122,9 +141,9 @@ func _run() -> void:
 			if int(crate[2]) * int(crate[3]) < 4:
 				accents_ok = false
 		check(accents_ok, "level %d has 7–16 large crate stacks and no tiny scattered crates" % number)
-	check(guard_count == 1064, "all original 1064 guard spawns retained")
-	check(shape_count == 600, "600 long L-shaped cover groups across 100 enlarged levels")
-	check(crate_count == 1107, "1107 large crate stacks across 100 dense maps")
+	check(guard_count == 1052, "two guards on each reference-style map; all later guard spawns retained")
+	check(shape_count == 570, "570 long L-shaped cover groups retained on levels 6–100")
+	check(crate_count == 1104, "walkthrough crates plus all existing level 6–100 stacks")
 	lv.free()
 	print("LAYOUT %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

@@ -49,6 +49,7 @@ const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
+const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
 const GUARD_GAP := 80.0
 # Body clearance beyond the universal four-unit blocker: wider than before.
@@ -62,7 +63,7 @@ const BULLET_SPEED := 660.0 # faster than v0.6.2's 420 world units/second
 const ALERT_SPEED_MULTIPLIER := 2.07  # v0.6.3 chase speed * 1.15
 const CHASE_MEMORY_SECONDS := 7.0
 const INVESTIGATE_SPEED_MULTIPLIER := 1.45
-const ALERT_STOP_DISTANCE := 128.0
+const ALERT_STOP_DISTANCE := 36.0  # close pursuit, not the old 128-unit stand-off
 const DIAMOND_LEVEL_CHANCE := 0.60 # at most one carrier per level
 const MONEY_STANDARD := 10
 const MONEY_HEAVY := 20
@@ -94,6 +95,7 @@ var shadow_rects: Array[Rect2] = []
 var player_pos := Vector2.ZERO
 var player_face := -PI / 2
 var player_path := PackedVector2Array()
+var player_router: RefCounted
 var player_hp := 1000.0
 var invuln := 0.0
 var attack_cd := 0.0
@@ -336,6 +338,8 @@ func _configure_grid(target: AStarGrid2D, diagonals: int) -> void:
 	target.update()
 
 func _build_grid() -> void:
+	# Cover is static between rebuilds, so invalidate cached visibility edges.
+	player_router = null
 	_configure_grid(grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
 	# Four-way guard routes stay inside the conservative body-clearance grid.
 	_configure_grid(guard_grid, AStarGrid2D.DIAGONAL_MODE_NEVER)
@@ -976,6 +980,35 @@ func _player_anchor_options(point: Vector2, only_region: int = -1) -> Array[Dict
 func _path_to(target: Vector2) -> void:
 	player_path.clear()
 	var map_rect := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
+	if not map_rect.has_point(player_pos) or _solid(player_pos):
+		return
+	if map_rect.has_point(target) and not _solid(target):
+		# Direct movement remains genuinely straight, with no grid centre detour.
+		if _los(player_pos, target):
+			if player_pos.distance_to(target) > 0.5:
+				player_path.append(target)
+			return
+		if player_router == null:
+			player_router = VisibilityRouter.new()
+			player_router.setup(map_rect, blocking_rects)
+		var candidate: PackedVector2Array = player_router.route(player_pos, target)
+		var previous := player_pos
+		var legal := not candidate.is_empty()
+		for p in candidate:
+			if not _los(previous, p):
+				legal = false
+				break
+			previous = p
+		if legal and previous.distance_to(target) < 0.1:
+			player_path = candidate
+			return
+	# Cover taps or truly unreachable islands keep the established safe snap-to-
+	# reachable-floor behavior; the grid is a fallback, never the primary route.
+	_path_to_grid(target)
+
+func _path_to_grid(target: Vector2) -> void:
+	player_path.clear()
+	var map_rect := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
 	var target_is_floor := map_rect.has_point(target) and not _solid(target)
 	if _solid(player_pos):
 		return
@@ -1233,8 +1266,9 @@ func _pursuit_goal(g: Dictionary, target: Vector2) -> Vector2:
 	var radial: Vector2 = g.pos - target
 	if radial.length_squared() < 1.0:
 		radial = Vector2.from_angle(float(int(g.id) % 8) * TAU / 8.0)
-	var lane := float((int(g.id) % 3) - 1) * 0.48
-	return target + radial.normalized().rotated(lane) * (GUARD_GAP * 1.15)
+	# Stay on the guard's current approach ray. Rotating this ray every frame
+	# makes an arrived guard orbit the player forever instead of settling.
+	return target + radial.normalized() * 40.0
 
 func _update_guards(delta: float) -> void:
 	for g in guards:
@@ -1280,41 +1314,41 @@ func _update_guards(delta: float) -> void:
 					g.blocked_t = 0.0
 					g.path.clear()
 			GState.ALERT:
+				# Once the connected-area alarm is raised, pursue the moving player
+				# for the rest of this level. This is deliberately live tracking,
+				# including behind cover, rather than merely facing a stale report.
+				# Direct line of sight is STILL required to aim and shoot.
+				g.last_seen = player_pos
+				g.chase_left = _chase_duration(g)
+				var target_angle: float = (player_pos - g.pos).angle()
 				if sees:
-					var target_angle: float = (player_pos - g.pos).angle()
 					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
-					# A clear direct sightline is required for every shot, even after an alarm.
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
 					if g.shoot <= 0:
 						_fire(g)
 						g.shoot = float(g.shot_interval)
-					if g.pos.distance_to(player_pos) > ALERT_STOP_DISTANCE:
-						g.alert_repath -= delta
-						if g.alert_repath <= 0.0:
-							g.path.clear()
-							g.alert_repath = 0.30
-						_seek(g, _pursuit_goal(g, player_pos), delta, g.speed * ALERT_SPEED_MULTIPLIER)
+				else:
+					g.rig.set_aiming(false)
+				# Recompute as the target moves, but keep the current route between
+				# replans so guards genuinely walk rather than constantly resetting.
+				g.alert_repath -= delta
+				if g.alert_repath <= 0.0:
+					g.path.clear()
+					g.pi = 0
+					g.alert_repath = 0.20
+				if g.pos.distance_to(player_pos) > ALERT_STOP_DISTANCE:
+					_seek(g, _pursuit_goal(g, player_pos), delta, g.speed * ALERT_SPEED_MULTIPLIER)
+					if sees:
 						var aim_after_move: float = (player_pos - g.pos).angle()
 						g.face = lerp_angle(g.face, aim_after_move, minf(1.0, delta * 10))
-				else:
-					# Do not turn toward or shoot the unseen live position. Chase the
-					# saved last-seen point for a while, then search and resume patrol.
-					g.rig.set_aiming(false)
-					g.chase_left = maxf(0.0, float(g.chase_left) - delta)
-					var goal := _pursuit_goal(g, g.last_seen)
-					_seek(g, goal, delta, g.speed * ALERT_SPEED_MULTIPLIER)
-					if g.blocked_t > 1.2:
-						# Replan instead of giving up merely because a teammate is close.
-						g.path.clear()
-						g.pi = 0
-						g.avoid_time = 0.0
-						g.blocked_t = 0.0
-					if g.pos.distance_to(goal) < 22.0 or g.chase_left <= 0.0:
-						g.state = GState.SEARCH
-						g.search_t = _search_duration(g)
-						g.blocked_t = 0.0
-						g.path.clear()
+				if g.blocked_t > 1.2:
+					# Do not abandon pursuit just because a doorway or a teammate
+					# blocked a previous route. Retry and retain physical separation.
+					g.path.clear()
+					g.pi = 0
+					g.avoid_time = 0.0
+					g.blocked_t = 0.0
 			GState.SEARCH:
 				g.search_t -= delta
 				g.face += delta * 1.6
@@ -1333,6 +1367,9 @@ func _update_guards(delta: float) -> void:
 		_sync_guard_marker(g)
 
 func _fire(g: Dictionary) -> void:
+	# Defense in depth: even a direct caller cannot shoot through cover.
+	if not _los(g.pos, player_pos):
+		return
 	var toward_player: Vector2 = player_pos - g.pos
 	var dir: Vector2 = toward_player.normalized() if toward_player.length_squared() > 0.001 else Vector2.from_angle(g.face)
 	# Never place a point-blank muzzle beyond the player.
@@ -1609,6 +1646,11 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 	if g.path.size() == 0:
 		var from := _to_cell(g.pos)
 		var to := _to_cell(target)
+		# A clear, guard-sized direct lane should not wait for a grid-centre
+		# path or stop merely because target and guard share one cell.
+		if guard_grid.is_in_boundsv(to) and not guard_grid.is_point_solid(to) and _guard_line_clear(g.pos, target):
+			g.path.append(target)
+			g.pi = 0
 		var region := int(guard_region_by_cell.get(from, -1))
 		if region >= 0 and int(guard_region_by_cell.get(to, -1)) != region:
 			# Investigate the nearest point a guard can actually reach when the
@@ -1619,7 +1661,7 @@ func _seek(g: Dictionary, target: Vector2, delta: float, speed: float) -> void:
 				if distance < nearest:
 					nearest = distance
 					to = cell
-		if region >= 0 and guard_grid.is_in_boundsv(to) and not guard_grid.is_point_solid(to):
+		if g.path.is_empty() and region >= 0 and guard_grid.is_in_boundsv(to) and not guard_grid.is_point_solid(to):
 			g.path = guard_grid.get_point_path(from, to)
 			if from == to:
 				g.path.clear()

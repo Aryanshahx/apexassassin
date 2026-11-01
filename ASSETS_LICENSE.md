@@ -84,3 +84,18 @@ The updater does not contain or create `stab.mp3` or `suspect.mp3`: it copies
 those exact recordings from the user's Raspberry Pi `~/Downloads`. The earlier
 `ui_tap_audio.mp3` is left untouched. Confirm rights for all three recordings
 before separately reviewing and confirming a GitHub publication.
+
+
+## v0.6.6 walkthrough-inspired layouts and new recordings
+
+The first five level layouts are independently adapted from the visible portions
+of a publicly available 2020 Hunter Assassin walkthrough
+(https://www.youtube.com/watch?v=EFnL3VUJ9fk), not extracted assets or exact
+reproductions. The full boundaries and placements are not visible. The design
+reference may be subject to third-party rights; check permissions before sharing
+or distributing derivative material. Existing screenshot-derived assets remain.
+
+The v0.6.6 updater contains none of the user's MP3 recordings. It copies
+`stab2.mp3` and `suspect2.mp3` directly from the Pi's `~/Downloads`, and leaves
+`stab.mp3`, `suspect.mp3`, and `ui_tap_audio.mp3` unchanged. Confirm rights for
+all recordings before separately reviewing and approving a GitHub publication.

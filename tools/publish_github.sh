@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Commit only the v0.6.5 update paths, then safely push the current main branch.
+# Commit only the v0.6.6 update paths, then safely push the current main branch.
 # Usage: bash tools/publish_github.sh ["commit message"]
 # This never stores a token, rewrites your remote, uses force, or pulls for you.
 set -euo pipefail
@@ -9,7 +9,7 @@ export GIT_PAGER=cat
 export PAGER=cat
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BRANCH="main"
-MSG="Apex Assassin v0.6.5: denser warehouse and coordinated guards"
+MSG="Apex Assassin v0.6.6: pursuit, shorter routes and new sounds"
 CONFIRM=0
 for arg in "$@"; do
   case "$arg" in --yes) echo 'This update requires review and confirmation at the prompt; --yes is disabled.' >&2;exit 1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
@@ -17,10 +17,12 @@ done
 command -v git >/dev/null || { echo 'Git is required. Install it before publishing.' >&2;exit 1; }
 [ -d .git ] || { echo 'This project is not a Git clone. Clone your GitHub project first.' >&2;exit 1; }
 [ "$(git branch --show-current)" = "$BRANCH" ] || { echo "Switch to your $BRANCH branch first; this script does not switch branches." >&2;exit 1; }
-[ -f tools/v065-update-files.txt ] || { echo 'Update file list is missing; re-run the update installer.' >&2;exit 1; }
+[ -f tools/v066-update-files.txt ] || { echo 'Update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -s assets/audio/ui_tap_audio.mp3 ] || { echo 'Your ui_tap_audio.mp3 is missing. Restore the original installed sound before publishing.' >&2;exit 1; }
 [ -s assets/audio/stab.mp3 ] || { echo 'Your stab.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
 [ -s assets/audio/suspect.mp3 ] || { echo 'Your suspect.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
+[ -s assets/audio/stab2.mp3 ] || { echo 'Your stab2.mp3 is missing. Run the v0.6.6 updater with your actual Downloads sound.' >&2;exit 1; }
+[ -s assets/audio/suspect2.mp3 ] || { echo 'Your suspect2.mp3 is missing. Run the v0.6.6 updater with your actual Downloads sound.' >&2;exit 1; }
 if ! git config user.name >/dev/null || ! git config user.email >/dev/null;then
   echo 'Set your Git identity, for example:' >&2
   echo '  git config --global user.name "Your Name"' >&2
@@ -48,7 +50,7 @@ if ! git merge-base --is-ancestor "$REMOTE_TIP" HEAD;then
   echo "Remote $BRANCH has commits not in your current branch. Update/rebase safely first, then rerun." >&2
   echo 'Your files and index were not changed by this script.' >&2;exit 1
 fi
-mapfile -t ALL < tools/v065-update-files.txt
+mapfile -t ALL < tools/v066-update-files.txt
 paths=()
 for path in "${ALL[@]}";do
   [ -n "$path" ] || continue
@@ -59,7 +61,7 @@ done
 # Personal recordings are deliberately not embedded in the updater. They are
 # staged only here, after the user chooses to review publication. Optional
 # Godot .import metadata is staged if the editor has already generated it.
-for path in assets/audio/stab.mp3 assets/audio/suspect.mp3; do
+for path in assets/audio/stab2.mp3 assets/audio/suspect2.mp3; do
   paths+=("$path")
   [ ! -f "$path.import" ] || paths+=("$path.import")
 done
@@ -77,8 +79,9 @@ echo 'Staged update paths:'
 git diff --cached --stat
 echo "Existing local commits that would also be pushed: $LOCAL_COMMITS"
 if [ "$LOCAL_COMMITS" -gt 0 ];then git log --oneline "$REMOTE_TIP..HEAD";fi
-echo 'Review ASSETS_LICENSE.md and confirm you have rights to publish all screenshot artwork and all three audio recordings.'
-sha256sum assets/audio/ui_tap_audio.mp3 assets/audio/stab.mp3 assets/audio/suspect.mp3
+echo 'The new stab2.mp3 and suspect2.mp3 recordings will be uploaded if you confirm.'
+echo 'Review ASSETS_LICENSE.md and confirm rights for the artwork, walkthrough-inspired layouts and personal audio.'
+sha256sum assets/audio/ui_tap_audio.mp3 assets/audio/stab.mp3 assets/audio/suspect.mp3 assets/audio/stab2.mp3 assets/audio/suspect2.mp3
 if [ "$CONFIRM" != 1 ];then
   printf 'Commit and push the listed changes to %s? [y/N] ' "$URL"
   read -r answer || answer=''

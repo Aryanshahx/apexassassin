@@ -19,6 +19,7 @@ const ORANGE := preload("res://assets/environment/v65/orange_hazard.png")
 const HAZARD := preload("res://assets/environment/v65/orange_crate.png")
 const WOOD := preload("res://assets/environment/v65/brown_crate.png")
 const STACK := preload("res://assets/environment/v65/strapped_stack.png")
+const WALKTHROUGH_WOOD := preload("res://assets/environment/depot/crate_real_top.png")
 const CRATE_TEXTURES := [WOOD, STACK, ORANGE, WOOD, HAZARD, STACK, WOOD, ORANGE]
 
 var draw_count := 0
@@ -53,6 +54,12 @@ func _repeat_floor(tex: Texture2D, area: Rect2, units_wide: float, tint: Color =
 func _draw() -> void:
 	draw_count += 1
 	if cover_only:
+		if data.has("walkthrough_reference"):
+			for wall in wall_rects:
+				_draw_walkthrough_wall(wall)
+			for crate in crate_rects:
+				_draw_walkthrough_crate(crate)
+			return
 		for i in range(wall_rects.size()):
 			if partition_wall_indices.has(i):
 				_draw_bunker_wall(wall_rects[i])
@@ -80,6 +87,34 @@ func _draw() -> void:
 		var sr := r.intersection(map_rect)
 		if sr.size.x > 0 and sr.size.y > 0:
 			draw_rect(sr, Color(0.05, 0.07, 0.12, 0.10))
+
+func _draw_walkthrough_wall(r: Rect2) -> void:
+	# Neutral concrete with dark trim approximates the 2020 walkway reference;
+	# rectangles are the actual collision shapes, not a flattened screenshot.
+	draw_rect(Rect2(r.position + Vector2(3, 5), r.size), Color(0, 0, 0, 0.24))
+	draw_rect(r, Color("272c2d"))
+	var inner := r.grow(-4.0)
+	if inner.size.x <= 0.0 or inner.size.y <= 0.0:
+		return
+	draw_rect(inner, Color("8c9390"))
+	var spacing := 20.0
+	for i in range(1, int(inner.size.x / spacing) + 1):
+		var x := inner.position.x + i * spacing
+		if x < inner.end.x:
+			draw_line(Vector2(x, inner.position.y), Vector2(x, inner.end.y), Color(0.34, 0.37, 0.36, 0.30), 1.0)
+	for i in range(1, int(inner.size.y / spacing) + 1):
+		var y := inner.position.y + i * spacing
+		if y < inner.end.y:
+			draw_line(Vector2(inner.position.x, y), Vector2(inner.end.x, y), Color(0.34, 0.37, 0.36, 0.25), 1.0)
+
+func _draw_walkthrough_crate(r: Rect2) -> void:
+	draw_rect(Rect2(r.position + Vector2(3, 5), r.size), Color(0, 0, 0, 0.22))
+	var columns := maxi(1, roundi(r.size.x / (CELL * 1.25)))
+	var rows := maxi(1, roundi(r.size.y / (CELL * 1.25)))
+	var tile := Vector2(r.size.x / columns, r.size.y / rows)
+	for y in range(rows):
+		for x in range(columns):
+			draw_texture_rect(WALKTHROUGH_WOOD, Rect2(r.position + Vector2(x * tile.x, y * tile.y), tile), false)
 
 func _draw_outer_wall(r: Rect2) -> void:
 	# Dark blue edge trim from the reference's right-hand perimeter.

@@ -14,8 +14,8 @@ func _ready() -> void:
 	# silently installed when it is absent.
 	var user_audio := {
 		"ui_tap": "res://assets/audio/ui_tap_audio.mp3",
-		"stab": "res://assets/audio/stab.mp3",
-		"suspect": "res://assets/audio/suspect.mp3",
+		"stab": "res://assets/audio/stab2.mp3",
+		"suspect": "res://assets/audio/suspect2.mp3",
 	}
 	for effect in user_audio:
 		var path: String = user_audio[effect]

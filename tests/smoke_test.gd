@@ -40,7 +40,7 @@ func _run() -> void:
 	var levels: Array = parsed.levels
 	check(levels.size() == 100, "100 levels")
 	for lv in levels:
-		check(lv.guards.size() >= 3, "level %d guards" % lv.id)
+		check(lv.guards.size() == 2 if int(lv.id) <= 5 else lv.guards.size() >= 3, "level %d guards" % lv.id)
 		check(lv.spawn.size() == 2, "spawn")
 	gs.gems = 1000
 	gs.cash = 1000
@@ -81,7 +81,7 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	var level = current_scene
-	check(level != null and level.total == 5, "level 4 has 5 guards")
+	check(level != null and level.total == 2, "walkthrough-inspired level 4 has two guards")
 	# Every cover item scales exactly 20% about its original v0.6.1 centre.
 	check(level.OBSTACLE_GROW == 3.0 and is_equal_approx(level.OBSTACLE_SCALE, 1.2), "cover scales 20% from v0.6.1")
 	var wd: Array = level.data.walls[0]
@@ -106,7 +106,10 @@ func _run() -> void:
 			guard_scales_ok = false
 	check(guard_scales_ok, "enemy sizes unchanged")
 	for lv in levels:
-		check(crates_separated(lv, level.CELL, level.ORIGIN, level.OBSTACLE_GROW, level.OBSTACLE_SCALE), "level %d enlarged crates have clear placement" % int(lv.id))
+		if int(lv.id) > 5:
+			check(crates_separated(lv, level.CELL, level.ORIGIN, level.OBSTACLE_GROW, level.OBSTACLE_SCALE), "level %d enlarged crates have clear placement" % int(lv.id))
+		else:
+			check(lv.get("walkthrough_reference", "") != "", "level %d deliberately uses reference-style grouped crates" % int(lv.id))
 	check(level.player_rig.anim.has_animation("run"), "run animation")
 	check(level.player_rig.anim.has_animation("attack"), "attack animation")
 	check(level.player_rig.anim.has_animation("death"), "death animation")
