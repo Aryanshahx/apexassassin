@@ -755,6 +755,7 @@ func _build_hud() -> void:
 	key_icon.name = "KeyIcon"
 	key_icon.texture = KEY_TEX
 	key_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	key_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	key_icon.size = Vector2(40, 40)
 	key_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(key_icon)
@@ -2136,7 +2137,10 @@ func _draw() -> void:
 			draw_circle(splat.pos + drop.offset, float(drop.radius), Color(0.52, 0.035, 0.045, 0.82))
 	if key_on_floor:
 		var bob := sin(elapsed * 4.0) * 3.0
-		draw_texture_rect(KEY_TEX, Rect2(key_position + Vector2(-24, -24 + bob), Vector2(48, 48)), false)
+		# Keep the new portrait-shaped icon from stretching in world space.
+		var key_height := 48.0
+		var key_width := key_height * float(KEY_TEX.get_width()) / float(KEY_TEX.get_height())
+		draw_texture_rect(KEY_TEX, Rect2(key_position + Vector2(-key_width / 2.0, -key_height / 2.0 + bob), Vector2(key_width, key_height)), false)
 	# Highlight only the player's actual remaining path, below cover and actors.
 	_draw_route()
 	# Only cast cones that can actually reach the current viewport.

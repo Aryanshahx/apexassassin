@@ -9,7 +9,7 @@ export GIT_PAGER=cat
 export PAGER=cat
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BRANCH="main"
-MSG="Apex Assassin v0.7.2: restored enemies and post-win lockers"
+MSG="Apex Assassin v0.7.2: key sound and artwork repair"
 CONFIRM=0
 for arg in "$@"; do
   case "$arg" in --yes) echo 'This update requires review and confirmation at the prompt; --yes is disabled.' >&2;exit 1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
@@ -66,14 +66,20 @@ for path in "${ALL[@]}";do
   if [ -e "$path" ] || [ -L "$path" ] || git ls-files --error-unmatch -- "$path" >/dev/null 2>&1;then paths+=("$path");fi
 done
 [ "${#paths[@]}" -gt 0 ] || { echo 'No update files found.' >&2;exit 1; }
-# The updater copies these recordings from this Pi; the default publisher
-# deliberately leaves them private. Explicit opt-in needs a separate prompt.
-case "${APEX_PUBLISH_KEY_SOUNDS:-0}" in
-  0) echo 'Key sounds remain private; a GitHub-built APK will omit them unless you explicitly opt in.';;
+# Like stab2.mp3, key recordings remain outside the updater. The publishing
+# workflow now defaults to including them, with a separate explicit prompt.
+case "${APEX_PUBLISH_KEY_SOUNDS:-1}" in
+  0) echo 'Key sounds will not be uploaded. The GitHub APK workflow will fail until both recordings are in the repository.';;
   1)
     for audio in assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3; do
       [ -f "$audio" ] && [ -s "$audio" ] && [ ! -L "$audio" ] || { echo "Missing or unsafe requested sound: $audio" >&2;exit 1; }
     done
+    if ! printf '%s  %s\n' \
+      '0a54466fda929646f50264f93f6318a3d43db41677ef3832966aa2614620144a' 'assets/audio/pickkey.mp3' \
+      'a8d967d2a27feec14ffc7694d0de00488b7720faf629e8c2853f97a1a4464e4c' 'assets/audio/unlockkey.mp3' | sha256sum --check --status; then
+      echo 'A key recording differs from the files supplied in Drive; publication stopped. Back it up and restore the requested recording.' >&2
+      exit 1
+    fi
     echo 'WARNING: Both key MP3s will be committed and uploaded to GitHub, including a public repository if your repository is public.'
     sha256sum assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3
     printf 'Upload these two recordings to GitHub? [y/N] '
@@ -109,6 +115,8 @@ echo 'WARNING: This may include supplied Hunter Files sprites, maps and recovere
 echo 'The original reference sheets and older personal recordings are not staged.'
 echo 'Other personal recordings and audio import metadata are never staged by this update.'
 echo 'Rights are not established. Review ASSETS_LICENSE.md and confirm you have permission to publish these assets and maps.'
+echo 'ANDROID WARNING: A fresh GitHub Actions runner normally creates a new debug signing key.'
+echo 'A differently signed APK cannot update the existing app. Do not uninstall the app or clear its data; ask for signing/backup help first.'
 sha256sum assets/audio/ui_tap_audio.mp3 assets/audio/stab.mp3 assets/audio/suspect.mp3 assets/audio/stab2.mp3 assets/audio/suspect2.mp3
 if [ "$CONFIRM" != 1 ];then
   printf 'Confirm you have publication rights AND commit and push these changes to %s? [y/N] ' "$URL"

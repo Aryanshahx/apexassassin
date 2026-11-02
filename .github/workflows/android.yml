@@ -86,6 +86,15 @@ jobs:
           test -s assets/audio/suspect.mp3
           test -s assets/audio/stab2.mp3
           test -s assets/audio/suspect2.mp3
+          for audio in assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3; do
+            if [ ! -s "$audio" ]; then
+              echo "::error::Missing $audio. Publish the two key recordings after your review, then rebuild the APK."
+              exit 1
+            fi
+          done
+          printf '%s  %s\n' \
+            '0a54466fda929646f50264f93f6318a3d43db41677ef3832966aa2614620144a' 'assets/audio/pickkey.mp3' \
+            'a8d967d2a27feec14ffc7694d0de00488b7720faf629e8c2853f97a1a4464e4c' 'assets/audio/unlockkey.mp3' | sha256sum --check
           python3 tools/test_v72_source_integrity.py
           "$GODOT" --headless --path . --import
           # All suites exercise saves; never write to an existing save.
@@ -117,9 +126,6 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/v72-progression" timeout 120 "$GODOT" --headless --path . --script tests/v72_progression_test.gd
           mkdir -p "$TEST_DATA/v72-key-audio"
           XDG_DATA_HOME="$TEST_DATA/v72-key-audio" timeout 120 "$GODOT" --headless --path . --script tests/v72_key_audio_import_test.gd
-          if [ ! -s assets/audio/pickkey.mp3 ] || [ ! -s assets/audio/unlockkey.mp3 ]; then
-            echo '::warning::The two optional private key recordings are absent from this checkout; this APK will not play those effects.'
-          fi
           XDG_DATA_HOME="$TEST_DATA/v64-combat" timeout 120 "$GODOT" --headless --path . --script tests/v64_combat_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-path" timeout 300 "$GODOT" --headless --path . --script tests/v64_path_stress_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd
