@@ -20,8 +20,10 @@ var speed_value: Label
 var health_value: Label
 var gems_value: Label
 var selected_button: Button
+var bonus_button: Button
 var hint: Label
-var preview_id := "ronin"
+var preview_id := "v72_commando"
+var preview_loadout := "ronin"
 var design_h := 1280.0
 var cards := {}
 var scroll_tween: Tween
@@ -39,7 +41,8 @@ func _ready() -> void:
 	name = "AssassinSelector"
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	preview_id = GameState.selected_assassin
+	preview_id = GameState.visible_character_id(GameState.selected_assassin)
+	preview_loadout = GameState.selected_assassin
 	_build()
 	get_viewport().size_changed.connect(_fit)
 	_fit()
@@ -134,6 +137,18 @@ func _build() -> void:
 	var health := _stat_panel("HealthPanel", "HEALTH", Color("1dbb3b"), Color("6eff80"))
 	stage.add_child(health)
 	health_value = health.get_node("Value")
+	bonus_button = Button.new()
+	bonus_button.name = "BonusLoadoutButton"
+	bonus_button.add_theme_font_override("font", FONT)
+	bonus_button.add_theme_font_size_override("font_size", 22)
+	bonus_button.add_theme_color_override("font_color", Color("fff1c4"))
+	bonus_button.add_theme_color_override("font_disabled_color", Color("a6b1b5"))
+	bonus_button.add_theme_stylebox_override("normal", _box(Color("243944"), Color("af945c"), 8, 2))
+	bonus_button.add_theme_stylebox_override("hover", _box(Color("355563"), Color("ffe095"), 8, 2))
+	bonus_button.add_theme_stylebox_override("pressed", _box(Color("162d36"), Color("ffe095"), 8, 2))
+	bonus_button.add_theme_stylebox_override("disabled", _box(Color("26343a"), Color("52656a"), 8, 1))
+	bonus_button.pressed.connect(_cycle_loadout)
+	stage.add_child(bonus_button)
 	selected_button = Button.new()
 	selected_button.name = "SelectButton"
 	selected_button.add_theme_font_override("font", FONT)
@@ -242,11 +257,13 @@ func _fit() -> void:
 	character_name.size = Vector2(650, 55)
 	var speed := stage.get_node("SpeedPanel") as Panel
 	var health := stage.get_node("HealthPanel") as Panel
-	speed.position = Vector2(82, design_h * 0.465)
+	speed.position = Vector2(82, design_h * 0.448)
 	speed.size = Vector2(246, 88)
-	health.position = Vector2(392, design_h * 0.465)
+	health.position = Vector2(392, design_h * 0.448)
 	health.size = Vector2(246, 88)
-	selected_button.position = Vector2(142, design_h * 0.565)
+	bonus_button.position = Vector2(110, design_h * 0.522)
+	bonus_button.size = Vector2(500, 76)
+	selected_button.position = Vector2(142, design_h * 0.598)
 	selected_button.size = Vector2(436, 100)
 	var roster_label := stage.get_node("RosterLabel") as Label
 	roster_label.position = Vector2(0, design_h * 0.687)
@@ -309,6 +326,7 @@ func _card_pressed(id: String) -> void:
 
 func _preview(id: String) -> void:
 	preview_id = id
+	preview_loadout = GameState.selected_assassin if id == GameState.visible_character_id(GameState.selected_assassin) else id
 	_refresh_preview()
 	_center_current(true)
 
@@ -328,14 +346,22 @@ func _center_current(animate: bool) -> void:
 func _refresh_preview() -> void:
 	if not GameState.CHARACTERS.has(preview_id):
 		return
-	var data: Dictionary = GameState.CHARACTERS[preview_id]
+	var loadouts: Array[String] = GameState.character_loadouts(preview_id)
+	if not loadouts.has(preview_loadout):
+		preview_loadout = preview_id
+	var equipped := preview_loadout == GameState.selected_assassin
+	var data: Dictionary = GameState.CHARACTERS[preview_loadout]
 	hero.texture = _portrait(preview_id)
-	character_name.text = String(data.name).to_upper()
+	character_name.text = GameState.display_character_name(preview_id).to_upper()
 	speed_value.text = "+%d%%" % roundi(float(data.speed_bonus) * 100.0)
 	health_value.text = "+%d%%" % roundi(float(data.health_bonus) * 100.0)
 	gems_value.text = str(GameState.gems)
-	var unlocked := GameState.is_unlocked(preview_id)
-	var equipped := preview_id == GameState.selected_assassin
+	var speed_bonus := roundi(float(data.speed_bonus) * 100.0)
+	var health_bonus := roundi(float(data.health_bonus) * 100.0)
+	var bonus_text := "STANDARD" if speed_bonus == 0 and health_bonus == 0 else "+%d%% SPEED  /  +%d%% HEALTH" % [speed_bonus, health_bonus]
+	bonus_button.text = "BONUS %d/%d:  %s  >" % [loadouts.find(preview_loadout) + 1, loadouts.size(), bonus_text]
+	bonus_button.disabled = loadouts.size() < 2
+	var unlocked := GameState.is_unlocked(preview_loadout)
 	var locker_only := preview_id == GameState.VAULT_CHARACTER and not unlocked
 	selected_button.disabled = equipped or locker_only
 	selected_button.text = "SELECTED" if equipped else ("FIND IN LOCKERS" if locker_only else ("SELECT" if unlocked else "UNLOCK  %d" % int(data.cost)))
@@ -353,9 +379,16 @@ func _refresh_preview() -> void:
 		if GameState.is_unlocked(id) and card.has_node("Price"):
 			card.get_node("Price").queue_free()
 
+func _cycle_loadout() -> void:
+	var loadouts: Array[String] = GameState.character_loadouts(preview_id)
+	if loadouts.size() < 2:
+		return
+	preview_loadout = loadouts[(loadouts.find(preview_loadout) + 1) % loadouts.size()]
+	_refresh_preview()
+
 func _confirm() -> void:
-	if GameState.is_unlocked(preview_id):
-		if GameState.select_character(preview_id):
+	if GameState.is_unlocked(preview_loadout):
+		if GameState.select_character(preview_loadout):
 			Sfx.play("upgrade")
 			changed.emit()
 	elif GameState.unlock_character(preview_id):

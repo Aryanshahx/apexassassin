@@ -12,7 +12,7 @@ func check(value: bool, message: String) -> void:
         printerr("FAIL: ", message)
 func _run() -> void:
     var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/levels/levels.json"))
-    check(str(doc.get("layout_revision", "")) == "0.7.1-source-priority-selected-art", "source-derived catalog is selected")
+    check(str(doc.get("layout_revision", "")) == "0.7.2-source-priority-restored-enemies", "source-derived catalog is selected")
     check(doc.levels.size() == 100, "100 level IDs are retained")
     var raw_config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/source_maps/v70/recovered_remote_config.json"))
     check(raw_config.remoteMaps.size() == 100, "100 static source configurations are retained")
@@ -82,11 +82,11 @@ func _run() -> void:
             guard_count += 1
         check(guards_ok, "level %d adapted guards and patrol endpoints are safe, separated and used at runtime" % number)
         obstacle_count += lv.wall_rects.size() + lv.crate_rects.size()
-    check(guard_count == 730, "all 620 supplied and 110 fallback guards/bosses are retained")
+    check(guard_count == 1066, "all 730 existing source/fallback guards plus 336 supplements are retained")
     check(map_pairs.size() == 64, "source configuration has the expected 64 distinct grid/flip combinations")
     check(theme_counts.size() == 8, "all eight existing themes are represented")
     for theme in THEMES:
         check(int(theme_counts.get(theme, 0)) >= 12, "%s appears throughout the catalog" % theme)
     lv.free()
-    print("V71 LAYOUT %d checks, %d failures; %d guards, %d obstacles, %d cell comparisons; themes=%s; source-pairs=%d" % [checks, failures, guard_count, obstacle_count, compared_cells, theme_counts, map_pairs.size()])
+    print("V72 LAYOUT %d checks, %d failures; %d guards, %d obstacles, %d cell comparisons; themes=%s; source-pairs=%d" % [checks, failures, guard_count, obstacle_count, compared_cells, theme_counts, map_pairs.size()])
     quit(1 if failures else 0)

@@ -171,3 +171,23 @@ not use them. Earlier reference-derived characters/UI and personal recordings
 still have separate rights considerations. Obtain all needed permissions before
 publishing, distributing, or pushing. The update never bundles personal audio,
 saves, raw concept images or the compiled library.
+
+## v0.7.2 supplied player, enemy and key artwork
+
+The 12 transparent stills in `assets/actors/v72/` were extracted and cleaned
+from two user-supplied RGB concept sheets (six players and six enemies). The
+key in `assets/ui/v72/key.png` is from the user's supplied KeyIconB.png. The
+source sheets and their included design labels are not bundled in the updater.
+`tools/build_v72_actors.py` documents the approximate extraction; the supplied
+concepts did not include original animation frames. The full-screen vault
+background was separately AI-generated for this update, with live controls
+layered in Godot. Ownership and publication rights for the user-supplied art,
+previous maps and other historical assets have not been established. Confirm
+all required rights before publishing or distributing the game and builds.
+
+The user's `pickkey.mp3` and `unlockkey.mp3` are copied from their own Pi
+Downloads at installation, not bundled in the updater or source-code ZIP. By
+default the guarded publisher does not stage any personal recording. An
+explicit opt-in requires a separate confirmation before those two sounds may be
+committed and uploaded; older personal recordings and import metadata remain
+excluded. Saved progress is never included in an update or the code archive.

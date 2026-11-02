@@ -78,4 +78,4 @@ func run() -> void:
 		if number % 20 == 0:
 			print("through ", number, " overlaps=", overlaps.size(), " walls=", walls.size(), " long stalls=", stalls.size())
 	print("ALERT TRAFFIC guards=", all_guards, " substantial_moves=", substantial_moves, " walls=", walls, " overlaps=", overlaps, " min_gap=", lowest, " max_unseen_wait=", longest, " stalls>5s=", stalls)
-	quit(1 if not walls.is_empty() or not overlaps.is_empty() or not stalls.is_empty() or all_guards != 730 else 0)
+	quit(1 if not walls.is_empty() or not overlaps.is_empty() or not stalls.is_empty() or all_guards != 1066 else 0)

@@ -48,8 +48,8 @@ func _run() -> void:
 				check(not controls[a].get_global_rect().intersects(controls[b].get_global_rect()), "no overlap: %s / %s at %s" % [controls[a].name, controls[b].name, safe])
 	home._fit()
 	check(home.cash_label.text == "520" and home.gems_label.text == "733", "currency uses real values, not mockup numbers")
-	check(home.card_art.texture.resource_path.ends_with("/characters/01.png"), "chosen assassin portrait is real")
-	check(home.selected_name_label.text == "BANDAGED", "only the selected assassin's live name is shown")
+	check(home.card_art.texture.resource_path.ends_with("/players/commando.png"), "legacy selection maps to the supplied Commando portrait")
+	check(home.selected_name_label.text == "COMMANDO", "the visible supplied character name is shown")
 	check(home.find_children("SelectedAssassinPortrait", "TextureRect", true, false).size() == 1, "home shows exactly one selected-character portrait")
 	check(home.find_child("CurrentLevelLabel", true, false).text == "LEVEL 9", "start button shows current level")
 	for name in ["DiamondsButton", "CashButton", "SettingsButton", "WheelButton", "ShopButton", "AssassinButton", "KnivesButton", "StartGameButton"]:
@@ -91,13 +91,13 @@ func _run() -> void:
 	button(home, "AssassinButton").pressed.emit()
 	await process_frame
 	var selector = home.overlay
-	check(selector != null and selector.find_child("Roster", true, false).get_child_count() == 23, "assassin selector opens the retained roster plus locker character")
-	selector._preview("ref02")
+	check(selector != null and selector.find_child("Roster", true, false).get_child_count() == 6, "assassin selector shows exactly the six supplied designs")
+	selector._preview("v72_agent")
 	var select_btn := button(selector, "SelectButton")
 	select_btn.pressed.emit()
 	await process_frame
-	check(gs.selected_assassin == "ref02" and home.card_art.texture.resource_path.ends_with("/characters/02.png"), "selection immediately updates the home portrait")
-	check(home.selected_name_label.text == "ORANGE BEAST", "selection immediately updates the home name")
+	check(gs.selected_assassin == "v72_agent" and home.card_art.texture.resource_path.ends_with("/players/agent.png"), "selection immediately updates the home portrait")
+	check(home.selected_name_label.text == "AGENT", "selection immediately updates the home name")
 	home._close_overlay()
 	button(home, "WheelButton").pressed.emit()
 	await process_frame

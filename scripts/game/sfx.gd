@@ -16,6 +16,8 @@ func _ready() -> void:
 		"ui_tap": "res://assets/audio/ui_tap_audio.mp3",
 		"stab": "res://assets/audio/stab2.mp3",
 		"suspect": "res://assets/audio/suspect2.mp3",
+		"pickkey": "res://assets/audio/pickkey.mp3",
+		"unlockkey": "res://assets/audio/unlockkey.mp3",
 	}
 	for effect in user_audio:
 		var path: String = user_audio[effect]
@@ -38,7 +40,7 @@ func play(name: String, volume_db: float = -6.0) -> void:
 			return
 	# User-provided effects are important even if the ordinary pool is full.
 	# Reuse a voice so a stab, detection or button press is not silently lost.
-	if name in ["ui_tap", "stab", "suspect"] and not players.is_empty():
+	if name in ["ui_tap", "stab", "suspect", "pickkey", "unlockkey"] and not players.is_empty():
 		var p := players[0]
 		p.stop()
 		p.stream = streams[name]

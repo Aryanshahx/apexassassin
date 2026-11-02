@@ -35,10 +35,11 @@ func _run() -> void:
 		print("ENEMY TYPES %d checks, %d failures" % [checks, failures])
 		quit(1)
 		return
-	check(by_type.scout.rig.modulate != by_type.guard.rig.modulate and by_type.heavy.rig.modulate != by_type.guard.rig.modulate, "enemy variants have distinguishable artwork tints")
-	var scale := (1.0 + float(int(lv.data.id) - 1) * 0.004) * 1.25
+	check(by_type.scout.rig.look != by_type.guard.rig.look and by_type.heavy.rig.look != by_type.guard.rig.look, "enemy variants use distinct supplied appearances")
+	var scale := (1.0 + float(int(lv.data.id) - 1) * 0.0055) * 1.25
 	var damage_by_type := {"scout": 65.0 * scale, "guard": 100.0 * scale, "heavy": 160.0 * scale}
-	var interval_by_type := {"scout": 0.325, "guard": 0.5, "heavy": 0.725}
+	var cadence := 1.0 - float(int(lv.data.id) - 1) / 99.0 * 0.08
+	var interval_by_type := {"scout": 0.325 * cadence, "guard": 0.5 * cadence, "heavy": 0.725 * cadence}
 	for kind in ["scout", "guard", "heavy"]:
 		var g: Dictionary = by_type[kind]
 		check(is_equal_approx(g.shot_damage, damage_by_type[kind]) and is_equal_approx(g.shot_interval, interval_by_type[kind]), kind + " has its own damage and fire interval")

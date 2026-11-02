@@ -56,11 +56,11 @@ func _ready() -> void:
 	_build_missions()
 	_build_start()
 	_fit()
-	if GameState.locker_pending():
+	if GameState.locker_ready():
 		call_deferred("_show_pending_locker")
 
 func _show_pending_locker() -> void:
-	if not GameState.locker_pending():
+	if not GameState.locker_ready():
 		return
 	var locker := LockerRewards.new()
 	add_child(locker)
@@ -278,7 +278,7 @@ func _build_character_stage() -> void:
 	canvas.add_child(card_art)
 	selected_name_label = _font(29, 4)
 	selected_name_label.name = "SelectedAssassinName"
-	selected_name_label.text = str(GameState.character().get("name", "Ronin")).to_upper()
+	selected_name_label.text = GameState.display_character_name(GameState.selected_assassin).to_upper()
 	selected_name_label.size = Vector2(440, 38)
 	selected_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	selected_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -503,7 +503,7 @@ func _refresh_card() -> void:
 	if card_art:
 		card_art.texture = _character_portrait(GameState.selected_assassin)
 	if selected_name_label:
-		selected_name_label.text = str(GameState.character().get("name", "Ronin")).to_upper()
+		selected_name_label.text = GameState.display_character_name(GameState.selected_assassin).to_upper()
 
 # ---------------- Full-screen collection screens ----------------
 func _screen_base(title: String, reference_palette := false) -> VBoxContainer:

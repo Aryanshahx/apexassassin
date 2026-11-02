@@ -81,7 +81,7 @@ func _run() -> void:
 	print("KEY LEVELS ", key_levels.size())
 	probe.free()
 
-	# Test real movement to three keys and immediate save after every pickup.
+	# Test real movement to three keys, persistent queuing, and post-win reveal.
 	if key_levels.size() < 3:
 		printerr("Cannot continue without three key levels")
 		quit(1)
@@ -112,7 +112,15 @@ func _run() -> void:
 			check(gs.keys_collected == i + 1 and not gs.locker_pending(), "key %d is saved without prematurely opening lockers" % (i + 1))
 		else:
 			check(gs.keys_collected == 0 and gs.locker_pending(), "third key saves a pending board")
-			check(lv.locker_ui != null and lv.locker_ui.buttons.size() == 9, "third pickup immediately opens a 3x3 board")
+			check(lv.locker_ui == null and not gs.locker_ready() and lv.key_label.text == "3/3", "third pickup queues 3/3 without interrupting the level")
+			check(gs.open_locker(0).is_empty(), "a queued board cannot be opened before a win")
+			lv._win()
+			await process_frame
+			await process_frame
+			check(gs.locker_ready() and lv.locker_ui != null and lv.locker_ui.buttons.size() == 9, "a genuine level win opens the queued 3x3 board")
+			if lv.locker_ui == null:
+				quit(1)
+				return
 			check(lv.locker_ui.remaining.text.contains("3"), "board announces three choices")
 			var before_elapsed: float = lv.elapsed
 			lv._physics_process(0.5)
@@ -126,7 +134,7 @@ func _run() -> void:
 			check(gs.gems == 733 + amount and gs.locker_board.opened.size() == 1, "opening a locker twice cannot duplicate rewards")
 			gs.load_game()
 			check(gs.gems == 733 + amount and int(gs.locker_board.character_slot) == secret and gs.locker_board.opened.size() == 1, "partial board, secret slot and award survive reload without reroll")
-			check(gs.selected_assassin == "fiesta" and gs.cash == 512 and gs.is_knife_unlocked("frost"), "opening a locker preserves selected character, money and weapons")
+			check(gs.selected_assassin == "fiesta" and gs.cash == 512 + 50 + number * 5 and gs.is_knife_unlocked("frost"), "the win and locker preserve selection, credit earned cash and preserve weapons")
 
 	# A pending board must reappear on the home screen after closing the level.
 	change_scene_to_file("res://scenes/home/home.tscn")
@@ -150,6 +158,9 @@ func _run() -> void:
 	recovered._pick(third)
 	check(gs.gems == before + expected and gs.locker_board.opened.size() == 3 and recovered.done.visible, "third unique pick awards diamonds and enables continue")
 	check(recovered.buttons.all(func(b): return b.disabled), "all nine lockers are disabled after three openings")
+	await process_frame
+	var unopened := (secret + 3) % 9
+	check(recovered.buttons[unopened].get_node("Caption").text == "LOCKED", "unopened lockers no longer invite a fourth pick")
 	check(gs.open_locker((secret + 3) % 9).is_empty(), "a fourth opening is rejected")
 	gs.load_game()
 	check(gs.is_unlocked(gs.VAULT_CHARACTER) and gs.locker_board.opened.size() == 3 and gs.gems == before + expected, "three picks and secret unlock persist before continue")
@@ -163,11 +174,13 @@ func _run() -> void:
 	gs.load_game()
 	check(gs.selected_assassin == gs.VAULT_CHARACTER and gs.is_unlocked(gs.VAULT_CHARACTER), "secret character selection survives restart")
 	home._refresh_card()
-	check(home.card_art.texture.resource_path.ends_with("/characters/vault_phantom.png"), "home shows the actually selected secret character")
+	check(home.card_art.texture.resource_path.ends_with("/players/elite.png"), "home shows the Elite locker character")
 
 	# Once unlocked, a new board is still possible and awards diamonds everywhere.
 	gs._make_locker_board(64001)
 	check(int(gs.locker_board.character_slot) == -1, "later boards cannot duplicate the unique assassin")
+	check(not gs.locker_ready() and gs.open_locker(0).is_empty(), "another new board is also gated until a win")
+	gs.complete_level(0, false, 1)
 	var later: Dictionary = gs.open_locker(0)
 	check(String(later.kind) == "diamonds" and int(later.amount) > 0, "later boards award diamonds instead")
 	print("V64 LOCKERS %d checks, %d failures" % [checks, failures])

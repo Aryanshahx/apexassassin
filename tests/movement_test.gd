@@ -105,7 +105,7 @@ func _run() -> void:
 	lv._update_guards(0.1)
 	check(guard.rig.guard_aim_target == 1.0, "guard raises gun when player is visible")
 	guard.rig._process(0.4)
-	check(guard.rig.guard_aim_amount > 0.99 and absf(guard.rig.guard_gun.rotation) > 0.8, "gun visibly raises towards player")
+	check(guard.rig.guard_aim_amount > 0.99 and is_equal_approx(guard.rig.art.rotation, PI), "aim state follows sight while the supplied still retains its pose")
 	var expected_offset: float = angle_difference(guard.face, (lv.player_pos - guard.pos).angle())
 	check(absf(guard.rig.guard_aim_offset - expected_offset) < 0.1, "weapon tracks player's direction relative to the guard")
 	lv.bullets.clear()

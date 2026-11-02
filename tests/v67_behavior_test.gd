@@ -234,7 +234,7 @@ func _run() -> void:
 				old_nearest_sum += old_nearest
 				paired_guards += 1
 			guard_total += 1
-	check(bad_levels.is_empty() and guard_total == 730, "all 100 levels retain every guard with safe, reachable, separated starts")
+	check(bad_levels.is_empty() and guard_total == 1066, "all 100 levels retain every guard with safe, reachable, separated starts")
 	# Source-derived starts are pre-separated in the catalog, so runtime now
 	# intentionally preserves them rather than redistributing a second time.
 	check(new_nearest_sum >= old_nearest_sum * 0.999 and new_nearest_sum >= 160.0 * paired_guards, "adapted guard starts remain safely distributed without drifting from supplied hints")

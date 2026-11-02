@@ -5,7 +5,8 @@ const OLD_SAVE_PATH := "user://apex_save_v2.json"
 const TOTAL_LEVELS := 100
 const BASE_SPEED := 190.0
 const PLAYER_SPEED_MULTIPLIER := 1.20
-const VAULT_CHARACTER := "vault_phantom"
+const VAULT_CHARACTER := "v72_elite"
+const LEGACY_VAULT_CHARACTER := "vault_phantom"
 const KEY_LEVEL_CHANCE := 0.42
 const BASE_HEALTH := 1000.0
 # One purchased upgrade still adds one standard enemy hit of protection.
@@ -37,12 +38,21 @@ const CHARACTERS := {
 	"ref11": {"name": "Blonde and Pink", "cost": 0, "speed_bonus": 0.35, "health_bonus": 0.0, "blurb": "+35% speed"},
 	"ref12": {"name": "Green Shell", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.35, "blurb": "+35% health"},
 	# An original secret character, earned only through the three-key lockers.
-	"vault_phantom": {"name": "Vault Phantom", "cost": 0, "speed_bonus": 0.15, "health_bonus": 0.15, "blurb": "Locker reward: +15% speed and health"},
+	"vault_phantom": {"name": "Vault Phantom", "cost": 0, "speed_bonus": 0.15, "health_bonus": 0.15, "blurb": "Legacy locker reward"},
+	# Five supplied stills are freely selectable; Elite is the unique key prize.
+	"v72_commando": {"name": "Commando", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Tactical operative"},
+	"v72_agent": {"name": "Agent", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Covert operative"},
+	"v72_mercenary": {"name": "Mercenary", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Experienced fighter"},
+	"v72_swat": {"name": "SWAT", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Armored operative"},
+	"v72_hunter": {"name": "Hunter", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Stealth specialist"},
+	"v72_elite": {"name": "Elite", "cost": 0, "speed_bonus": 0.15, "health_bonus": 0.15, "blurb": "Locker reward: +15% speed and health"},
 
 }
 const REFERENCE_ORDER := ["ref01", "ref02", "ref03", "ref04", "ref05", "ref06", "ref07", "ref08", "ref09", "ref10", "ref11", "ref12"]
 const LEGACY_ORDER := ["ronin", "sable", "nova", "aegis", "dash", "sentinel", "sage", "crimson", "fiesta", "oni"]
-const CHARACTER_ORDER := REFERENCE_ORDER + LEGACY_ORDER + [VAULT_CHARACTER]
+# Retain old IDs and their saved stats, but only the six new designs are shown.
+const V72_FREE_ORDER := ["v72_commando", "v72_agent", "v72_mercenary", "v72_swat", "v72_hunter"]
+const CHARACTER_ORDER := V72_FREE_ORDER + [VAULT_CHARACTER]
 # Give previously saved assassins the approved visual style without changing
 # their IDs, bonuses, selected state, unlocks or save schema.
 const LEGACY_ART_INDEX := {"ronin": 1, "sable": 2, "nova": 3, "aegis": 4, "dash": 5, "sentinel": 6, "sage": 7, "crimson": 8, "fiesta": 9, "oni": 10}
@@ -160,11 +170,17 @@ func load_game() -> void:
 		for k in upgrades:
 			upgrades[k] = clampi(int(u.get(k, 0)), 0, 5)
 	var unlocked: Variant = p.get("unlocked_assassins", {})
+	unlocked_assassins = {}
 	if unlocked is Dictionary:
 		for k in unlocked:
-			if CHARACTERS.has(k) and bool(unlocked[k]):
+			# Do not discard old/unknown entitlement fields during migration.
+			if bool(unlocked[k]):
 				unlocked_assassins[k] = true
 	unlocked_assassins["ronin"] = true
+	# The old unique locker prize becomes Elite at no extra cost. Keep the
+	# original ID and a selected legacy character's existing gameplay bonuses.
+	if bool(unlocked_assassins.get(LEGACY_VAULT_CHARACTER, false)):
+		unlocked_assassins[VAULT_CHARACTER] = true
 	if not is_unlocked(selected_assassin):
 		selected_assassin = "ronin"
 	selected_knife = String(p.get("selected_knife", "standard"))
@@ -231,6 +247,9 @@ func complete_level(kills: int, flawless: bool, stars: int) -> void:
 	unlocked_level = maxi(unlocked_level, mini(current_level + 1, TOTAL_LEVELS))
 	current_level = unlocked_level
 	_refresh_level_knives()
+	# A newly queued board becomes eligible only at a genuine level win.
+	if locker_pending():
+		locker_board["eligible"] = true
 	save_game()
 
 func character() -> Dictionary:
@@ -268,22 +287,54 @@ func buy_upgrade(kind: String) -> bool:
 	save_game()
 	return true
 
+# Legacy IDs continue to own the same bonuses/unlocks; map only their *visible*
+# presentation to the supplied roster. Thus old saves neither show obsolete art
+# nor lose purchased progress when the game is upgraded.
+func visible_character_id(id: String) -> String:
+	if CHARACTER_ORDER.has(id):
+		return id
+	if id == LEGACY_VAULT_CHARACTER:
+		return VAULT_CHARACTER
+	var reference_index := REFERENCE_ORDER.find(id)
+	if reference_index >= 0:
+		return V72_FREE_ORDER[reference_index % V72_FREE_ORDER.size()]
+	var legacy_index := LEGACY_ORDER.find(id)
+	return V72_FREE_ORDER[legacy_index % V72_FREE_ORDER.size()] if legacy_index >= 0 else V72_FREE_ORDER[0]
+
+func display_character_name(id: String) -> String:
+	return String(CHARACTERS[visible_character_id(id)].name)
+
+func character_loadouts(visible_id: String) -> Array[String]:
+	# All previously available stat profiles remain re-equippable as bonuses
+	# on a six-design roster. This preserves purchases without resurrecting old
+	# character artwork as extra visible character cards.
+	var out: Array[String] = []
+	if not CHARACTER_ORDER.has(visible_id):
+		return out
+	out.append(visible_id)
+	for legacy in REFERENCE_ORDER + LEGACY_ORDER + [LEGACY_VAULT_CHARACTER]:
+		if visible_character_id(legacy) == visible_id and is_unlocked(legacy):
+			out.append(legacy)
+	return out
+
 func is_reference_character(id: String) -> bool:
-	return REFERENCE_ORDER.has(id)
+	return REFERENCE_ORDER.has(id) or V72_FREE_ORDER.has(id)
 
 func reference_art_index(id: String) -> int:
+	# Historical rig/tests still resolve their twelve source images correctly;
+	# the active v72 rig resolves through visible_character_id instead.
 	var index := REFERENCE_ORDER.find(id)
 	if index >= 0:
 		return index + 1
-	return int(LEGACY_ART_INDEX.get(id, 1))
+	if LEGACY_ART_INDEX.has(id):
+		return int(LEGACY_ART_INDEX[id])
+	return CHARACTER_ORDER.find(visible_character_id(id)) + 1
 
 func character_portrait_path(id: String) -> String:
-	if id == VAULT_CHARACTER:
-		return "res://assets/reference/characters/vault_phantom.png"
-	return "res://assets/reference/characters/%02d.png" % reference_art_index(id)
+	var visible := visible_character_id(id).trim_prefix("v72_")
+	return "res://assets/actors/v72/players/%s.png" % visible
 
 func is_unlocked(id: String) -> bool:
-	# The twelve selected reference designs are free; legacy unlocks persist.
 	return CHARACTERS.has(id) and (is_reference_character(id) or bool(unlocked_assassins.get(id, false)))
 
 func unlock_character(id: String) -> bool:
@@ -384,7 +435,7 @@ func _make_locker_board(seed_value: int = -1) -> void:
 	for i in range(9):
 		amounts.append(roll.randi_range(5, 15))
 	locker_board = {"character_slot": roll.randi_range(0, 8) if not is_unlocked(VAULT_CHARACTER) else -1,
-		"amounts": amounts, "opened": []}
+		"amounts": amounts, "opened": [], "eligible": false}
 
 func _validated_locker_board(value: Variant) -> Dictionary:
 	if not value is Dictionary or value.is_empty():
@@ -408,13 +459,22 @@ func _validated_locker_board(value: Variant) -> Dictionary:
 			return {}
 		seen[index] = true
 		safe_opened.append({"index": index, "kind": kind, "amount": maxi(0, int(prize.get("amount", 0)))})
-	return {"character_slot": character_slot, "amounts": safe_amounts, "opened": safe_opened}
+	# Earlier versions already displayed boards immediately; treat their pending
+	# and partially revealed boards as eligible, preserving recovery semantics.
+	return {"character_slot": character_slot, "amounts": safe_amounts, "opened": safe_opened,
+		"eligible": bool(value.get("eligible", true))}
 
 func locker_pending() -> bool:
 	return not locker_board.is_empty()
 
+func locker_ready() -> bool:
+	return locker_pending() and bool(locker_board.get("eligible", true))
+
+func displayed_key_count() -> int:
+	return 3 if locker_pending() else keys_collected
+
 func open_locker(index: int) -> Dictionary:
-	if locker_board.is_empty() or index < 0 or index >= 9 or locker_board.opened.size() >= 3:
+	if not locker_ready() or index < 0 or index >= 9 or locker_board.opened.size() >= 3:
 		return {}
 	for previous in locker_board.opened:
 		if int(previous.index) == index:
@@ -430,7 +490,7 @@ func open_locker(index: int) -> Dictionary:
 	return prize
 
 func finish_locker_board() -> bool:
-	if locker_board.is_empty() or locker_board.opened.size() < 3:
+	if not locker_ready() or locker_board.opened.size() < 3:
 		return false
 	locker_board = {}
 	# A completed board starts a fresh key cycle, including replayed key levels.

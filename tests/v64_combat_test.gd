@@ -145,7 +145,7 @@ func _run() -> void:
 	check(tracked_hidden, "the alarm follows the live position behind cover")
 	check(not raised_hidden and lv.bullets.is_empty(), "guard stops aiming and firing as soon as sight is lost")
 	g.rig._process(0.4)
-	check(is_zero_approx(g.rig.guard_aim_amount) and is_zero_approx(g.rig.guard_gun.rotation), "gun visibly lowers after sight loss")
+	check(is_zero_approx(g.rig.guard_aim_amount) and is_equal_approx(g.rig.art.rotation, PI), "aim state clears after sight loss while the supplied still is intact")
 	lv.blocking_rects.remove_at(lv.blocking_rects.size() - 1)
 	lv.guard_blocking_rects.remove_at(lv.guard_blocking_rects.size() - 1)
 	g.speed = 58.0

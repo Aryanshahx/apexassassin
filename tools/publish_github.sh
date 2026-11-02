@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Review the combined v0.6.7–v0.7.1 update paths, then safely push the current main branch.
+# Review the combined v0.6.7–v0.7.2 update paths, then safely push the current main branch.
 # Usage: bash tools/publish_github.sh ["commit message"]
 # This never stores a token, rewrites your remote, uses force, or pulls for you.
 set -euo pipefail
@@ -9,7 +9,7 @@ export GIT_PAGER=cat
 export PAGER=cat
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BRANCH="main"
-MSG="Apex Assassin v0.7.1: selected art and source-priority layouts"
+MSG="Apex Assassin v0.7.2: restored enemies and post-win lockers"
 CONFIRM=0
 for arg in "$@"; do
   case "$arg" in --yes) echo 'This update requires review and confirmation at the prompt; --yes is disabled.' >&2;exit 1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
@@ -22,6 +22,7 @@ command -v git >/dev/null || { echo 'Git is required. Install it before publishi
 [ -f tools/v069-update-files.txt ] || { echo 'v0.6.9 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -f tools/v070-update-files.txt ] || { echo 'v0.7.0 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -f tools/v071-update-files.txt ] || { echo 'v0.7.1 update file list is missing; re-run the update installer.' >&2;exit 1; }
+[ -f tools/v072-update-files.txt ] || { echo 'v0.7.2 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -s assets/audio/ui_tap_audio.mp3 ] || { echo 'Your ui_tap_audio.mp3 is missing. Restore the original installed sound before publishing.' >&2;exit 1; }
 [ -s assets/audio/stab.mp3 ] || { echo 'Your stab.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
 [ -s assets/audio/suspect.mp3 ] || { echo 'Your suspect.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
@@ -54,7 +55,7 @@ if ! git merge-base --is-ancestor "$REMOTE_TIP" HEAD;then
   echo "Remote $BRANCH has commits not in your current branch. Update/rebase safely first, then rerun." >&2
   echo 'Your files and index were not changed by this script.' >&2;exit 1
 fi
-mapfile -t ALL < <(cat tools/v067-update-files.txt tools/v068-update-files.txt tools/v069-update-files.txt tools/v070-update-files.txt tools/v071-update-files.txt)
+mapfile -t ALL < <(cat tools/v067-update-files.txt tools/v068-update-files.txt tools/v069-update-files.txt tools/v070-update-files.txt tools/v071-update-files.txt tools/v072-update-files.txt)
 paths=()
 declare -A seen_paths=()
 for path in "${ALL[@]}";do
@@ -65,7 +66,23 @@ for path in "${ALL[@]}";do
   if [ -e "$path" ] || [ -L "$path" ] || git ls-files --error-unmatch -- "$path" >/dev/null 2>&1;then paths+=("$path");fi
 done
 [ "${#paths[@]}" -gt 0 ] || { echo 'No update files found.' >&2;exit 1; }
-# Personal recordings and their import metadata are intentionally never
+# The updater copies these recordings from this Pi; the default publisher
+# deliberately leaves them private. Explicit opt-in needs a separate prompt.
+case "${APEX_PUBLISH_KEY_SOUNDS:-0}" in
+  0) echo 'Key sounds remain private; a GitHub-built APK will omit them unless you explicitly opt in.';;
+  1)
+    for audio in assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3; do
+      [ -f "$audio" ] && [ -s "$audio" ] && [ ! -L "$audio" ] || { echo "Missing or unsafe requested sound: $audio" >&2;exit 1; }
+    done
+    echo 'WARNING: Both key MP3s will be committed and uploaded to GitHub, including a public repository if your repository is public.'
+    sha256sum assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3
+    printf 'Upload these two recordings to GitHub? [y/N] '
+    read -r sound_answer || sound_answer=''
+    case "$sound_answer" in y|Y|yes|YES) paths+=(assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3);; *) echo 'Cancelled before staging any files.';exit 1;; esac
+    ;;
+  *) echo 'APEX_PUBLISH_KEY_SOUNDS must be 0 or 1.' >&2;exit 1;;
+esac
+# Other personal recordings and all audio import metadata are intentionally never
 # staged by this code-only update, even if the user has modified them locally.
 git add -A -- "${paths[@]}"
 # Preserve the four supplied map files byte-for-byte. Their upstream blank
@@ -89,8 +106,8 @@ git diff --cached --stat
 echo "Existing local commits that would also be pushed: $LOCAL_COMMITS"
 if [ "$LOCAL_COMMITS" -gt 0 ];then git log --oneline "$REMOTE_TIP..HEAD";fi
 echo 'WARNING: This may include supplied Hunter Files sprites, maps and recovered configuration, plus selected and earlier artwork.'
-echo 'The original reference sheets and personal recordings are not staged.'
-echo 'No personal recordings or audio import metadata are staged by this update.'
+echo 'The original reference sheets and older personal recordings are not staged.'
+echo 'Other personal recordings and audio import metadata are never staged by this update.'
 echo 'Rights are not established. Review ASSETS_LICENSE.md and confirm you have permission to publish these assets and maps.'
 sha256sum assets/audio/ui_tap_audio.mp3 assets/audio/stab.mp3 assets/audio/suspect.mp3 assets/audio/stab2.mp3 assets/audio/suspect2.mp3
 if [ "$CONFIRM" != 1 ];then

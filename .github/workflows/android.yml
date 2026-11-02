@@ -86,14 +86,14 @@ jobs:
           test -s assets/audio/suspect.mp3
           test -s assets/audio/stab2.mp3
           test -s assets/audio/suspect2.mp3
-          python3 tools/test_v71_source_integrity.py
+          python3 tools/test_v72_source_integrity.py
           "$GODOT" --headless --path . --import
           # All suites exercise saves; never write to an existing save.
           TEST_DATA="$(mktemp -d)"
           trap 'rm -rf "$TEST_DATA"' EXIT
           mkdir -p "$TEST_DATA/smoke" "$TEST_DATA/reference" "$TEST_DATA/movement" "$TEST_DATA/roaming" "$TEST_DATA/transition" "$TEST_DATA/home" "$TEST_DATA/combat" "$TEST_DATA/collision" "$TEST_DATA/splash"
           XDG_DATA_HOME="$TEST_DATA/smoke" timeout 120 "$GODOT" --headless --path . --script tests/smoke_test.gd
-          XDG_DATA_HOME="$TEST_DATA/reference" timeout 120 "$GODOT" --headless --path . --script tests/reference_test.gd
+          XDG_DATA_HOME="$TEST_DATA/reference" timeout 120 "$GODOT" --headless --path . --script tests/v72_roster_test.gd
           XDG_DATA_HOME="$TEST_DATA/movement" timeout 120 "$GODOT" --headless --path . --script tests/movement_test.gd
           XDG_DATA_HOME="$TEST_DATA/roaming" timeout 120 "$GODOT" --headless --path . --script tests/roaming_test.gd
           XDG_DATA_HOME="$TEST_DATA/transition" timeout 120 "$GODOT" --headless --path . --script tests/transition_test.gd
@@ -112,6 +112,14 @@ jobs:
           XDG_DATA_HOME="$TEST_DATA/tap-audio" timeout 120 "$GODOT" --headless --path . --script tests/tap_audio_import_test.gd
           mkdir -p "$TEST_DATA/v64-lockers" "$TEST_DATA/v64-combat" "$TEST_DATA/v64-path" "$TEST_DATA/v64-traffic"
           XDG_DATA_HOME="$TEST_DATA/v64-lockers" timeout 120 "$GODOT" --headless --path . --script tests/v64_lockers_test.gd
+          mkdir -p "$TEST_DATA/v72-deferred" "$TEST_DATA/v72-progression"
+          XDG_DATA_HOME="$TEST_DATA/v72-deferred" timeout 120 "$GODOT" --headless --path . --script tests/v72_deferred_locker_test.gd
+          XDG_DATA_HOME="$TEST_DATA/v72-progression" timeout 120 "$GODOT" --headless --path . --script tests/v72_progression_test.gd
+          mkdir -p "$TEST_DATA/v72-key-audio"
+          XDG_DATA_HOME="$TEST_DATA/v72-key-audio" timeout 120 "$GODOT" --headless --path . --script tests/v72_key_audio_import_test.gd
+          if [ ! -s assets/audio/pickkey.mp3 ] || [ ! -s assets/audio/unlockkey.mp3 ]; then
+            echo '::warning::The two optional private key recordings are absent from this checkout; this APK will not play those effects.'
+          fi
           XDG_DATA_HOME="$TEST_DATA/v64-combat" timeout 120 "$GODOT" --headless --path . --script tests/v64_combat_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-path" timeout 300 "$GODOT" --headless --path . --script tests/v64_path_stress_test.gd
           XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd

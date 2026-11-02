@@ -54,7 +54,7 @@ func _run() -> void:
 	check(gs.player_speed() > 200, "nova faster")
 	check(gs.select_character("ronin"), "select ronin")
 	check(gs.buy_upgrade("speed"), "buy speed upgrade")
-	check(gs.CHARACTER_ORDER.size() == 23 and gs.REFERENCE_ORDER.size() == 12 and gs.LEGACY_ORDER.size() == 10, "12 reference and 10 legacy characters plus one new locker character; rejected 12 remain removed")
+	check(gs.CHARACTER_ORDER.size() == 6 and gs.REFERENCE_ORDER.size() == 12 and gs.LEGACY_ORDER.size() == 10, "six visible designs with historical character IDs retained")
 	check(gs.KNIFE_ORDER.size() == 17, "17 knives")
 	check(gs.unlock_character("oni"), "unlock oni")
 	check(gs.max_health() > 4.0, "oni health bonus")

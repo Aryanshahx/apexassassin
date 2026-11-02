@@ -459,3 +459,47 @@ the values above are gameplay defaults because no exact damage values were
 specified. Heavies also have two health points. Nearby guards investigate
 gunfire without shooting through cover. Opposing and crossing doorway traffic
 yields predictably and followers can back out of a queue.
+
+## v0.7.2 — restored enemies, supplied characters, and the vault
+
+- All 100 level IDs, clear rewards, supplied layouts, and approved v0.7.1
+  environments remain. Each level has **at least** its v0.7.0 enemy count;
+  where v0.7.1 had more, that higher count remains. The 730 existing
+  source/fallback guards are retained and 336 supplemental guards use the same
+  patrol, pursuit and combat code (1,066 total). Later levels add a little
+  more damage and fire-rate pressure on top of the existing armor progression.
+  The player start in level 75 and two new level-28/76 guards were adjusted
+  for tested start/traffic safety; original source guard hints were not moved.
+- Six supplied player appearances and six supplied guard appearances replace
+  the visible artwork. The supplied images were static RGB concept sheets;
+  transparent cutouts and simple body/knife animations are reconstructed, not
+  original frames. Guns and the shield are **visual only**: knife combat and
+  the existing guard AI remain. Five new looks are free; Elite is the unique
+  three-key prize. Old character unlock IDs and selected bonuses are kept.
+  Use **BONUS** in the selector to cycle and re-equip saved legacy stat profiles
+  on the new six appearances. An already-earned Vault Phantom grants Elite.
+- Three keys queue a saved vault board. It appears only after completing a
+  level, never immediately on pickup, retry, loss or returning home. The
+  counter displays 3/3 while queued. Eligible/partially opened boards, their
+  secret slot and every credited reward survive exit and reload. Pre-v0.7.2
+  pending boards remain eligible so no old rewards get stranded.
+- The key graphic comes from the supplied `KeyIconB.png`. The installer copies
+  the exact files `~/Downloads/pickkey.mp3` and `~/Downloads/unlockkey.mp3` from
+  the Pi into `assets/audio/`. It refuses missing files or conflicting existing
+  destination recordings without overwriting anything. The updater contains no
+  private audio or saves. Open the project in Godot after installation to
+  import the two MP3s; key pickup and locker opening use them when present.
+- An ordinary `tools/publish_github.sh` run **does not publish** the two new
+  recordings. A GitHub-built APK from that code-only push will therefore lack
+  these two sounds unless they are already in the repository. If you own the
+  recordings and deliberately wish to upload them, use
+  `APEX_PUBLISH_KEY_SOUNDS=1 bash tools/publish_github.sh "Apex Assassin v0.7.2"`.
+  The publisher explicitly asks permission to upload the two MP3s, then asks
+  separately to confirm rights and the final commit/push. It never stages the
+  older personal recordings or audio import metadata. Do not opt in if the
+  recordings should remain private, especially on a public repository.
+
+User-supplied art, maps and source-derived configuration have unverified rights;
+review `ASSETS_LICENSE.md` and confirm permission before any publication or
+redistribution. This update cannot guarantee performance on a particular Pi or
+Android device; debug APK signing may differ from an installed APK.

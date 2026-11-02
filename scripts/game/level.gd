@@ -43,11 +43,11 @@ const ARROW_TEX := preload("res://assets/environment/depot/arrow_real.png")
 const TARGET_TEX := preload("res://assets/ui/target.png")
 const GEM_TEX := preload("res://assets/ui/gem_drop.png")
 const MONEY_TEX := preload("res://assets/ui/cash.png")
-const KEY_TEX := preload("res://assets/ui/v64_key.png")
+const KEY_TEX := preload("res://assets/ui/v72/key.png")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
-const ActorRigScript := preload("res://scripts/game/reference_rig.gd")
+const ActorRigScript := preload("res://scripts/game/v72_sprite_rig.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
@@ -204,7 +204,7 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_layout_hud)
 	_fit_world()
 	_layout_hud()
-	if GameState.locker_pending():
+	if GameState.locker_ready():
 		call_deferred("_show_locker")
 	if GameState.current_level == 1:
 		hint.text = "Tap to move  •  Tap a guard to hunt  •  Stay out of the light"
@@ -520,14 +520,13 @@ func _collect_key_if_close() -> void:
 		return
 	if GameState.collect_level_key(int(data.id)):
 		key_on_floor = false
-		Sfx.play("coin")
+		Sfx.play("pickkey", -3.0)
 		effects.append({"pos": key_position, "t": 1.0, "max": 1.0, "kind": "keytext"})
 		_refresh_wallet()
-		if GameState.locker_pending():
-			_show_locker()
+		# The third key queues a persistent board; it never interrupts a level.
 
 func _show_locker() -> void:
-	if not GameState.locker_pending() or locker_ui != null or hud == null:
+	if not GameState.locker_ready() or locker_ui != null or hud == null:
 		return
 	dragging = false
 	player_path.clear()
@@ -637,12 +636,16 @@ func _build_guards() -> void:
 		var variant := _enemy_variant(int(data.id), index, g)
 		var profile: Dictionary = ENEMY_PROFILES[variant]
 		var kind := "elite" if variant in ["heavy", "breacher", "captain"] else "guard"
-		var damage_scale := (1.0 + float(int(data.id) - 1) * 0.004) * ENEMY_DAMAGE_MULTIPLIER
+		# Existing AI profiles remain unchanged; later floors scale gently and
+		# continuously rather than abruptly adding a new combat mechanic.
+		var difficulty := float(int(data.id) - 1) / 99.0
+		var damage_scale := (1.0 + float(int(data.id) - 1) * 0.0055) * ENEMY_DAMAGE_MULTIPLIER
 		var extra_armor := int((int(data.id) - 1) / 40)
 		var rig := ActorRigScript.new()
-		rig.setup(kind, "guard")
+		rig.setup(variant, "guard")
 		rig.scale = Vector2.ONE * (0.98 if kind == "elite" else 0.92)
-		rig.modulate = profile.tint
+		# The supplied character colors replace the old monochrome tints.
+		rig.modulate = Color.WHITE
 		rig.position = starts[index]
 		rig.rotation = deg_to_rad(float(g.face)) + PI / 2
 		add_child(rig)
@@ -658,7 +661,7 @@ func _build_guards() -> void:
 		add_child(mark)
 		guards.append({
 			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage) * damage_scale,
-			"shot_interval": float(profile.interval), "mark": mark,
+			"shot_interval": float(profile.interval) * (1.0 - difficulty * 0.08), "mark": mark,
 			"pos": rig.position, "home_pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
 			"hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
@@ -870,7 +873,7 @@ func _refresh_wallet() -> void:
 	if gem_label:
 		_fit_wallet_label(gem_label, GameState.gems)
 	if key_label:
-		key_label.text = "%d/3" % GameState.keys_collected
+		key_label.text = "%d/3" % GameState.displayed_key_count()
 	if key_guide:
 		key_guide.visible = key_on_floor
 
@@ -2298,6 +2301,8 @@ func _win() -> void:
 		["Next Level", func(): GameState.start_level(GameState.current_level)],
 		["Home", func(): get_tree().change_scene_to_file("res://scenes/home/home.tscn")],
 	])
+	if GameState.locker_ready():
+		call_deferred("_show_locker")
 
 func _lose() -> void:
 	finished = true
