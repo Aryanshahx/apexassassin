@@ -575,7 +575,7 @@ func _enemy_variant(number: int, index: int, authored: Dictionary) -> String:
 # and farthest-point selection spreads the remaining starts deterministically.
 func _distributed_guard_starts() -> PackedVector2Array:
 	var selected := PackedVector2Array()
-	# V70 adapts supplied guard-position hints while retaining the old roster.
+	# Source-priority catalogs pre-adapt guard hints or fallback roster positions.
 	# Honour positions only if all runtime safety checks pass; malformed or
 	# older data still uses the original safe-distribution fallback.
 	if bool(data.get("use_authored_guard_starts", false)):

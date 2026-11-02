@@ -151,3 +151,23 @@ distribute the supplied assets, maps, configuration and any resulting builds
 before pushing this project or sharing it.** No third-party rights are granted
 by this update. Earlier screenshot-derived assets and personal recordings have
 separate rights considerations, as described above.
+
+
+## v0.7.1 selected environment and source-priority layouts
+
+The overall selected AI-generated environment image is a style reference, not a
+sprite sheet. The playable v0.7.1 floor, wall, crate, barrel, sandbag and hazard
+textures are derived from separately generated, user-selected category images;
+recolours, grates, lamps and other details were made for this update. The seven
+raw concepts are retained privately for reproducibility, not bundled in the
+updater. `tools/build_v71_selected_art.py` documents the transformations.
+
+The source-grid patterns and rosters continue to derive from the supplied Hunter
+Files data; their ownership and publication rights remain unverified. Source
+coordinates, direction mapping and `NN` behavior are approximations, and
+original door/chest/trap mechanics are not established. The 212 v0.7.0 supplied
+PNGs remain on an installed project for rollback, though the new backplate does
+not use them. Earlier reference-derived characters/UI and personal recordings
+still have separate rights considerations. Obtain all needed permissions before
+publishing, distributing, or pushing. The update never bundles personal audio,
+saves, raw concept images or the compiled library.

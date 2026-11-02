@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Review the combined v0.6.7–v0.7.0 update paths, then safely push the current main branch.
+# Review the combined v0.6.7–v0.7.1 update paths, then safely push the current main branch.
 # Usage: bash tools/publish_github.sh ["commit message"]
 # This never stores a token, rewrites your remote, uses force, or pulls for you.
 set -euo pipefail
@@ -9,7 +9,7 @@ export GIT_PAGER=cat
 export PAGER=cat
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BRANCH="main"
-MSG="Apex Assassin v0.7.0: supplied environment and map adaptation"
+MSG="Apex Assassin v0.7.1: selected art and source-priority layouts"
 CONFIRM=0
 for arg in "$@"; do
   case "$arg" in --yes) echo 'This update requires review and confirmation at the prompt; --yes is disabled.' >&2;exit 1;; --help|-h) sed -n '2,4p' "$0";exit 0;; *) MSG="$arg";; esac
@@ -21,6 +21,7 @@ command -v git >/dev/null || { echo 'Git is required. Install it before publishi
 [ -f tools/v068-update-files.txt ] || { echo 'v0.6.8 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -f tools/v069-update-files.txt ] || { echo 'v0.6.9 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -f tools/v070-update-files.txt ] || { echo 'v0.7.0 update file list is missing; re-run the update installer.' >&2;exit 1; }
+[ -f tools/v071-update-files.txt ] || { echo 'v0.7.1 update file list is missing; re-run the update installer.' >&2;exit 1; }
 [ -s assets/audio/ui_tap_audio.mp3 ] || { echo 'Your ui_tap_audio.mp3 is missing. Restore the original installed sound before publishing.' >&2;exit 1; }
 [ -s assets/audio/stab.mp3 ] || { echo 'Your stab.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
 [ -s assets/audio/suspect.mp3 ] || { echo 'Your suspect.mp3 is missing. Install your original Pi Downloads sound first.' >&2;exit 1; }
@@ -53,7 +54,7 @@ if ! git merge-base --is-ancestor "$REMOTE_TIP" HEAD;then
   echo "Remote $BRANCH has commits not in your current branch. Update/rebase safely first, then rerun." >&2
   echo 'Your files and index were not changed by this script.' >&2;exit 1
 fi
-mapfile -t ALL < <(cat tools/v067-update-files.txt tools/v068-update-files.txt tools/v069-update-files.txt tools/v070-update-files.txt)
+mapfile -t ALL < <(cat tools/v067-update-files.txt tools/v068-update-files.txt tools/v069-update-files.txt tools/v070-update-files.txt tools/v071-update-files.txt)
 paths=()
 declare -A seen_paths=()
 for path in "${ALL[@]}";do
@@ -87,7 +88,7 @@ echo 'Staged update paths:'
 git diff --cached --stat
 echo "Existing local commits that would also be pushed: $LOCAL_COMMITS"
 if [ "$LOCAL_COMMITS" -gt 0 ];then git log --oneline "$REMOTE_TIP..HEAD";fi
-echo 'WARNING: This includes user-supplied Hunter Files sprites, maps and recovered configuration, plus earlier artwork.'
+echo 'WARNING: This may include supplied Hunter Files sprites, maps and recovered configuration, plus selected and earlier artwork.'
 echo 'The original reference sheets and personal recordings are not staged.'
 echo 'No personal recordings or audio import metadata are staged by this update.'
 echo 'Rights are not established. Review ASSETS_LICENSE.md and confirm you have permission to publish these assets and maps.'

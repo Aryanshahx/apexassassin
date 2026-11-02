@@ -1,38 +1,48 @@
 # Apex Assassin
 
-v0.7.0 — 100 levels adapted from user-supplied Hunter Files maps and artwork, while retaining gameplay, recordings and save progress.
+v0.7.1 — user-selected environment art and source-priority layouts, while preserving gameplay, recordings and save progress.
 
 Original top-down stealth action game for Godot 4.7.2, built for Raspberry Pi 5 / Ubuntu and Android.
 
-## Environment asset source and updates
+## Environment art and supplied layouts
 
-The user supplied 212 PNGs and grid data from a public “Hunter Files” folder.
-All PNGs are retained byte-for-byte; the level backplate uses a subset of its
-floors, walls, gates and boxes. One hundred statically recovered level records
-reference 45 grids and 64 distinct grid/flip combinations, so some layouts
-repeat. These are adaptations, not a claim of original game source or exact
-runtime reconstruction. The supplied stripped library was inspected as inert
-data and was never executed or bundled.
+The 29 compact textures in `assets/environment/v71/` are built from the
+user-selected AI-generated floor, wall, crate, barrel, sandbag and hazard
+category images, with additional deterministic recolours and details. Eight
+floor themes share this visual direction. The selected overall scene is a
+style reference, not a sprite sheet. Raw selected concepts are kept separately
+and are not included in the updater. The 212 supplied v0.7.0 PNGs are retained
+for rollback but are not used by the new level backplate.
 
-Each source tile is mapped to two 32-unit Godot cells; visual cover uses the
-same enlarged cover rectangles and pre-existing collision clearances. The
-`NN` tile is conservatively treated as solid based on static inspection; its
-exact original semantics remain unverified. Source guard coordinates are
-hints, projected to safe positions when needed; the
-project's 1,064 original guards and their non-position attributes are retained.
-Starting guards are kept far enough away for at least three idle seconds under
-normal patrol. The eight existing theme names are retained, using supplied art.
+The 100 statically recovered level records reference 45 supplied grids and 64
+unique grid/flip combinations. The adapter preserves their solid/open cell
+pattern at full source-cell size; source solids may share edges. The existing
+32-unit navigation and collision clearances remain. `NN` is conservatively
+solid because its original semantics are unknown. These maps are adaptations,
+not a verified reconstruction of the original runtime.
 
-Source door, chest and trap placements are preserved in the recovered JSON
-for reference. Their original runtime behavior is unavailable and has **not**
-been implemented in this adaptation. Existing project keys and lockers remain
-separate mechanics. See `ASSETS_LICENSE.md`: permissions for supplied assets
-and maps are unknown; obtain appropriate rights before publishing or distributing.
+Supplied rosters take priority: 90 configurations contain 611 guards and nine
+bosses. Ten configurations have no roster, so those levels use 110 guards from
+the previous playable project instead, for 730 guards/bosses in total. Source
+coordinates are transformed and projected onto reachable, separated positions
+when necessary. Of 620 hints, 530 are exact and 603 are within 64 world units
+of the transformed hint. The seventh guard in level 95 is moved farther for
+start safety; player start positions are selected or adjusted independently.
+Boss records use the project's existing elite profiles; original boss abilities
+are not known. Player/guard abilities and the 100 level IDs and clear rewards remain. Per-kill
+totals can change when source-priority guard counts differ from the old roster.
 
-`apex_v070_update.sh` can update a verified v0.6.8 or v0.6.9 project. It
-checks conflicts before writing, backs up replaced files, preserves personal
-recordings, progress and unrelated files, and never commits or pushes. The
-browser preview is isolated from the user's Raspberry Pi project and save.
+The source door, chest and trap entries are retained in the recovered data, but
+their original runtime behavior was unavailable and has not been recreated.
+The existing project's keys and lockers remain separate mechanics. Selected
+hazard markings and floor details are cosmetic, not newly added traps.
+
+`apex_v071_update.sh` updates a verified v0.7.0 project. It checks conflicts
+before writing, backs up replaced files, preserves personal recordings, saved
+progress and unrelated files, and never commits or pushes. The preview runs in
+an isolated project and does not touch Raspberry Pi saves. Rights to supplied
+maps, older art and recordings are unverified: review `ASSETS_LICENSE.md` and
+obtain required permission before publication or distribution.
 
 ## What is in this build
 
@@ -71,11 +81,9 @@ browser preview is isolated from the user's Raspberry Pi project and save.
 - **Visible health**: the player starts at 1,000 base health, shown in a thinner
   green bar above the character. Existing character health bonuses and saved
   health upgrades continue to apply (+100 per upgrade).
-- **Supplied environments and layouts**: 212 supplied PNGs are retained; a
-  selection is used for eight themed floors, walls, gates and boxes. The 100
-  levels follow their source grid and flip records (64 distinct combinations),
-  adapted to this project's collision and guard scale. IDs, rewards, guard
-  counts, non-position attributes, save data and sound recordings remain.
+- **Selected environments and supplied layouts**: eight new floor themes,
+  selected-style walls, cover and floor details; 100 adapted source layouts,
+  with source-priority rosters where available and explicitly marked fallbacks.
 - **Faster movement**: player speed, including saved bonuses and upgrades, is
   20% above v0.6.3. Alerted chase speed is 15% above v0.6.3 (2.07× patrol);
   investigation remains 1.45× and bullets remain 660 units/s.
@@ -113,7 +121,7 @@ browser preview is isolated from the user's Raspberry Pi project and save.
   - Light touching the player is detected immediately, even in shadows.
   - Kills award money and, rarely, diamonds; unlocks use the existing wallet.
   - Clear all guards to finish the level.
-- **100 validated redesigned layouts** retain the existing level IDs, rewards and progressive guard counts.
+- **100 validated adapted layouts** retain the existing level IDs and clear rewards; guard counts follow supplied rosters where available.
 - User-selected **classic-style home**: the old top-down warehouse backdrop,
   purple character/knife cards, three mission rows and a large gold Start button.
   Resources, selected character portrait, progress, mission claims, wheel,
@@ -127,21 +135,18 @@ browser preview is isolated from the user's Raspberry Pi project and save.
 
 ## Update on Raspberry Pi 5
 
-Place `apex_v069_update.sh` in `~/Downloads` and run it on the existing,
-completed v0.6.8 project:
+Place `apex_v071_update.sh` in `~/Downloads` and run it on the existing,
+completed v0.7.0 project:
 
 ```bash
-bash ~/Downloads/apex_v069_update.sh /home/aryan/apex-assassin
+bash ~/Downloads/apex_v071_update.sh /home/aryan/apex-assassin
 ```
 
-If the project is still on v0.6.7, install the v0.6.8 update first.
-
-The installer checks all affected files before writing, refuses conflicting
-local edits, backs up replaced files, and preserves all five installed MP3s and
-saved progress. It does not require or copy recordings from `~/Downloads`.
-Missing installed sounds stop the update safely; restore your own sound files
-and retry. It does not commit or publish. The optional code-only ZIP is not a
-full game.
+The installer checks affected files before writing, refuses conflicting local
+edits, backs up replaced files, and preserves all five installed MP3s and saved
+progress. It does not require or copy recordings from `~/Downloads`. Missing
+installed sounds stop the update safely; restore your own files and retry.
+It does not commit or publish. The optional code-only ZIP is not a full game.
 
 ## Run on Raspberry Pi 5
 
@@ -164,6 +169,7 @@ Stay out of flashlight cones. The detecting guard chases first; gunfire alerts g
 ## Tests
 
 ```bash
+python3 tools/test_v71_source_integrity.py
 godot --headless --path . --import
 # Tests write save files; always use isolated, temporary user-data directories.
 SMOKE_DATA="$(mktemp -d)"; REF_DATA="$(mktemp -d)"; MOVE_DATA="$(mktemp -d)"
@@ -187,8 +193,8 @@ XDG_DATA_HOME="$PATH_DATA" godot --headless --path . --script tests/player_path_
 XDG_DATA_HOME="$LOOT_DATA" godot --headless --path . --script tests/loot_speed_test.gd
 XDG_DATA_HOME="$BTN_DATA" godot --headless --path . --script tests/button_feedback_test.gd
 XDG_DATA_HOME="$AUDIO_DATA" godot --headless --path . --script tests/tap_audio_import_test.gd
-# Additional v0.6.4–v0.6.7 suites (each directory must be isolated):
-for test in v64_lockers_test v64_combat_test v64_path_stress_test v64_traffic_stress_test v65_combat_audio_test v66_mechanics_test v67_behavior_test; do
+# Additional behavior and v0.7.1 visual/start suites (each directory must be isolated):
+for test in v64_lockers_test v64_combat_test v64_path_stress_test v64_traffic_stress_test v65_combat_audio_test v66_mechanics_test v67_behavior_test v71_visual_sync_test v71_start_safety_test; do
   TEMP_DATA="$(mktemp -d)"
   XDG_DATA_HOME="$TEMP_DATA" godot --headless --path . --script "tests/$test.gd"
   rm -rf "$TEMP_DATA"
@@ -225,29 +231,23 @@ apex-assassin-debug-<commit-sha>
 
 Download the artifact and install the APK on an arm64 Android device.
 
-## Optional: rebuild original environments
+## Optional: rebuild the selected art and maps
 
-All necessary PNGs and the 100 redesigned layouts ship with the update, so no
-art regeneration is required to play. To rebuild the original art from its
-procedural source, install Blender 4.3 plus Python Pillow, NumPy and OpenCV,
-then run from the project root:
+All playable PNGs and adapted level data ship in the update; regeneration is not
+needed to play. The seven selected concept/category images are intentionally not
+bundled. If you retain them privately under `art_source/v71-selected/`, install
+Pillow and NumPy and run `python3 tools/build_v71_selected_art.py` to rebuild the
+selected-style textures. Avoid publishing concept images without reviewing rights.
 
-```bash
-blender --background --threads 3 --python tools/render_v69_props.py
-python3 tools/finalize_v69_props.py
-python3 tools/build_v69_floor_tiles.py
-```
-
-To rebuild level data, keep a separate unmodified v0.6.8 `levels.json` (the
-updater backs up the old file) and write the result to new files before review:
+To reproduce the adapted catalog without overwriting the playable one:
 
 ```bash
-python3 tools/redesign_levels_v69.py /path/to/v068-levels.json /tmp/v069-geometry.json
-python3 tools/refine_v69_scenery.py /tmp/v069-geometry.json /path/to/v069-levels.json
+python3 tools/import_supplied_maps_v71.py data/source_maps/v70/v069-level-catalog.json /tmp/rebuilt-v071.json
+python3 tools/test_v71_source_integrity.py
 ```
 
-Older `generate_levels.py` and the v0.6.5–v0.6.8 redesign scripts are historical;
-using their output directly would replace the current layouts.
+Older art and layout generators remain historical; their output is not the v0.7.1
+level catalog. The compiled source library is never needed or executed.
 
 ## Project layout
 

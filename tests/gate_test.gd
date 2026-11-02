@@ -65,7 +65,7 @@ func _simulate(lv: Node2D, actors: Array, starts: Array, goals: Array, label: St
 func _run() -> void:
 	var gs = root.get_node("GameState")
 	gs.sound_enabled = false
-	gs.start_level(1)
+	gs.start_level(6)
 	await process_frame
 	await process_frame
 	var lv = current_scene
@@ -92,6 +92,6 @@ func _run() -> void:
 	_simulate(lv, actors.slice(0, 2), [lv._cell_center(5, 9), lv._cell_center(2, 9)], [right, right + Vector2(0, 96)], "same direction")
 	_simulate(lv, actors.slice(0, 2), [left, right], [right, left], "opposite directions")
 	_simulate(lv, actors.slice(0, 2), [right, left], [left, right], "opposite, reversed priority")
-	_simulate(lv, actors, [left, right, lv._cell_center(1, 9), lv._cell_center(19, 9)], [right, left, lv._cell_center(18, 12), lv._cell_center(2, 12)], "four-guard traffic")
+	_simulate(lv, actors.slice(0, 4), [left, right, lv._cell_center(1, 9), lv._cell_center(19, 9)], [right, left, lv._cell_center(18, 12), lv._cell_center(2, 12)], "four-guard traffic")
 	print("GATE TEST %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

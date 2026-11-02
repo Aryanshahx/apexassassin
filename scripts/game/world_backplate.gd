@@ -1,150 +1,154 @@
 extends Node2D
-## Retained floor and cover for the user-supplied Hunter Files map adaptation.
-## Every visible wall/box is drawn into its cover Rect2; the existing collision
-## code adds its normal four-unit clearance. Shadows are cosmetic.
-const ART := "res://assets/environment/v70/"
+## User-selected art direction: retained floor and collision-aligned cover.
+## Visible cover occupies level.wall_rects/crate_rects. The existing movement,
+## bullet and vision blockers add their normal 4-unit collision clearance.
+const ART := "res://assets/environment/v71/"
 const FLOOR_TILE := 64.0
 const FLOORS := {
-    "warehouse": preload("res://assets/environment/v70/floor_both/floor1.png"),
-    "factory": preload("res://assets/environment/v70/floor_indoors/floor14.png"),
-    "dockyard": preload("res://assets/environment/v70/floor_both/floor8.png"),
-    "military": preload("res://assets/environment/v70/floor_outdoors/floor13.png"),
-    "night": preload("res://assets/environment/v70/floor_outdoors/floor19.png"),
-    "desert": preload("res://assets/environment/v70/floor_outdoors/floor5.png"),
-    "snow": preload("res://assets/environment/v70/floor_both/floor12.png"),
-    "rooftop": preload("res://assets/environment/v70/floor_indoors/floor15.png"),
+    "warehouse": preload("res://assets/environment/v71/floor_warehouse.png"),
+    "factory": preload("res://assets/environment/v71/floor_factory.png"),
+    "dockyard": preload("res://assets/environment/v71/floor_dockyard.png"),
+    "military": preload("res://assets/environment/v71/floor_military.png"),
+    "night": preload("res://assets/environment/v71/floor_night.png"),
+    "desert": preload("res://assets/environment/v71/floor_desert.png"),
+    "snow": preload("res://assets/environment/v71/floor_snow.png"),
+    "rooftop": preload("res://assets/environment/v71/floor_rooftop.png"),
 }
-const FLOOR_TINT := {
-    "warehouse": Color(0.67, 0.71, 0.73),
-    "factory": Color(0.71, 0.72, 0.74),
-    "dockyard": Color(0.73, 0.77, 0.77),
-    "military": Color(0.75, 0.78, 0.68),
-    "night": Color(0.46, 0.56, 0.61),
-    "desert": Color(0.88, 0.80, 0.67),
-    "snow": Color(0.84, 0.91, 0.94),
-    "rooftop": Color(0.71, 0.75, 0.79),
+const WALL_H := preload("res://assets/environment/v71/wall_h.png")
+const WALL_V := preload("res://assets/environment/v71/wall_v.png")
+const GRASS := preload("res://assets/environment/v71/floor_military.png")
+const MARK_H := preload("res://assets/environment/v71/hazard_mark_h.png")
+const MARK_V := preload("res://assets/environment/v71/hazard_mark_v.png")
+const GLOW := preload("res://assets/environment/v71/glow_warm.png")
+const FLOOR_GRATE := preload("res://assets/environment/v71/floor_grate.png")
+const LAMP := preload("res://assets/environment/v71/lamp.png")
+const PROPS := {
+    "crate_wood": preload("res://assets/environment/v71/crate_wood.png"),
+    "crate_tan": preload("res://assets/environment/v71/crate_tan.png"),
+    "crate_green": preload("res://assets/environment/v71/crate_green.png"),
+    "crate_blue": preload("res://assets/environment/v71/crate_blue.png"),
+    "crate_red": preload("res://assets/environment/v71/crate_red.png"),
+    "crate_steel": preload("res://assets/environment/v71/crate_steel.png"),
+    "sandbags": preload("res://assets/environment/v71/sandbags.png"),
+    "barrel_pallet": preload("res://assets/environment/v71/barrel_pallet.png"),
 }
-const WALL_TEXTURES := {
-    "warehouse": preload("res://assets/environment/v70/wallBorder/1.border/edge.png"),
-    "factory": preload("res://assets/environment/v70/wallBorder/2.border/edge.png"),
-    "dockyard": preload("res://assets/environment/v70/wallBorder/3.border/edge.png"),
-    "military": preload("res://assets/environment/v70/wallBorder/5.border/edge.png"),
-    "night": preload("res://assets/environment/v70/wallBorder/8.border/edge.png"),
-    "desert": preload("res://assets/environment/v70/wallBorder/10.border/edge.png"),
-    "snow": preload("res://assets/environment/v70/wallBorder/11.border/edge.png"),
-    "rooftop": preload("res://assets/environment/v70/wallBorder/12.border/edge.png"),
-}
-const GRASS := preload("res://assets/environment/v70/floor_outdoors/floor13.png")
-const GATE := preload("res://assets/environment/v70/mainGates/2.png")
-const WALL_BASE := {
-    "warehouse": Color("4b5557"), "factory": Color("53555a"),
-    "dockyard": Color("455962"), "military": Color("536153"),
-    "night": Color("303b49"), "desert": Color("786955"),
-    "snow": Color("667a87"), "rooftop": Color("484f5c"),
-}
-
 var level: Node2D
 var cover_only := false
 var theme := "warehouse"
-var prop_cache := {}
-var draw_count := 0  # regression instrumentation for retained draw commands
+var draw_count := 0
 
 func setup(lv: Node2D, cover_layer: bool = false) -> void:
     level = lv
     cover_only = cover_layer
     theme = str(level.data.get("theme", "warehouse"))
     texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-    # Cache the dynamically chosen user-supplied crate sprites once per layer.
-    if cover_only:
-        for item in level.data.get("crates", []):
-            if item.size() >= 5:
-                var source_path := ART + str(item[4])
-                if not prop_cache.has(source_path):
-                    var texture := load(source_path) as Texture2D
-                    if texture != null:
-                        prop_cache[source_path] = texture
     queue_redraw()
 
 func _draw() -> void:
     draw_count += 1
     if level == null or level.data.is_empty():
         return
-    if not cover_only:
+    if cover_only:
+        _draw_cover()
+    else:
         _draw_floor()
         _draw_source_grass()
-    else:
-        _draw_cover()
+        _draw_floor_details()
+        _draw_ambient_light()
 
 func _draw_floor() -> void:
     var tex: Texture2D = FLOORS.get(theme, FLOORS["warehouse"])
-    var tint: Color = FLOOR_TINT.get(theme, Color.WHITE)
-    var size: Vector2 = Vector2(float(level.data.width), float(level.data.height)) * float(level.CELL)
-    var area := Rect2(level.ORIGIN, size)
-    draw_rect(area, WALL_BASE.get(theme, Color.DIM_GRAY))
-    # One source tile = two Godot grid cells. Drawing is retained, not rebuilt
-    # each frame; source images are not modified or repackaged into an atlas.
-    var nx := ceili(size.x / FLOOR_TILE)
-    var ny := ceili(size.y / FLOOR_TILE)
+    var size: Vector2 = Vector2(float(level.data.width),float(level.data.height)) * float(level.CELL)
+    var area := Rect2(level.ORIGIN,size)
+    draw_rect(area,Color("282b2d"))
+    # Source tile edges are at half-cell offset. Align the chosen 2-cell floor
+    # artwork with those edges, clipping boundary repetitions to the arena.
+    var shift := float(level.data.get("source_tile_offset", 0.5)) * float(level.CELL)
+    var start: Vector2 = level.ORIGIN + Vector2.ONE * (shift - FLOOR_TILE)
+    var nx := ceili((size.x + FLOOR_TILE * 2.0) / FLOOR_TILE)
+    var ny := ceili((size.y + FLOOR_TILE * 2.0) / FLOOR_TILE)
+    var factor := tex.get_size() / FLOOR_TILE
     for y in range(ny):
         for x in range(nx):
-            var tile := Rect2(level.ORIGIN + Vector2(x, y) * FLOOR_TILE, Vector2.ONE * FLOOR_TILE)
-            draw_texture_rect(tex, tile, false, tint)
+            var tile := Rect2(start + Vector2(x,y) * FLOOR_TILE,Vector2.ONE * FLOOR_TILE)
+            var clipped := tile.intersection(area)
+            if clipped.size.x > 0.0 and clipped.size.y > 0.0:
+                var source := Rect2((clipped.position-tile.position)*factor,clipped.size*factor)
+                draw_texture_rect_region(tex,clipped,source)
 
 func _draw_source_grass() -> void:
-    # The supplied parser labels :: as a grass tile; it remains non-colliding.
-    var tint := Color(0.74, 0.84, 0.70, 0.78)
-    if theme == "night":
-        tint = Color(0.48, 0.61, 0.55, 0.72)
-    elif theme == "snow":
-        tint = Color(0.82, 0.92, 0.90, 0.55)
-    for cell in level.data.get("source_grass", []):
-        var top_left: Vector2 = level.ORIGIN + (Vector2(1, 1) + Vector2(float(cell[0]), float(cell[1])) * 2.0) * level.CELL
-        draw_texture_rect(GRASS, Rect2(top_left, Vector2.ONE * FLOOR_TILE), false, tint)
+    # Source :: tiles remain traversable. This is cosmetic; no new stealth
+    # mechanics are inferred from the unavailable original implementation.
+    var offset := float(level.data.get("source_tile_offset",0.5))
+    var tint := Color(0.80,0.90,0.76,0.28)
+    if theme == "snow": tint = Color(0.91,0.97,1.0,0.24)
+    if theme == "night": tint = Color(0.54,0.65,0.65,0.25)
+    var n := 0
+    for c in level.data.get("source_grass",[]):
+        var top_left: Vector2 = level.ORIGIN + (Vector2.ONE*offset + Vector2(float(c[0]),float(c[1]))*2.0)*level.CELL
+        draw_texture_rect(GRASS,Rect2(top_left,Vector2.ONE*FLOOR_TILE),false,tint)
+        # Selected hazard marking is a floor-only detail, never a blocker.
+        if theme in ["factory","dockyard","rooftop"] and n % 4 == 0:
+            draw_texture_rect(MARK_H,Rect2(top_left+Vector2(0,46),Vector2(FLOOR_TILE,10)),false,Color(1,1,1,0.55))
+        n += 1
+
+func _draw_floor_details() -> void:
+    # Existing precomputed details are purely cosmetic, remain walkable, and
+    # do not add new traps or blockers. Both designs match the selected set.
+    for detail in level.floor_details:
+        var center: Vector2 = detail.pos
+        if str(detail.kind) == "drain":
+            draw_texture_rect(FLOOR_GRATE,Rect2(center-Vector2.ONE*18.0,Vector2.ONE*36.0),false,Color(1,1,1,0.88))
+        else:
+            draw_set_transform(center,float(detail.rot),Vector2.ONE)
+            var ink := Color(0.80,0.79,0.62,0.38) if theme != "snow" else Color(0.35,0.45,0.49,0.42)
+            draw_line(Vector2(-14,0),Vector2(12,0),ink,3.0)
+            draw_line(Vector2(12,0),Vector2(4,-7),ink,3.0)
+            draw_line(Vector2(12,0),Vector2(4,7),ink,3.0)
+            draw_set_transform(Vector2.ZERO,0.0,Vector2.ONE)
+
+func _lamp_outside(r: Rect2, index: int) -> Vector2:
+    # Mounted on the wall; its light is floor-only and does not affect AI.
+    if index < 4 or index % 7 != 0 or r.size.x < FLOOR_TILE:
+        return Vector2(INF,INF)
+    var point := Vector2(r.get_center().x,r.position.y-20.0)
+    return point if not level._solid(point) else Vector2(INF,INF)
+
+func _draw_ambient_light() -> void:
+    for i in range(level.wall_rects.size()):
+        var point := _lamp_outside(level.wall_rects[i],i)
+        if is_inf(point.x): continue
+        var color := Color(1.0,0.92,0.78,0.75) if theme != "night" else Color(0.68,0.80,1.0,0.55)
+        draw_texture_rect(GLOW,Rect2(point-Vector2.ONE*86.0,Vector2.ONE*172.0),false,color)
 
 func _draw_cover() -> void:
-    var kinds: Dictionary = level.data.get("wall_kinds", {})
+    var kinds: Dictionary = level.data.get("wall_kinds",{})
     for i in range(level.wall_rects.size()):
         var r: Rect2 = level.wall_rects[i]
-        if str(kinds.get(str(i), "source_wall")) == "source_gate":
-            _draw_gate(r)
-        else:
-            _draw_wall(r)
+        _draw_shadow(r)
+        var horizontal := r.size.x >= r.size.y
+        var tex: Texture2D = WALL_H if horizontal else WALL_V
+        draw_texture_rect(tex,r,false)
+        if str(kinds.get(str(i),"wall")) == "gate":
+            var mark: Texture2D = MARK_H if horizontal else MARK_V
+            draw_texture_rect(mark,r.grow(-4.0),false,Color(1,1,1,0.9))
+        var lamp_point := _lamp_outside(r,i)
+        if not is_inf(lamp_point.x):
+            draw_texture_rect(LAMP,Rect2(Vector2(lamp_point.x-14.0,r.position.y+2.0),Vector2(28.0,10.0)),false)
     for i in range(level.crate_rects.size()):
         var r: Rect2 = level.crate_rects[i]
-        _draw_contact_shadow(r, 3.0)
         var item: Array = level.data.crates[i]
-        var source_path := ART + str(item[4]) if item.size() >= 5 else ""
-        var tex: Texture2D = prop_cache.get(source_path)
-        if tex != null:
-            # The supplied sprite and the collision rectangle share an exact
-            # destination; the existing collision code still adds its normal
-            # four-unit clearance around that physical cover rectangle.
-            draw_texture_rect(tex, r, false)
+        var kind := str(item[4]) if item.size() > 4 else "crate_wood"
+        var tex: Texture2D = PROPS.get(kind,PROPS["crate_wood"])
+        _draw_shadow(r)
+        # Wide crate groups represent two adjacent source BB cells: draw a
+        # matching crate per cell instead of stretching a square sprite.
+        if kind.begins_with("crate_") and r.size.x > r.size.y * 1.4:
+            var half := r.size.x * 0.5
+            draw_texture_rect(tex,Rect2(r.position,Vector2(half,r.size.y)),false)
+            draw_texture_rect(tex,Rect2(r.position+Vector2(half,0),Vector2(r.size.x-half,r.size.y)),false)
         else:
-            draw_rect(r, Color("805734"))
-            draw_rect(r.grow(-2.0), Color("ad7a40"), false, 2.0)
+            draw_texture_rect(tex,r,false)
 
-func _draw_contact_shadow(r: Rect2, offset: float) -> void:
-    draw_rect(Rect2(r.position + Vector2(offset, offset), r.size), Color(0.025, 0.03, 0.04, 0.22))
-
-func _draw_gate(r: Rect2) -> void:
-    _draw_contact_shadow(r, 3.0)
-    draw_rect(r, WALL_BASE.get(theme, Color.DIM_GRAY))
-    draw_texture_rect(GATE, r, false)
-
-func _draw_wall(r: Rect2) -> void:
-    _draw_contact_shadow(r, 3.0)
-    draw_rect(r, WALL_BASE.get(theme, Color.DIM_GRAY))
-    var tex: Texture2D = WALL_TEXTURES.get(theme, WALL_TEXTURES["warehouse"])
-    # Source wall-border sprites run vertically; transpose UVs on long
-    # horizontal segments. Segments are clipped to the physical wall area.
-    var horizontal := r.size.x > r.size.y
-    var span := r.size.x if horizontal else r.size.y
-    var cursor := 0.0
-    while cursor < span - 0.01:
-        var length := minf(FLOOR_TILE, span - cursor)
-        var part := Rect2(r.position + (Vector2(cursor, 0) if horizontal else Vector2(0, cursor)),
-                          Vector2(length, r.size.y) if horizontal else Vector2(r.size.x, length))
-        draw_texture_rect(tex, part, false, Color.WHITE, horizontal)
-        cursor += length
-    draw_rect(r, Color(0.08, 0.11, 0.13, 0.5), false, 1.0)
+func _draw_shadow(r: Rect2) -> void:
+    draw_rect(Rect2(r.position+Vector2(3,3),r.size),Color(0.02,0.025,0.03,0.24))

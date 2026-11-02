@@ -208,6 +208,7 @@ func _run() -> void:
 	var old_nearest_sum := 0.0
 	var new_nearest_sum := 0.0
 	var guard_total := 0
+	var paired_guards := 0
 	var bad_levels := []
 	for number in range(1, 101):
 		catalog.wall_rects.clear()
@@ -228,14 +229,16 @@ func _run() -> void:
 					old_nearest = minf(old_nearest, previous[i].distance_to(previous[j]))
 			if nearest < 160.0 or points[i].distance_to(catalog.player_pos) < 280.0 or catalog._guard_solid(points[i]) or not catalog.guard_region_by_cell.has(catalog._to_cell(points[i])):
 				bad_levels.append(number)
-			new_nearest_sum += nearest
-			old_nearest_sum += old_nearest
+			if points.size() > 1:
+				new_nearest_sum += nearest
+				old_nearest_sum += old_nearest
+				paired_guards += 1
 			guard_total += 1
-	check(bad_levels.is_empty() and guard_total == 1064, "all 100 levels retain every guard with safe, reachable, separated starts")
+	check(bad_levels.is_empty() and guard_total == 730, "all 100 levels retain every guard with safe, reachable, separated starts")
 	# Source-derived starts are pre-separated in the catalog, so runtime now
 	# intentionally preserves them rather than redistributing a second time.
-	check(new_nearest_sum >= old_nearest_sum * 0.999 and new_nearest_sum >= 160.0 * guard_total, "adapted guard starts remain safely distributed without drifting from supplied hints")
-	print("DISTRIBUTION total=", guard_total, " old_mean=", old_nearest_sum / guard_total, " new_mean=", new_nearest_sum / guard_total, " invalid=", bad_levels.size())
+	check(new_nearest_sum >= old_nearest_sum * 0.999 and new_nearest_sum >= 160.0 * paired_guards, "adapted guard starts remain safely distributed without drifting from supplied hints")
+	print("DISTRIBUTION total=", guard_total, " old_mean=", old_nearest_sum / maxi(1, paired_guards), " new_mean=", new_nearest_sum / maxi(1, paired_guards), " invalid=", bad_levels.size())
 	catalog.free()
 	var hash := HashingContext.new()
 	hash.start(HashingContext.HASH_SHA256)

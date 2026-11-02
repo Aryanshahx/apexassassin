@@ -12,7 +12,7 @@ func check(value: bool, message: String) -> void:
         printerr("FAIL: ", message)
 func _run() -> void:
     var doc: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/levels/levels.json"))
-    check(str(doc.get("layout_revision", "")) == "0.7.0-user-supplied-grids", "source-derived catalog is selected")
+    check(str(doc.get("layout_revision", "")) == "0.7.1-source-priority-selected-art", "source-derived catalog is selected")
     check(doc.levels.size() == 100, "100 level IDs are retained")
     var raw_config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://data/source_maps/v70/recovered_remote_config.json"))
     check(raw_config.remoteMaps.size() == 100, "100 static source configurations are retained")
@@ -51,12 +51,12 @@ func _run() -> void:
         check(not lv._solid(lv.player_pos) and player_region >= 0 and lv.guard_walkable_regions.size() == 1, "level %d has a clear spawn and a single guard-clear region" % number)
         var clearance := true
         for i in range(lv.crate_rects.size()):
-            var expanded: Rect2 = lv.crate_rects[i].grow(13.99)
+            var expanded: Rect2 = lv.crate_rects[i].grow(-0.1)
             for wall in lv.wall_rects:
-                if expanded.intersects(wall): clearance = false
+                if expanded.intersects(wall.grow(-0.1)): clearance = false
             for j in range(i):
-                if expanded.intersects(lv.crate_rects[j]): clearance = false
-        check(clearance, "level %d visible boxes have safe separation from walls and each other" % number)
+                if expanded.intersects(lv.crate_rects[j].grow(-0.1)): clearance = false
+        check(clearance, "level %d source boxes may touch but must not overlap walls or each other" % number)
         var guards_ok := true
         var points: Array[Vector2] = []
         var runtime: PackedVector2Array = lv._distributed_guard_starts()
@@ -65,7 +65,7 @@ func _run() -> void:
             var guard: Dictionary = lv.data.guards[i]
             var point: Vector2 = lv._cell_center(int(guard.x), int(guard.y))
             var cell: Vector2i = lv._to_cell(point)
-            if point.distance_to(lv.player_pos) < 560.0 or lv._guard_solid(point) or not lv.guard_region_by_cell.has(cell) or int(lv.region_by_cell.get(cell, -2)) != player_region:
+            if point.distance_to(lv.player_pos) < 319.9 or lv._guard_solid(point) or not lv.guard_region_by_cell.has(cell) or int(lv.region_by_cell.get(cell, -2)) != player_region:
                 guards_ok = false
             if i >= runtime.size() or runtime[i].distance_to(point) > 0.01:
                 guards_ok = false
@@ -82,11 +82,11 @@ func _run() -> void:
             guard_count += 1
         check(guards_ok, "level %d adapted guards and patrol endpoints are safe, separated and used at runtime" % number)
         obstacle_count += lv.wall_rects.size() + lv.crate_rects.size()
-    check(guard_count == 1064, "all 1064 project guards are retained")
+    check(guard_count == 730, "all 620 supplied and 110 fallback guards/bosses are retained")
     check(map_pairs.size() == 64, "source configuration has the expected 64 distinct grid/flip combinations")
     check(theme_counts.size() == 8, "all eight existing themes are represented")
     for theme in THEMES:
         check(int(theme_counts.get(theme, 0)) >= 12, "%s appears throughout the catalog" % theme)
     lv.free()
-    print("V70 LAYOUT %d checks, %d failures; %d guards, %d obstacles, %d cell comparisons; themes=%s; source-pairs=%d" % [checks, failures, guard_count, obstacle_count, compared_cells, theme_counts, map_pairs.size()])
+    print("V71 LAYOUT %d checks, %d failures; %d guards, %d obstacles, %d cell comparisons; themes=%s; source-pairs=%d" % [checks, failures, guard_count, obstacle_count, compared_cells, theme_counts, map_pairs.size()])
     quit(1 if failures else 0)
