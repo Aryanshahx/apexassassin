@@ -5,6 +5,8 @@ const W := 720.0
 const MIN_H := 1180.0
 const HOME_BG := preload("res://assets/home/home_bg_v59.jpg")
 const STAGE := preload("res://assets/home/character_stage.svg")
+# This portrait contains supplied reference pixels and is not final art.
+const RED_SCARF_PREVIEW := preload("res://assets/characters/red-scarf-preview/test-v3-reference-home-portrait.png")
 const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 const AssassinSelectorScript := preload("res://scripts/ui/assassin_selector.gd")
@@ -278,7 +280,7 @@ func _build_character_stage() -> void:
 	canvas.add_child(card_art)
 	selected_name_label = _font(29, 4)
 	selected_name_label.name = "SelectedAssassinName"
-	selected_name_label.text = GameState.display_character_name(GameState.selected_assassin).to_upper()
+	selected_name_label.text = "RED SCARF (TEST)"
 	selected_name_label.size = Vector2(440, 38)
 	selected_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	selected_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -293,7 +295,7 @@ func _build_character_stage() -> void:
 	change_button.pressed.connect(_open_assassins)
 	canvas.add_child(change_button)
 	var label := _font(30, 4)
-	label.text = "CHANGE ASSASSIN"
+	label.text = "ONE CHARACTER"
 	label.position = Vector2(0, 2)
 	label.size = Vector2(314, 52)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -496,14 +498,14 @@ func _refresh_values() -> void:
 		gems_label.text = str(GameState.gems)
 		_fit_amount(gems_label)
 
-func _character_portrait(id: String) -> Texture2D:
-	return load(GameState.character_portrait_path(id))
+func _character_portrait(_id: String) -> Texture2D:
+	return RED_SCARF_PREVIEW
 
 func _refresh_card() -> void:
 	if card_art:
 		card_art.texture = _character_portrait(GameState.selected_assassin)
 	if selected_name_label:
-		selected_name_label.text = GameState.display_character_name(GameState.selected_assassin).to_upper()
+		selected_name_label.text = "RED SCARF (TEST)"
 
 # ---------------- Full-screen collection screens ----------------
 func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
@@ -558,11 +560,7 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	return content
 
 func _open_assassins() -> void:
-	_close_overlay()
-	overlay = AssassinSelectorScript.new()
-	add_child(overlay)
-	overlay.closed.connect(_close_overlay)
-	overlay.changed.connect(_on_assassin_changed)
+	_popup("One character", "This preview uses your chosen red-scarf character.")
 
 func _on_assassin_changed() -> void:
 	_refresh_values()

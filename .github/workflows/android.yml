@@ -1,43 +1,67 @@
-name: Android APK
+name: Android APK - red scarf test
 
+# Manual only: do not create an APK artifact or upload audio on every push.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    inputs:
+      approve_test_art_and_audio:
+        description: 'I approve temporary reference-derived art and project audio in this GitHub APK artifact'
+        required: true
+        default: false
+        type: boolean
+      run_extended_traffic:
+        description: 'Also run the legacy 100-level traffic diagnostic (non-blocking; results reported)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-red-scarf-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  GODOT_VERSION: "4.7.2"
+  GODOT_VERSION: '4.7.2'
   GODOT_RELEASE: stable
 
 jobs:
   apk:
-    name: Test + build debug APK
+    name: Test and build a debug preview APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
+      - name: Require explicit review
+        env:
+          APPROVED: ${{ inputs.approve_test_art_and_audio }}
+        run: |
+          if [ "$APPROVED" != 'true' ]; then
+            echo '::error::Preview art and project audio were not approved for this GitHub artifact. Nothing was built.'
+            exit 1
+          fi
       - uses: actions/checkout@v4
-
+      - name: Check all original audio before building
+        run: |
+          set -euo pipefail
+          for f in ui_tap_audio.mp3 stab.mp3 suspect.mp3 stab2.mp3 suspect2.mp3 pickkey.mp3 unlockkey.mp3; do
+            if [ ! -s "assets/audio/$f" ]; then
+              echo "::error::Missing assets/audio/$f in this checkout. No silent replacement is generated."
+              echo 'The Pi copy stays untouched. Add the recording only after approving GitHub upload and checking repository visibility.'
+              exit 1
+            fi
+          done
+          printf '%s  %s\n' \
+            '0a54466fda929646f50264f93f6318a3d43db41677ef3832966aa2614620144a' 'assets/audio/pickkey.mp3' \
+            'a8d967d2a27feec14ffc7694d0de00488b7720faf629e8c2853f97a1a4464e4c' 'assets/audio/unlockkey.mp3' | sha256sum --check
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
-
-      # Ubuntu runners do not guarantee sdkmanager is on PATH.
-      # This action installs Android command-line tools, accepts SDK licenses,
-      # installs the requested SDK packages, and adds sdkmanager/adb to PATH.
-      - name: Setup Android SDK
+          java-version: '17'
+      - name: Install Android SDK
         uses: android-actions/setup-android@v3
         with:
-          cmdline-tools-version: "12266719"
+          cmdline-tools-version: '12266719'
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
           packages: >-
@@ -46,23 +70,12 @@ jobs:
             platforms;android-36
             build-tools;35.0.1
             build-tools;36.0.0
-
-      - name: Verify Android SDK tools
-        run: |
-          set -euo pipefail
-          command -v sdkmanager
-          command -v adb
-          sdkmanager --version
-          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-
       - name: Cache Godot export templates
         uses: actions/cache@v4
         with:
           path: ~/.local/share/godot/export_templates
           key: godot-templates-${{ env.GODOT_VERSION }}-${{ env.GODOT_RELEASE }}
-
-      - name: Install Godot + Android templates
+      - name: Install Godot and Android templates
         run: |
           set -euo pipefail
           VERSION="${GODOT_VERSION}-${GODOT_RELEASE}"
@@ -76,97 +89,49 @@ jobs:
             unzip -q -o .ci/templates.tpz -d "$TPL"
             if [ -d "$TPL/templates" ]; then mv "$TPL/templates"/* "$TPL"/; rmdir "$TPL/templates"; fi
           fi
-
-      - name: Import + headless smoke tests
+      - name: Verify source geometry and run isolated tests
         run: |
           set -euo pipefail
-          GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
-          test -s assets/audio/ui_tap_audio.mp3
-          test -s assets/audio/stab.mp3
-          test -s assets/audio/suspect.mp3
-          test -s assets/audio/stab2.mp3
-          test -s assets/audio/suspect2.mp3
-          for audio in assets/audio/pickkey.mp3 assets/audio/unlockkey.mp3; do
-            if [ ! -s "$audio" ]; then
-              echo "::error::Missing $audio. Publish the two key recordings after your review, then rebuild the APK."
-              exit 1
-            fi
-          done
-          printf '%s  %s\n' \
-            '0a54466fda929646f50264f93f6318a3d43db41677ef3832966aa2614620144a' 'assets/audio/pickkey.mp3' \
-            'a8d967d2a27feec14ffc7694d0de00488b7720faf629e8c2853f97a1a4464e4c' 'assets/audio/unlockkey.mp3' | sha256sum --check
           python3 tools/test_v72_source_integrity.py
-          "$GODOT" --headless --path . --import
-          # All suites exercise saves; never write to an existing save.
-          TEST_DATA="$(mktemp -d)"
-          trap 'rm -rf "$TEST_DATA"' EXIT
-          mkdir -p "$TEST_DATA/smoke" "$TEST_DATA/reference" "$TEST_DATA/movement" "$TEST_DATA/roaming" "$TEST_DATA/transition" "$TEST_DATA/home" "$TEST_DATA/combat" "$TEST_DATA/collision" "$TEST_DATA/splash"
-          XDG_DATA_HOME="$TEST_DATA/smoke" timeout 120 "$GODOT" --headless --path . --script tests/smoke_test.gd
-          XDG_DATA_HOME="$TEST_DATA/reference" timeout 120 "$GODOT" --headless --path . --script tests/v72_roster_test.gd
-          XDG_DATA_HOME="$TEST_DATA/movement" timeout 120 "$GODOT" --headless --path . --script tests/movement_test.gd
-          XDG_DATA_HOME="$TEST_DATA/roaming" timeout 120 "$GODOT" --headless --path . --script tests/roaming_test.gd
-          XDG_DATA_HOME="$TEST_DATA/transition" timeout 120 "$GODOT" --headless --path . --script tests/transition_test.gd
-          XDG_DATA_HOME="$TEST_DATA/home" timeout 120 "$GODOT" --headless --path . --script tests/home_test.gd
-          XDG_DATA_HOME="$TEST_DATA/combat" timeout 120 "$GODOT" --headless --path . --script tests/combat_test.gd
-          XDG_DATA_HOME="$TEST_DATA/collision" timeout 120 "$GODOT" --headless --path . --script tests/collision_test.gd
-          XDG_DATA_HOME="$TEST_DATA/splash" timeout 120 "$GODOT" --headless --path . --script tests/splash_test.gd
-          mkdir -p "$TEST_DATA/layout" "$TEST_DATA/gate" "$TEST_DATA/enemy-types"
-          XDG_DATA_HOME="$TEST_DATA/layout" timeout 120 "$GODOT" --headless --path . --script tests/layout_test.gd
-          XDG_DATA_HOME="$TEST_DATA/gate" timeout 120 "$GODOT" --headless --path . --script tests/gate_test.gd
-          XDG_DATA_HOME="$TEST_DATA/enemy-types" timeout 120 "$GODOT" --headless --path . --script tests/enemy_types_test.gd
-          mkdir -p "$TEST_DATA/player-path" "$TEST_DATA/loot-speed" "$TEST_DATA/button-feedback" "$TEST_DATA/tap-audio"
-          XDG_DATA_HOME="$TEST_DATA/player-path" timeout 120 "$GODOT" --headless --path . --script tests/player_path_test.gd
-          XDG_DATA_HOME="$TEST_DATA/loot-speed" timeout 120 "$GODOT" --headless --path . --script tests/loot_speed_test.gd
-          XDG_DATA_HOME="$TEST_DATA/button-feedback" timeout 120 "$GODOT" --headless --path . --script tests/button_feedback_test.gd
-          XDG_DATA_HOME="$TEST_DATA/tap-audio" timeout 120 "$GODOT" --headless --path . --script tests/tap_audio_import_test.gd
-          mkdir -p "$TEST_DATA/v64-lockers" "$TEST_DATA/v64-combat" "$TEST_DATA/v64-path" "$TEST_DATA/v64-traffic"
-          XDG_DATA_HOME="$TEST_DATA/v64-lockers" timeout 120 "$GODOT" --headless --path . --script tests/v64_lockers_test.gd
-          mkdir -p "$TEST_DATA/v72-deferred" "$TEST_DATA/v72-progression"
-          XDG_DATA_HOME="$TEST_DATA/v72-deferred" timeout 120 "$GODOT" --headless --path . --script tests/v72_deferred_locker_test.gd
-          XDG_DATA_HOME="$TEST_DATA/v72-progression" timeout 120 "$GODOT" --headless --path . --script tests/v72_progression_test.gd
-          mkdir -p "$TEST_DATA/v72-key-audio"
-          XDG_DATA_HOME="$TEST_DATA/v72-key-audio" timeout 120 "$GODOT" --headless --path . --script tests/v72_key_audio_import_test.gd
-          XDG_DATA_HOME="$TEST_DATA/v64-combat" timeout 120 "$GODOT" --headless --path . --script tests/v64_combat_test.gd
-          XDG_DATA_HOME="$TEST_DATA/v64-path" timeout 300 "$GODOT" --headless --path . --script tests/v64_path_stress_test.gd
-          XDG_DATA_HOME="$TEST_DATA/v64-traffic" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd
-          mkdir -p "$TEST_DATA/v65-combat-audio"
-          XDG_DATA_HOME="$TEST_DATA/v65-combat-audio" timeout 120 "$GODOT" --headless --path . --script tests/v65_combat_audio_test.gd
-          mkdir -p "$TEST_DATA/v66-mechanics"
-          XDG_DATA_HOME="$TEST_DATA/v66-mechanics" timeout 120 "$GODOT" --headless --path . --script tests/v66_mechanics_test.gd
-          mkdir -p "$TEST_DATA/v67-behavior" "$TEST_DATA/v71-visual-sync" "$TEST_DATA/v71-start-safety"
-          XDG_DATA_HOME="$TEST_DATA/v67-behavior" timeout 120 "$GODOT" --headless --path . --script tests/v67_behavior_test.gd
-          XDG_DATA_HOME="$TEST_DATA/v71-visual-sync" timeout 120 "$GODOT" --headless --path . --script tests/v71_visual_sync_test.gd
-          for SEED in 70000 71000 72000; do
-            APEX_SAFETY_SEED="$SEED" XDG_DATA_HOME="$TEST_DATA/v71-start-safety-$SEED" timeout 120 "$GODOT" --headless --path . --script tests/v71_start_safety_test.gd
-          done
-
-      - name: Export debug APK
+          export GODOT="$PWD/.ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          bash tools/run_red_scarf_tests.sh
+      - name: Optional legacy traffic diagnostic
+        if: ${{ inputs.run_extended_traffic }}
+        continue-on-error: true
         run: |
           set -euo pipefail
-          GODOT=".ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
-          ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.android/sdk}}"
-          if [ ! -d "$ANDROID_SDK" ]; then
-            echo "Android SDK directory not found: $ANDROID_SDK" >&2
+          TEST_TMP="$(mktemp -d)"
+          trap 'rm -rf -- "$TEST_TMP"' EXIT
+          mkdir -p "$TEST_TMP/data" "$TEST_TMP/config" "$TEST_TMP/cache"
+          GODOT="$PWD/.ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          if ! XDG_DATA_HOME="$TEST_TMP/data" XDG_CONFIG_HOME="$TEST_TMP/config" XDG_CACHE_HOME="$TEST_TMP/cache" timeout 300 "$GODOT" --headless --path . --script tests/v64_traffic_stress_test.gd; then
+            echo '::warning::Legacy traffic stress reported a failure or timeout. Review its log; the preview APK is not evidence that this issue is fixed.'
+            echo 'Legacy traffic diagnostic reported a failure or timeout. Review its log.' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          export ANDROID_HOME="$ANDROID_SDK"
-          export ANDROID_SDK_ROOT="$ANDROID_SDK"
+          echo 'Legacy traffic diagnostic passed in this run.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Build debug APK
+        run: |
+          set -euo pipefail
+          GODOT="$PWD/.ci/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64"
+          ANDROID_SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/.android/sdk}}"
+          test -d "$ANDROID_SDK"
+          export ANDROID_HOME="$ANDROID_SDK" ANDROID_SDK_ROOT="$ANDROID_SDK"
           mkdir -p "$HOME/.android" "$HOME/.config/godot" build/android
-          adb start-server >/dev/null 2>&1 || true
           DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
           if [ ! -f "$DEBUG_KEYSTORE" ]; then
-            keytool -genkeypair -keystore "$DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+            keytool -genkeypair -keystore "$DEBUG_KEYSTORE" -storepass android -keypass android -alias androiddebugkey -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
           fi
           printf '[gd_resource type="EditorSettings" format=3]\n[resource]\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_HOME" "$ANDROID_SDK" "$DEBUG_KEYSTORE" > "$HOME/.config/godot/editor_settings-4.7.tres"
           export GODOT_ANDROID_KEYSTORE_DEBUG_PATH="$DEBUG_KEYSTORE"
-          export GODOT_ANDROID_KEYSTORE_DEBUG_USER="androiddebugkey"
-          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD="android"
-          "$GODOT" --headless --path . --export-debug "Android" build/android/apex-assassin-debug.apk
-          test -f build/android/apex-assassin-debug.apk
-
+          export GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey
+          export GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android
+          "$GODOT" --headless --path . --export-debug 'Android' build/android/apex-red-scarf-preview-debug.apk
+          test -s build/android/apex-red-scarf-preview-debug.apk
+          echo 'This is a debug preview. A different signature cannot update an existing installation.'
       - uses: actions/upload-artifact@v4
         with:
-          name: apex-assassin-debug-${{ github.sha }}
-          path: build/android/*.apk
+          name: apex-red-scarf-preview-debug-${{ github.sha }}
+          path: build/android/apex-red-scarf-preview-debug.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7

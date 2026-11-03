@@ -48,6 +48,8 @@ const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/v72_sprite_rig.gd")
+# Temporary reference-derived player appearance; guards keep their original rig.
+const RedScarfPreviewRig := preload("res://scripts/game/red_scarf_preview.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
@@ -539,7 +541,8 @@ func _locker_finished() -> void:
 	_refresh_wallet()
 
 func _build_player() -> void:
-	player_rig = ActorRigScript.new()
+	# Visual-only preview; existing player stats, saves, combat and guard AI are unchanged.
+	player_rig = RedScarfPreviewRig.new()
 	player_rig.setup(GameState.selected_assassin, "player")
 	player_rig.set_knife(GameState.selected_knife)
 	# Player art was smaller than the guards; enlarge only its visual rig.
@@ -839,7 +842,7 @@ func _build_player_health_bar() -> void:
 func _update_player_health_bar() -> void:
 	if player_health_anchor == null:
 		return
-	player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -52)
+	player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -76)
 	player_health_bar.max_value = GameState.max_health()
 	player_health_bar.value = clampf(player_hp, 0.0, player_health_bar.max_value)
 	player_health_label.text = str(maxi(0, ceili(player_hp)))
@@ -965,7 +968,7 @@ func _move_player(delta: float) -> void:
 	player_rig.position = player_pos
 	player_rig.rotation = player_face + PI / 2
 	if player_health_anchor:
-		player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -52)
+		player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -76)
 	player_rig.set_moving(moved)
 	if invuln > 0 and int(invuln * 12) % 2 == 0:
 		player_rig.modulate = Color(1, 0.5, 0.5)
