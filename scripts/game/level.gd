@@ -48,8 +48,9 @@ const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/v72_sprite_rig.gd")
-# Temporary reference-derived player appearance; guards keep their original rig.
-const RedScarfPreviewRig := preload("res://scripts/game/red_scarf_preview.gd")
+# Private reference-derived draft.  Guards keep their original gun rig.
+const FiveLookPlayerRig := preload("res://scripts/game/five_look_player.gd")
+const FiveLookSelection := preload("res://scripts/game/five_look_selection.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
@@ -542,9 +543,10 @@ func _locker_finished() -> void:
 
 func _build_player() -> void:
 	# Visual-only preview; existing player stats, saves, combat and guard AI are unchanged.
-	player_rig = RedScarfPreviewRig.new()
-	player_rig.setup(GameState.selected_assassin, "player")
-	player_rig.set_knife(GameState.selected_knife)
+	var appearance := FiveLookSelection.read_selection()
+	player_rig = FiveLookPlayerRig.new()
+	player_rig.setup(appearance.look, "player")
+	player_rig.set_knife(appearance.weapon)
 	# Player art was smaller than the guards; enlarge only its visual rig.
 	player_rig.scale = Vector2.ONE * PLAYER_SCALE
 	player_rig.position = player_pos

@@ -5,12 +5,10 @@ const W := 720.0
 const MIN_H := 1180.0
 const HOME_BG := preload("res://assets/home/home_bg_v59.jpg")
 const STAGE := preload("res://assets/home/character_stage.svg")
-# This portrait contains supplied reference pixels and is not final art.
-const RED_SCARF_PREVIEW := preload("res://assets/characters/red-scarf-preview/test-v3-reference-home-portrait.png")
-const ActorRigScript := preload("res://scripts/game/actor_rig.gd")
+# The selected portraits are reference-guided drafts, not final art.
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
-const AssassinSelectorScript := preload("res://scripts/ui/assassin_selector.gd")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
+const FiveLooks := preload("res://scripts/game/five_look_selection.gd")
 
 var canvas: Control
 var cash_label: Label
@@ -280,7 +278,7 @@ func _build_character_stage() -> void:
 	canvas.add_child(card_art)
 	selected_name_label = _font(29, 4)
 	selected_name_label.name = "SelectedAssassinName"
-	selected_name_label.text = "RED SCARF (TEST)"
+	selected_name_label.text = String(FiveLooks.LOOK_NAMES[FiveLooks.read_selection().look]).to_upper()
 	selected_name_label.size = Vector2(440, 38)
 	selected_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	selected_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -295,7 +293,7 @@ func _build_character_stage() -> void:
 	change_button.pressed.connect(_open_assassins)
 	canvas.add_child(change_button)
 	var label := _font(30, 4)
-	label.text = "ONE CHARACTER"
+	label.text = "CHARACTERS"
 	label.position = Vector2(0, 2)
 	label.size = Vector2(314, 52)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -499,13 +497,13 @@ func _refresh_values() -> void:
 		_fit_amount(gems_label)
 
 func _character_portrait(_id: String) -> Texture2D:
-	return RED_SCARF_PREVIEW
+	return FiveLooks.portrait(FiveLooks.read_selection().look)
 
 func _refresh_card() -> void:
 	if card_art:
 		card_art.texture = _character_portrait(GameState.selected_assassin)
 	if selected_name_label:
-		selected_name_label.text = "RED SCARF (TEST)"
+		selected_name_label.text = String(FiveLooks.LOOK_NAMES[FiveLooks.read_selection().look]).to_upper()
 
 # ---------------- Full-screen collection screens ----------------
 func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
@@ -560,108 +558,141 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	return content
 
 func _open_assassins() -> void:
-	_popup("One character", "This preview uses your chosen red-scarf character.")
+	var box := _screen_base("Choose Character")
+	var caption := _font(21, 2)
+	caption.text = "5 looks • your saved bonuses and progress stay unchanged"
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(caption)
+	var grid := GridContainer.new()
+	grid.name = "FiveCharacterGrid"
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 14)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(grid)
+	var chosen: String = FiveLooks.read_selection().look
+	for id in FiveLooks.LOOKS:
+		grid.add_child(_new_look_card(id, chosen == id))
+
+func _new_look_card(id: String, selected: bool) -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.name = "LookCard_" + id
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var picture := Button.new()
+	picture.name = "PortraitButton"
+	picture.custom_minimum_size = Vector2(0, 200)
+	picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	picture.add_theme_stylebox_override("normal", _box(Color("205669") if selected else Color("38475a"), Color("83ff92") if selected else Color("a0b2c1"), 16, 4))
+	picture.pressed.connect(func(): _on_look_pressed(id))
+	var icon := TextureRect.new()
+	icon.texture = FiveLooks.portrait(id)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon.offset_left = 8; icon.offset_right = -8; icon.offset_top = 6; icon.offset_bottom = -6
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	picture.add_child(icon)
+	wrap.add_child(picture)
+	var name_label := _font(22, 2)
+	name_label.text = String(FiveLooks.LOOK_NAMES[id])
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_label.custom_minimum_size = Vector2(0, 34)
+	wrap.add_child(name_label)
+	var button := Button.new()
+	button.name = "EquipLook"
+	button.text = "Equipped" if selected else "Equip"
+	button.disabled = selected
+	button.custom_minimum_size = Vector2(0, 48)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 20)
+	button.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 12, 3))
+	button.pressed.connect(func(): _on_look_pressed(id))
+	wrap.add_child(button)
+	return wrap
+
+func _on_look_pressed(id: String) -> void:
+	var old := FiveLooks.read_selection()
+	if FiveLooks.save_selection(id, old.weapon):
+		Sfx.play("upgrade")
+		_refresh_card()
+		_open_assassins()
+	else:
+		_toast("Could not save the appearance. Your progress is unchanged.")
 
 func _on_assassin_changed() -> void:
 	_refresh_values()
 	_refresh_card()
 
 func _open_knives() -> void:
-	var box := _screen_base("Special Knives")
-	var count := _font(28, 4)
-	count.text = "%d / %d" % [GameState.knife_count(), GameState.KNIFE_ORDER.size()]
-	count.add_theme_color_override("font_color", Color.WHITE)
-	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(count)
+	var box := _screen_base("Choose Melee Weapon")
+	var caption := _font(21, 2)
+	caption.text = "5 weapons • all use your current combat stats"
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(caption)
 	var grid := GridContainer.new()
-	grid.columns = 4
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 12)
+	grid.name = "FiveWeaponGrid"
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 14)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(grid)
-	for id in GameState.KNIFE_ORDER:
-		grid.add_child(_knife_card(id))
+	var chosen: String = FiveLooks.read_selection().weapon
+	for id in FiveLooks.WEAPONS:
+		grid.add_child(_new_weapon_card(id, chosen == id))
 	var stats := Button.new()
+	stats.name = "StatUpgradesButton"
 	stats.text = "Stat Upgrades"
-	stats.custom_minimum_size = Vector2(0, 56)
+	stats.custom_minimum_size = Vector2(0, 60)
 	stats.pressed.connect(_open_upgrades)
 	box.add_child(stats)
 
-func _knife_card(id: String) -> Control:
-	var k: Dictionary = GameState.KNIVES[id]
-	var unlocked := GameState.is_knife_unlocked(id)
-	var selected := GameState.selected_knife == id
+func _new_weapon_card(id: String, selected: bool) -> Control:
 	var wrap := VBoxContainer.new()
-	wrap.custom_minimum_size = Vector2(0, 210)
+	wrap.name = "WeaponCard_" + id
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var icon_btn := Button.new()
-	icon_btn.custom_minimum_size = Vector2(0, 140)
-	icon_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var bg := Color("ff9d2e")
-	if int(k.unlock_level) > 1 and not unlocked:
-		bg = Color("6a6d85")
-	if selected:
-		bg = Color("1f6fb2")
-	icon_btn.add_theme_stylebox_override("normal", _box(bg, Color("7CFC7C") if selected else Color("23252e"), 16, 4))
-	icon_btn.pressed.connect(func(): _on_knife_pressed(id))
+	var picture := Button.new()
+	picture.name = "WeaponButton"
+	picture.custom_minimum_size = Vector2(0, 165)
+	picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	picture.add_theme_stylebox_override("normal", _box(Color("205669") if selected else Color("34495b"), Color("83ff92") if selected else Color("a0b2c1"), 16, 4))
+	picture.pressed.connect(func(): _on_new_weapon_pressed(id))
 	var icon := TextureRect.new()
-	icon.texture = load("res://assets/knives/%s.png" % id)
+	icon.texture = FiveLooks.weapon_icon(id)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	icon.offset_left = 12
-	icon.offset_right = -12
-	icon.offset_top = 10
-	icon.offset_bottom = -10
+	icon.offset_left = 10; icon.offset_right = -10; icon.offset_top = 10; icon.offset_bottom = -10
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if not unlocked:
-		icon.modulate = Color(0.45, 0.45, 0.5, 0.9)
-	icon_btn.add_child(icon)
-	if not unlocked:
-		var lock := TextureRect.new()
-		lock.texture = preload("res://assets/ui/lock.png")
-		lock.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		lock.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		lock.position = Vector2(6, 6)
-		lock.size = Vector2(30, 30)
-		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon_btn.add_child(lock)
-	wrap.add_child(icon_btn)
-	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(0, 52)
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 12, 3))
-	btn.add_theme_font_size_override("font_size", 20)
-	btn.add_theme_color_override("font_color", Color("14161f"))
-	if selected:
-		btn.text = "Equipped"
-		btn.disabled = true
-	elif unlocked:
-		btn.text = "Equip"
-	elif int(k.unlock_level) > 1:
-		btn.text = "Level %d" % int(k.unlock_level)
-		btn.disabled = true
-	else:
-		btn.text = "Buy %d" % int(k.cost)
-	btn.pressed.connect(func(): _on_knife_pressed(id))
-	wrap.add_child(btn)
+	picture.add_child(icon)
+	wrap.add_child(picture)
+	var name_label := _font(21, 2)
+	name_label.text = String(FiveLooks.WEAPON_NAMES[id])
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_label.custom_minimum_size = Vector2(0, 34)
+	wrap.add_child(name_label)
+	var button := Button.new()
+	button.name = "EquipWeapon"
+	button.text = "Equipped" if selected else "Equip"
+	button.disabled = selected
+	button.custom_minimum_size = Vector2(0, 48)
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.add_theme_font_size_override("font_size", 20)
+	button.add_theme_stylebox_override("normal", _box(Color("ffc93c"), Color("6b4a00"), 12, 3))
+	button.pressed.connect(func(): _on_new_weapon_pressed(id))
+	wrap.add_child(button)
 	return wrap
 
-func _on_knife_pressed(id: String) -> void:
-	var k: Dictionary = GameState.KNIVES[id]
-	if GameState.is_knife_unlocked(id):
-		GameState.select_knife(id)
+func _on_new_weapon_pressed(id: String) -> void:
+	var old := FiveLooks.read_selection()
+	if FiveLooks.save_selection(old.look, id):
 		Sfx.play("upgrade")
 		_open_knives()
-	elif int(k.unlock_level) > 1:
-		_toast("Reach level %d to unlock." % int(k.unlock_level))
-	elif GameState.buy_knife(id):
-		Sfx.play("upgrade")
-		_refresh_values()
-		_open_knives()
-		_toast("%s unlocked!" % k.name)
 	else:
-		_toast("Need %d diamonds." % int(k.cost))
+		_toast("Could not save the weapon. Your progress is unchanged.")
 
 func _open_settings() -> void:
 	var box := _popup_base("Settings")

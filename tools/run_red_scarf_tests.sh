@@ -15,17 +15,17 @@ XDG_DATA_HOME="$TEST_TMP/import/data" XDG_CONFIG_HOME="$TEST_TMP/import/config" 
 # The old smoke/home/roster tests describe retired visuals. Adapted combat and
 # locker tests preserve their gameplay checks but expect the new preview artwork.
 # The randomized legacy traffic stress test is a separate optional diagnostic.
-tests=(red_scarf_preview_test movement_test roaming_test transition_test red_scarf_combat_test
+tests=(background_music_test five_looks_draft_test movement_test roaming_test transition_test red_scarf_combat_test
  collision_test splash_test layout_test gate_test enemy_types_test player_path_test
- loot_speed_test button_feedback_test tap_audio_import_test red_scarf_lockers_test
+ loot_speed_test button_feedback_test tap_audio_import_test five_looks_locker_test
  v72_deferred_locker_test v72_progression_test v72_key_audio_import_test
- red_scarf_legacy_combat_test v64_path_stress_test
+ five_looks_legacy_combat_test v64_path_stress_test
  v65_combat_audio_test v66_mechanics_test v67_behavior_test v71_visual_sync_test)
 for test in "${tests[@]}"; do
   [ -f "tests/$test.gd" ] || { echo "Required test is missing: tests/$test.gd" >&2; exit 1; }
   sandbox="$TEST_TMP/$test"; mkdir -p "$sandbox/data" "$sandbox/config" "$sandbox/cache"
   echo "--- $test (isolated user data)"
-  APEX_REDSCARF_TEST_ROOT="$sandbox/data" XDG_DATA_HOME="$sandbox/data" \
+  APEX_REDSCARF_TEST_ROOT="$sandbox/data" APEX_FIVE_TEST_ROOT="$sandbox/data" XDG_DATA_HOME="$sandbox/data" \
     XDG_CONFIG_HOME="$sandbox/config" XDG_CACHE_HOME="$sandbox/cache" \
     timeout 300 "$GODOT" --headless --path . --script "tests/$test.gd"
 done
@@ -34,4 +34,4 @@ for seed in 70000 71000 72000; do
   APEX_SAFETY_SEED="$seed" XDG_DATA_HOME="$sandbox/data" XDG_CONFIG_HOME="$sandbox/config" \
     XDG_CACHE_HOME="$sandbox/cache" timeout 120 "$GODOT" --headless --path . --script tests/v71_start_safety_test.gd
 done
-echo 'Red-scarf preview test suites completed using isolated synthetic saves.'
+echo 'Five-look preview test suites completed using isolated synthetic saves.'

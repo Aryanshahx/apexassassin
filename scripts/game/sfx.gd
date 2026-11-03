@@ -1,6 +1,7 @@
 extends Node
 ## Pooled sound effects plus opt-in user-supplied button audio.
 ## A global button-down hook gives all buttons a brief visual tap response.
+const BackgroundMusicScript := preload("res://scripts/game/background_music.gd")
 var enabled := true
 var players: Array[AudioStreamPlayer] = []
 var streams := {}
@@ -28,6 +29,9 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		players.append(p)
+	var background_music := BackgroundMusicScript.new()
+	background_music.name = "BackgroundMusic"
+	add_child(background_music)
 
 func play(name: String, volume_db: float = -6.0) -> void:
 	if not enabled or not GameState.sound_enabled or not streams.has(name):
