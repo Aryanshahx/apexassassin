@@ -61,6 +61,8 @@ const GUARD_AVOID_HOLD := 0.55
 const PLAYER_SCALE := 2.05
 const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
+# Body-to-body touch, not the much larger flashlight/vision cone.
+const GUARD_TOUCH_RADIUS := ActorRigScript.BODY_WIDTH * 0.5
 const ENEMY_DAMAGE_MULTIPLIER := 1.25
 const BULLET_DAMAGE := 125.0 # 25% above the former 100-point fallback
 const BULLET_SPEED := 660.0 # faster than v0.6.2's 420 world units/second
@@ -478,74 +480,76 @@ func _build_floor_details() -> void:
 			floor_details.append({"kind": "arrow", "pos": p, "rot": float(rng.randi_range(0, 3)) * PI / 2.0})
 		placed += 1
 
+func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int) -> bool:
+	# Dense beds like the reference: each patch is at least 3 by 3 floor
+	# cells. Cover is drawn above the grass, so a small obstacle may sit in a
+	# bed without changing collision or producing isolated single tiles.
+	for dimension in [160.0, 128.0, 96.0]:
+		var rect := Rect2(center - Vector2.ONE * dimension * 0.5, Vector2.ONE * dimension)
+		if not bounds.encloses(rect) or rect.grow(20.0).has_point(player_pos):
+			continue
+		if int(region_by_cell.get(_to_cell(center), -2)) != region_id or _solid(center):
+			continue
+		# Keep the majority of each bed on actual reachable floor. Also require
+		# a connected two-by-two clearing, even when cover crosses the bed.
+		var count := roundi(dimension / CELL)
+		var available := {}
+		var open_count := 0
+		for y in range(count):
+			for x in range(count):
+				var point := rect.position + Vector2(float(x) + 0.5, float(y) + 0.5) * CELL
+				if int(region_by_cell.get(_to_cell(point), -2)) == region_id and not _solid(point):
+					available[Vector2i(x, y)] = true
+					open_count += 1
+		if open_count < ceili(float(count * count) * 0.6):
+			continue
+		var connected_square := false
+		for y in range(count - 1):
+			for x in range(count - 1):
+				if available.has(Vector2i(x, y)) and available.has(Vector2i(x + 1, y)) and available.has(Vector2i(x, y + 1)) and available.has(Vector2i(x + 1, y + 1)):
+					connected_square = true
+		if not connected_square:
+			continue
+		var overlap := false
+		for existing in grass_rects:
+			if rect.grow(12.0).intersects(existing):
+				overlap = true
+				break
+		if not overlap:
+			grass_rects.append(rect)
+			return true
+	return false
+
 func _build_grass() -> void:
-	# Reuse all reachable authored grass cells, then add a few patches on open
-	# floor. A separate RNG leaves patrol, loot, and level layouts unchanged.
 	grass_rects.clear()
 	var bounds := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
 	var region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
-	var offset := float(data.get("source_tile_offset", 0.5))
-	for c in data.get("source_grass", []):
-		var at := ORIGIN + (Vector2.ONE * offset + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
-		var patch := Rect2(at, Vector2.ONE * CELL * 2.0).intersection(bounds)
-		if patch.size.x < 24.0 or patch.size.y < 24.0:
-			continue
-		if int(region_by_cell.get(_to_cell(patch.get_center()), -2)) != region_id:
-			continue
-		# Do not change an authored starting encounter by spawning in cover.
-		if patch.grow(20.0).has_point(player_pos):
-			continue
-		grass_rects.append(patch)
 	if region_id < 0 or region_id >= walkable_regions.size():
 		return
 	var cells: Array = walkable_regions[region_id]
 	if cells.is_empty():
 		return
+	# Authored grass cells are seeds only: expand them into real connected beds
+	# or skip them rather than leave a lone source tile.
+	var offset := float(data.get("source_tile_offset", 0.5))
+	for c in data.get("source_grass", []):
+		var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
+		_try_grass_group(center, bounds, region_id)
+		if grass_rects.size() >= 3:
+			return
+	# This RNG is local: patrol routes, combat and loot remain unchanged.
 	var grass_rng := RandomNumberGenerator.new()
 	grass_rng.seed = 710931 + int(data.id) * 881
-	var added := 0
 	for attempt in range(mini(650, cells.size() * 3)):
 		var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
-		var center := _cell_center(cell.x, cell.y)
-		if center.distance_to(player_pos) < 190.0:
-			continue
-		for dimension in [128.0, 96.0, 64.0]:
-			var rect := Rect2(center - Vector2.ONE * dimension * 0.5, Vector2.ONE * dimension)
-			if not bounds.encloses(rect):
-				continue
-			var blocked := false
-			for obstacle in blocking_rects:
-				if obstacle.intersects(rect):
-					blocked = true
-					break
-			if blocked:
-				continue
-			for existing in grass_rects:
-				if rect.grow(16.0).intersects(existing):
-					blocked = true
-					break
-			if blocked:
-				continue
-			grass_rects.append(rect)
-			added += 1
-			break
-		if added >= 3:
-			break
-	# Very narrow maps still get at least one reachable grass patch.
+		_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id)
+		if grass_rects.size() >= 3:
+			return
+	# Exhaustive deterministic fallback for a narrow but accessible map.
 	if grass_rects.is_empty():
 		for cell in cells:
-			var center: Vector2 = _cell_center(cell.x, cell.y)
-			var small := Rect2(center - Vector2.ONE * 20.0, Vector2.ONE * 40.0)
-			if center.distance_to(player_pos) < 75.0 or not bounds.encloses(small):
-				continue
-			var blocked := false
-			for obstacle in blocking_rects:
-				if obstacle.intersects(small):
-					blocked = true
-					break
-			if not blocked:
-				grass_rects.append(small)
-				break
+			if _try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id):
+				return
 
 func in_grass(p: Vector2) -> bool:
 	for patch in grass_rects:
@@ -1321,8 +1325,8 @@ func _auto_attack() -> void:
 		return
 	var g: Dictionary = guards[best]
 	attack_cd = GameState.attack_cooldown()
-	# Behind the guard's facing arc gives a silent-bonus instant kill. Nearby
-	# witnesses still react to any takedown, including from behind.
+	# Every enemy falls to one melee attack; the existing backstab condition
+	# still controls the silent bonus and nearby witnesses still react.
 	var to_player: Vector2 = (player_pos - g.pos).normalized()
 	var facing := Vector2.from_angle(g.face)
 	var from_behind := facing.dot(to_player) < -0.25
@@ -1334,20 +1338,9 @@ func _auto_attack() -> void:
 	Sfx.play("stab")
 	GameState.vibrate(18)
 	if from_behind and unaware:
-		g.hp = 0
 		backstabs += 1
-	else:
-		g.hp -= GameState.player_damage()
-	if g.hp <= 0:
-		_kill_guard(best, from_behind and unaware)
-	else:
-		# The slash is non-lethal feedback only. A kill leaves blood alone.
-		effects.append({"pos": g.pos, "t": 0.22, "max": 0.22, "kind": "slash", "angle": player_face})
-		g.alert = 1.0
-		g.state = GState.ALERT
-		g.last_seen = player_pos
-		g.chase_left = _chase_duration(g)
-		g.rig.play_anim("hurt", true)
+	g.hp = 0
+	_kill_guard(best, from_behind and unaware)
 
 func _kill_guard(index: int, silent := false) -> void:
 	var g: Dictionary = guards[index]
@@ -1565,6 +1558,14 @@ func _redirect_traffic_recovery(g: Dictionary, target: Vector2) -> bool:
 			return true
 	return false
 
+func _guard_touches_player(g: Dictionary) -> bool:
+	# Guards are manually simulated Node2D rigs, so compare their real body
+	# footprints. The center-to-center line must also be free of cover.
+	if not bool(g.get("alive", false)):
+		return false
+	var radius := PLAYER_HIT_RADIUS + GUARD_TOUCH_RADIUS * absf(float(g.rig.scale.x))
+	return g.pos.distance_squared_to(player_pos) <= radius * radius and _los(g.pos, player_pos)
+
 func _update_guards(delta: float) -> void:
 	var player_concealed := in_grass(player_pos)
 	for g in guards:
@@ -1573,11 +1574,17 @@ func _update_guards(delta: float) -> void:
 			continue
 		var previous_position: Vector2 = g.pos
 		g.light_age += delta
+		# Shot lock tracks actual shots independently of the ordinary sight
+		# reaction timer, even while vision is lost in the grass.
+		g.shot_lock = maxf(0.0, float(g.get("shot_lock", 0.0)) - delta)
+		var body_touch := _guard_touches_player(g)
+		var first_body_touch := body_touch and not bool(g.get("touching_player", false))
+		g.touching_player = body_touch
 		var cone_sees := not player_concealed and _can_see(g.pos, g.face, player_pos, g.vision)
 		# An informed guard can turn toward and fire at a directly visible
 		# player outside its old cone; walls and vision range still block shots.
 		var informed_sees: bool = not player_concealed and g.state == GState.ALERT and not cone_sees and g.pos.distance_to(player_pos) <= float(g.vision) + PLAYER_LIGHT_RADIUS and _los(g.pos, player_pos)
-		var sees: bool = cone_sees or informed_sees
+		var sees: bool = cone_sees or informed_sees or body_touch
 		var first_contact: bool = sees and not g.sees_player
 		if sees:
 			if first_contact:
@@ -1586,9 +1593,9 @@ func _update_guards(delta: float) -> void:
 				if not already_in_alarm:
 					Sfx.play("suspect")
 				if newly_spotted:
-					# The spotter begins to chase first. Only an actual shot
-					# informs the other guards in this connected area.
-					g.shoot = FIRST_SHOT_DELAY
+					# Ordinary sight has the original reaction delay. A real body
+					# collision can fire as soon as the last-shot lock allows.
+					g.shoot = float(g.shot_lock) if body_touch else FIRST_SHOT_DELAY
 				g.burst = 0
 				g.path.clear()
 				g.pi = 0
@@ -1601,6 +1608,10 @@ func _update_guards(delta: float) -> void:
 			g.state = GState.ALERT
 		else:
 			g.alert = maxf(0, g.alert - delta * 0.7)
+		if first_body_touch:
+			# Touch overrules the sight reaction delay, but not a real gun's
+			# cooldown; repeated separation/recontact cannot spam extra shots.
+			g.shoot = minf(float(g.shoot), float(g.shot_lock))
 		g.sees_player = sees
 		match g.state:
 			GState.PATROL:
@@ -1639,9 +1650,9 @@ func _update_guards(delta: float) -> void:
 					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
 					g.rig.set_aiming(true, angle_difference(g.face, target_angle), first_contact)
 					g.shoot -= delta
-					if g.shoot <= 0:
-						_fire(g)
-						g.shoot = float(g.shot_interval)
+					if g.shoot <= 0 and float(g.shot_lock) <= 0.0:
+						if _fire(g):
+							g.shoot = float(g.shot_interval)
 				else:
 					g.rig.set_aiming(false)
 				if g.state == GState.ALERT:
@@ -1710,11 +1721,11 @@ func _update_guards(delta: float) -> void:
 		g.rig.set_aiming(sees, aim_offset)
 		_sync_guard_marker(g)
 
-func _fire(g: Dictionary) -> void:
-	# Defense in depth: direct callers cannot shoot through cover or at a
-	# player concealed in grass. Projectiles already in flight still travel.
-	if in_grass(player_pos) or not _los(g.pos, player_pos):
-		return
+func _fire(g: Dictionary) -> bool:
+	# Defense in depth: grass only permits body contact, and cover always
+	# blocks shots. Projectiles already in flight continue as before.
+	if not _los(g.pos, player_pos) or (in_grass(player_pos) and not _guard_touches_player(g)):
+		return false
 	var target: Vector2 = player_pos - g.pos
 	var dir: Vector2 = target.normalized() if target.length_squared() > 0.001 else Vector2.from_angle(g.face)
 	# A small deterministic spread makes the officer's high accuracy real,
@@ -1730,9 +1741,11 @@ func _fire(g: Dictionary) -> void:
 	var muzzle: float = maxf(0.0, minf(tip_offset, minf(clear_distance - 0.1, target.length() - PLAYER_HIT_RADIUS * 0.5)))
 	bullets.append({"pos": g.pos + dir * muzzle, "vel": dir * BULLET_SPEED,
 		"life": 1.6, "damage": float(g.get("shot_damage", BULLET_DAMAGE))})
+	g.shot_lock = float(g.shot_interval)
 	g.rig.play_anim("shoot", true)
 	Sfx.play("shot")
 	_alarm_others(g)
+	return true
 
 func _choose_roam_target(g: Dictionary) -> bool:
 	var from := _to_cell(g.pos)
@@ -2162,10 +2175,13 @@ func _update_effects(delta: float) -> void:
 
 func _update_stealth_hud() -> void:
 	var seen := false
+	var touched := false
 	for g in guards:
 		if g.alive and g.state == GState.ALERT:
 			seen = true
-	if in_grass(player_pos):
+		if _guard_touches_player(g):
+			touched = true
+	if in_grass(player_pos) and not touched:
 		status_label.text = "HIDDEN IN GRASS"
 		status_label.add_theme_color_override("font_color", Color("7CFC7C"))
 	elif seen:

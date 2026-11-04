@@ -151,7 +151,7 @@ func _ankle_pivot(node_name: String) -> Node2D:
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	art.texture = FOOT
 	art.offset = Vector2(-12, -50)
-	art.scale = Vector2(1.0, 1.4)
+	art.scale = Vector2(1.0, 1.55)
 	node.add_child(art)
 	return node
 
@@ -221,7 +221,7 @@ func _set_leg(pivot: Node2D, art: Sprite2D, ankle: Node2D, hip: Vector2, target:
 	var direction := delta.angle()
 	pivot.position = hip - centre
 	pivot.rotation = direction
-	art.scale = Vector2(maxf(0.01, delta.length() / 346.0), 1.4)
+	art.scale = Vector2(maxf(0.01, delta.length() / 346.0), 1.55)
 	ankle.position = target - centre
 	ankle.rotation = direction + deg_to_rad(flex_degrees)
 

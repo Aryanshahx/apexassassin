@@ -80,7 +80,20 @@ func _draw_source_grass() -> void:
     # The same ground rectangles used for stealth are drawn here. These are
     # decoration only: cover, pathfinding and collision are untouched.
     for patch in level.grass_rects:
-        draw_texture_rect(GRASS, patch, false)
+        # Repeat the dense reference grass within each continuous bed, rather
+        # than presenting disconnected decorative single tiles.
+        var tile_size := 64.0
+        var yy := 0.0
+        while yy < patch.size.y:
+            var hh: float = minf(tile_size, patch.size.y - yy)
+            var xx := 0.0
+            while xx < patch.size.x:
+                var ww: float = minf(tile_size, patch.size.x - xx)
+                var dst := Rect2(patch.position + Vector2(xx, yy), Vector2(ww, hh))
+                var src := Rect2(Vector2.ZERO, GRASS.get_size() * Vector2(ww, hh) / tile_size)
+                draw_texture_rect_region(GRASS, dst, src)
+                xx += tile_size
+            yy += tile_size
 
 func _draw_floor_details() -> void:
     # Existing precomputed details are purely cosmetic, remain walkable, and
