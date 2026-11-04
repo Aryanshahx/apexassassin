@@ -82,6 +82,8 @@ func _ready() -> void:
 		card.size = Vector2(186, 202)
 		card.focus_mode = Control.FOCUS_ALL
 		card.clip_contents = true
+		# The actual successful pick plays unlockkey; no simultaneous generic tap.
+		card.set_meta("apex_suppress_ui_tap", true)
 		card.add_theme_stylebox_override("normal", _box(Color("1a3040"), Color("c49d55"), 14, 3, 7))
 		card.add_theme_stylebox_override("hover", _box(Color("274b59"), Color("ffe3a1"), 14, 4, 7))
 		card.add_theme_stylebox_override("pressed", _box(Color("142936"), Color("ffde82"), 14, 4, 3))

@@ -10,6 +10,7 @@ const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const FiveLooks := preload("res://scripts/game/ten_character_selection.gd")
 const AnimatedLookPreview := preload("res://scripts/ui/animated_look_preview.gd")
+const ShineShader := preload("res://scripts/ui/sweep_shine.gdshader")
 
 var canvas: Control
 var cash_label: Label
@@ -27,6 +28,15 @@ var design_h := 1280.0
 var wheel_button: BaseButton
 var wheel_badge_pos := Vector2.ZERO
 var wheel_badge: Control
+# Collection swipes begin over cards as well as empty space. A completed drag
+# is never allowed to activate the card under the finger.
+var collection_scroll: ScrollContainer
+var _collection_touch := -1
+var _collection_mouse := false
+var _collection_start_y := 0.0
+var _collection_start_scroll := 0
+var _collection_moved := false
+var _collection_suppress_until := 0
 
 func _ready() -> void:
 	# The warehouse remains the approved game artwork. The selected character,
@@ -460,7 +470,19 @@ func _build_start() -> void:
 	b.add_theme_stylebox_override("hover", _raised_box(Color("ffd261"), Color("9e6c1f"), 25, 6))
 	b.add_theme_stylebox_override("pressed", _raised_box(Color("e5a521"), Color("744a0d"), 25, 6))
 	b.pressed.connect(func(): GameState.start_level(GameState.current_level))
+	b.clip_contents = true
 	canvas.add_child(b)
+	var shine := ColorRect.new()
+	shine.name = "StartButtonShine"
+	shine.color = Color.WHITE
+	shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var material := ShaderMaterial.new()
+	material.shader = ShineShader
+	material.set_shader_parameter("rounded_button", true)
+	material.set_shader_parameter("shine_color", Color(1.0, 0.98, 0.82, 0.42))
+	shine.material = material
+	b.add_child(shine)
+	shine.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var title := _font(60, 0)
 	title.text = "START GAME"
 	title.add_theme_color_override("font_color", Color("251b16"))
@@ -548,9 +570,13 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	close.pressed.connect(_close_overlay)
 	head.add_child(close)
 	var scroll := ScrollContainer.new()
+	scroll.name = "CollectionScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.follow_focus = true
 	box.add_child(scroll)
+	collection_scroll = scroll
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 14)
@@ -619,11 +645,15 @@ func _new_look_card(id: String, selected: bool) -> Control:
 	return wrap
 
 func _on_look_pressed(id: String) -> void:
+	if _collection_moved or Time.get_ticks_msec() < _collection_suppress_until:
+		return
 	var old := FiveLooks.read_selection()
+	var position_before := collection_scroll.scroll_vertical if is_instance_valid(collection_scroll) else 0
 	if FiveLooks.save_selection(id, old.weapon):
 		Sfx.play("upgrade")
 		_refresh_card()
 		_open_assassins()
+		_restore_collection_position(collection_scroll, position_before)
 	else:
 		_toast("Could not save the appearance. Your progress is unchanged.")
 
@@ -693,11 +723,15 @@ func _new_weapon_card(id: String, selected: bool) -> Control:
 	return wrap
 
 func _on_new_weapon_pressed(id: String) -> void:
+	if _collection_moved or Time.get_ticks_msec() < _collection_suppress_until:
+		return
 	var old := FiveLooks.read_selection()
+	var position_before := collection_scroll.scroll_vertical if is_instance_valid(collection_scroll) else 0
 	if FiveLooks.save_selection(old.look, id):
 		Sfx.play("upgrade")
 		_refresh_card()
 		_open_knives()
+		_restore_collection_position(collection_scroll, position_before)
 	else:
 		_toast("Could not save the weapon. Your progress is unchanged.")
 
@@ -823,7 +857,62 @@ func _add_close(box: VBoxContainer) -> void:
 	close.pressed.connect(_close_overlay)
 	box.add_child(close)
 
+func _restore_collection_position(target: ScrollContainer, value: int) -> void:
+	await get_tree().process_frame
+	if is_instance_valid(target) and target == collection_scroll:
+		target.scroll_vertical = value
+
+func _input(event: InputEvent) -> void:
+	if not is_instance_valid(collection_scroll) or overlay == null or not collection_scroll.is_visible_in_tree():
+		return
+	if event is InputEventScreenTouch:
+		if event.pressed and _collection_touch == -1 and collection_scroll.get_global_rect().has_point(event.position):
+			_collection_touch = event.index
+			_collection_begin(event.position)
+		elif not event.pressed and event.index == _collection_touch:
+			_collection_finish()
+			_collection_touch = -1
+	elif event is InputEventScreenDrag and event.index == _collection_touch:
+		_collection_drag(event.position)
+	elif event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION:
+		if event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and collection_scroll.get_global_rect().has_point(event.position):
+			collection_scroll.scroll_vertical += -120 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 120
+			get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed and _collection_touch == -1 and collection_scroll.get_global_rect().has_point(event.position):
+				_collection_mouse = true
+				_collection_begin(event.position)
+			elif not event.pressed and _collection_mouse:
+				_collection_finish()
+				_collection_mouse = false
+	elif event is InputEventMouseMotion and _collection_mouse and event.device != InputEvent.DEVICE_ID_EMULATION:
+		_collection_drag(event.position)
+
+func _collection_begin(point: Vector2) -> void:
+	_collection_start_y = (collection_scroll.get_global_transform().affine_inverse() * point).y
+	_collection_start_scroll = collection_scroll.scroll_vertical
+	_collection_moved = false
+
+func _collection_drag(point: Vector2) -> void:
+	var local_y := (collection_scroll.get_global_transform().affine_inverse() * point).y
+	var distance := local_y - _collection_start_y
+	if absf(distance) < 8.0 and not _collection_moved:
+		return
+	_collection_moved = true
+	_collection_suppress_until = Time.get_ticks_msec() + 250
+	collection_scroll.scroll_vertical = _collection_start_scroll - roundi(distance)
+	get_viewport().set_input_as_handled()
+
+func _collection_finish() -> void:
+	if _collection_moved:
+		_collection_suppress_until = Time.get_ticks_msec() + 250
+	_collection_moved = false
+
 func _close_overlay() -> void:
+	collection_scroll = null
+	_collection_touch = -1
+	_collection_mouse = false
+	_collection_moved = false
 	if overlay:
 		overlay.queue_free()
 		overlay = null

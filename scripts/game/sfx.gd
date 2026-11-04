@@ -63,7 +63,8 @@ func _register_button(node: Node) -> void:
 func _button_down(button: BaseButton) -> void:
 	if not is_instance_valid(button) or button.disabled:
 		return
-	play("ui_tap", -3.0)
+	if not bool(button.get_meta("apex_suppress_ui_tap", false)):
+		play("ui_tap", -3.0)
 	# A scale pulse belongs to the pressed button itself. It does not draw a
 	# destination ring or touch highlight on the gameplay field.
 	if button.has_meta("apex_tap_tween"):

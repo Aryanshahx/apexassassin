@@ -277,10 +277,13 @@ func _process(delta: float) -> void:
 	if state == "hurt" and elapsed >= 0.28:
 		state = "run" if moving else "idle"
 		elapsed = 0.0
-	knife_shoulder.rotation = deg_to_rad(-3.0 * cycle)
-	knife_elbow.rotation = deg_to_rad(-15.0 * cycle + 7.0 * wave)
-	free_shoulder.rotation = deg_to_rad(2.5 * cycle)
-	wrist.rotation = deg_to_rad(-4.5 * wave)
+	# Opposite shoulder swings during every character's walking gait. The arm,
+	# elbow, hand and weapon stay parented to their original shoulder pivots.
+	var shoulder_gait := sin(walk_time * TAU * 1.5) if moving and not attack_active and not dead else 0.0
+	knife_shoulder.rotation = deg_to_rad(-3.0 * cycle + 5.5 * shoulder_gait)
+	knife_elbow.rotation = deg_to_rad(-15.0 * cycle + 7.0 * wave + 2.0 * shoulder_gait)
+	free_shoulder.rotation = deg_to_rad(2.5 * cycle - 6.0 * shoulder_gait)
+	wrist.rotation = deg_to_rad(-4.5 * wave - 1.0 * shoulder_gait)
 	free_pivot.rotation = deg_to_rad(-3.0 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else deg_to_rad(2.0 * wave)
 	head_pivot.rotation = deg_to_rad(2.5 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else 0.0
 	ankle_flex_a = 10.0 * wave

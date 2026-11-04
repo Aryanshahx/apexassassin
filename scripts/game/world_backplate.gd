@@ -17,6 +17,7 @@ const FLOORS := {
 const WALL_H := preload("res://assets/environment/v71/wall_h.png")
 const WALL_V := preload("res://assets/environment/v71/wall_v.png")
 const GRASS := preload("res://assets/environment/stealth-grass.png")
+const BLOOD_TEX := preload("res://assets/fx/blood_splatter_real.png")
 const MARK_H := preload("res://assets/environment/v71/hazard_mark_h.png")
 const MARK_V := preload("res://assets/environment/v71/hazard_mark_v.png")
 const GLOW := preload("res://assets/environment/v71/glow_warm.png")
@@ -77,23 +78,11 @@ func _draw_floor() -> void:
                 draw_texture_rect_region(tex,clipped,source)
 
 func _draw_source_grass() -> void:
-    # The same ground rectangles used for stealth are drawn here. These are
-    # decoration only: cover, pathfinding and collision are untouched.
-    for patch in level.grass_rects:
-        # Repeat the dense reference grass within each continuous bed, rather
-        # than presenting disconnected decorative single tiles.
-        var tile_size := 64.0
-        var yy := 0.0
-        while yy < patch.size.y:
-            var hh: float = minf(tile_size, patch.size.y - yy)
-            var xx := 0.0
-            while xx < patch.size.x:
-                var ww: float = minf(tile_size, patch.size.x - xx)
-                var dst := Rect2(patch.position + Vector2(xx, yy), Vector2(ww, hh))
-                var src := Rect2(Vector2.ZERO, GRASS.get_size() * Vector2(ww, hh) / tile_size)
-                draw_texture_rect_region(GRASS, dst, src)
-                xx += tile_size
-            yy += tile_size
+    # All generated rectangles are full 32-unit source tiles. A faint ground
+    # layer plus the translucent canopy above actors shows them moving under it.
+    for tile: Rect2 in level.grass_rects:
+        if is_equal_approx(tile.size.x, 32.0) and is_equal_approx(tile.size.y, 32.0):
+            draw_texture_rect(GRASS, tile.grow(2.0), false, Color(1, 1, 1, 0.54))
 
 func _draw_floor_details() -> void:
     # Existing precomputed details are purely cosmetic, remain walkable, and
@@ -152,6 +141,27 @@ func _draw_cover() -> void:
             draw_texture_rect(tex,Rect2(r.position+Vector2(half,0),Vector2(r.size.x-half,r.size.y)),false)
         else:
             draw_texture_rect(tex,r,false)
+    _draw_prop_blood()
+
+func _draw_prop_blood() -> void:
+    # Paint only the overlap with a real prop/wall; its texture remains visible
+    # underneath. Unclipped floor decals are already drawn in the level layer.
+    var covers: Array = level.wall_rects + level.crate_rects
+    var source_size := BLOOD_TEX.get_size()
+    for splat in level.blood_splats:
+        var side := float(splat.get("size", 132.0))
+        var image_rect := Rect2(Vector2(splat.pos) - Vector2.ONE * side * 0.5, Vector2.ONE * side)
+        for cover: Rect2 in covers:
+            var clipped := _prop_stain_overlap(splat, cover)
+            if clipped.size.x <= 0.0 or clipped.size.y <= 0.0:
+                continue
+            var source := Rect2((clipped.position - image_rect.position) / side * source_size, clipped.size / side * source_size)
+            draw_texture_rect_region(BLOOD_TEX, clipped, source, Color(1, 1, 1, 0.94))
+
+func _prop_stain_overlap(splat: Dictionary, cover: Rect2) -> Rect2:
+    var side := float(splat.get("size", 132.0))
+    var image_rect := Rect2(Vector2(splat.pos) - Vector2.ONE * side * 0.5, Vector2.ONE * side)
+    return image_rect.intersection(cover)
 
 func _draw_shadow(r: Rect2) -> void:
     draw_rect(Rect2(r.position+Vector2(3,3),r.size),Color(0.02,0.025,0.03,0.24))

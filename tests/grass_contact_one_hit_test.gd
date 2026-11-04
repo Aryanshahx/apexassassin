@@ -20,8 +20,9 @@ func _run() -> void:
 	gs.sound_enabled = false
 	gs.haptics_enabled = false
 	var Level = load("res://scripts/game/level.gd")
-	var sizes := {}
+	var layouts := {}
 	var grouped_patches := 0
+	var full_tiles := 0
 	for n in range(1, 101):
 		var map = Level.new()
 		map._load_level(n)
@@ -30,34 +31,49 @@ func _run() -> void:
 		var blockers: Array = map.blocking_rects.duplicate()
 		map._build_grass()
 		var region: int = int(map.region_by_cell.get(map._to_cell(map.player_pos), -1))
-		check(not map.grass_rects.is_empty(), "level %d has reachable grouped grass" % n)
+		check(map.grass_groups.size() == 3, "level %d has three connected grass groups" % n)
 		check(not map.in_grass(map.player_pos), "level %d spawn is not suddenly concealed" % n)
-		for patch: Rect2 in map.grass_rects:
+		var group_tile_total := 0
+		for group: Dictionary in map.grass_groups:
 			grouped_patches += 1
-			var label := "%dx%d" % [int(patch.size.x), int(patch.size.y)]
-			sizes[label] = int(sizes.get(label, 0)) + 1
-			check(patch.size.x >= map.CELL * 3.0 and patch.size.y >= map.CELL * 3.0, "level %d grass bed has at least three by three cells" % n)
-			check(int(map.region_by_cell.get(map._to_cell(patch.get_center()), -2)) == region and map.in_grass(patch.get_center()), "level %d patch center is reachable and concealing" % n)
-			var cells: int = roundi(patch.size.x / map.CELL)
-			var open_count := 0
-			var available := {}
-			for y in range(cells):
-				for x in range(cells):
-					var point: Vector2 = patch.position + Vector2(float(x) + 0.5, float(y) + 0.5) * map.CELL
-					if int(map.region_by_cell.get(map._to_cell(point), -2)) == region and not map._solid(point):
-						open_count += 1
-						available[Vector2i(x, y)] = true
-			var joined := false
-			for y in range(cells - 1):
-				for x in range(cells - 1):
-					if available.has(Vector2i(x, y)) and available.has(Vector2i(x + 1, y)) and available.has(Vector2i(x, y + 1)) and available.has(Vector2i(x + 1, y + 1)): joined = true
-			check(open_count >= ceili(float(cells * cells) * 0.6) and joined, "level %d grass is mostly reachable floor and contains an adjoining 2x2 clearing" % n)
+			layouts[group.layout] = int(layouts.get(group.layout, 0)) + 1
+			var tiles: Array = group.tiles
+			var cells: Array = group.cells
+			group_tile_total += tiles.size()
+			check(tiles.size() >= 3 and tiles.size() == cells.size(), "level %d group contains at least three complete tiles" % n)
+			var tile_ok := true
+			var navigable_guard_tile := false
+			for i in range(tiles.size()):
+				var tile: Rect2 = tiles[i]
+				var cell: Vector2i = cells[i]
+				full_tiles += 1
+				if tile.size != Vector2.ONE * map.GRASS_TILE or not map.in_grass(tile.get_center()) or int(map.region_by_cell.get(cell, -2)) != region:
+					tile_ok = false
+				for obstacle: Rect2 in blockers:
+					if obstacle.intersects(tile, true): tile_ok = false
+				if map.guard_grid.is_in_boundsv(cell) and not map.guard_grid.is_point_solid(cell):
+					navigable_guard_tile = true
+			check(tile_ok, "level %d group has whole uncut reachable tiles clear of cover" % n)
+			check(navigable_guard_tile, "level %d grass group offers a guard-traversable tile" % n)
+			var visited := {}
+			var queue: Array[Vector2i] = [cells[0]]
+			visited[cells[0]] = true
+			while not queue.is_empty():
+				var current: Vector2i = queue.pop_front()
+				for direction in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+					var neighbour: Vector2i = current + direction
+					if cells.has(neighbour) and not visited.has(neighbour):
+						visited[neighbour] = true
+						queue.append(neighbour)
+			check(visited.size() == cells.size(), "level %d grass group is physically connected" % n)
+		check(group_tile_total == map.grass_rects.size(), "level %d has no standalone grass tiles" % n)
 		check(map.blocking_rects == blockers, "level %d grass never changes collision" % n)
 		var first: Array = map.grass_rects.duplicate()
 		map._build_grass()
 		check(first == map.grass_rects, "level %d grass is repeatable" % n)
 		map.free()
-	print("GROUPED GRASS: ", grouped_patches, " beds in 100 levels; dimensions ", sizes)
+	check(layouts.size() >= 3, "connected grass uses a variety of complete-tile layouts")
+	print("GROUPED GRASS: ", grouped_patches, " groups, ", full_tiles, " complete tiles in 100 levels; layouts ", layouts)
 
 	gs.selected_assassin = "ronin"
 	gs.selected_knife = "standard"

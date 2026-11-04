@@ -47,11 +47,29 @@ const KEY_TEX := preload("res://assets/ui/v72/key.png")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
+const BLOOD_TEX := preload("res://assets/fx/blood_splatter_real.png")
+const BLOOD_FOOTPRINT_TEX := preload("res://assets/fx/blood_footprint.png")
+const BLOOD_DECAL_SIZE := 132.0
+const BLOOD_PICKUP_RADIUS := 28.0
+const BLOOD_PRINT_SPACING := 24.0
+const BLOOD_PRINT_LIMIT := 180
+const GRASS_TILE := 32.0
+# All shapes are connected, at least nine whole tiles, and are placed only on
+# navigable floor. The dots are empty cells, never clipped or half grass tiles.
+const GRASS_LAYOUTS := [
+	{"name": "square", "rows": ["###", "###", "###"]},
+	{"name": "wide", "rows": ["####", "####", "####"]},
+	{"name": "tall", "rows": ["###", "###", "###", "###"]},
+	{"name": "staggered", "rows": [".###", "####", "####", ".###"]},
+	{"name": "corner", "rows": ["###.", "####", "####", "###."]},
+	{"name": "cross", "rows": [".###.", "#####", "#####", ".###."]},
+]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Ten selectable characters. Guards keep their approved six-enemy gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
 const FiveLookSelection := preload("res://scripts/game/ten_character_selection.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
+const GrassCanopy := preload("res://scripts/game/grass_canopy.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
 const GUARD_GAP := 78.0
@@ -85,7 +103,7 @@ const ENEMY_PROFILES := {
 	"officer": {"weapon": "M4A1-S", "damage": 120.0, "interval": 0.48, "speed": 61.0, "vision": 260.0, "hp": 2, "spread": 0.3},
 	"heavy":   {"weapon": "MG-500", "damage": 100.0, "interval": 0.18, "speed": 45.0, "vision": 225.0, "hp": 3, "spread": 4.0},
 	"swat":    {"weapon": "Vector-X", "damage": 145.0, "interval": 0.26, "speed": 68.0, "vision": 250.0, "hp": 2, "spread": 1.5},
-	"sniper":  {"weapon": "SR-98",  "damage": 500.0, "interval": 1.65, "speed": 40.0, "vision": 340.0, "hp": 1, "spread": 0.1},
+	"sniper":  {"weapon": "SR-98",  "damage": 500.0, "interval": 1.65, "speed": 40.0, "vision": 340.0, "hp": 1, "spread": 0.02},
 }
 const DRAG_REPATH_INTERVAL := 0.045
 
@@ -102,10 +120,13 @@ var blocking_rects: Array[Rect2] = []
 # Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
 var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
-# Ground-only grass rectangles. They never add collision or change the grid.
+# Complete 32-unit grass tiles, grouped into connected layouts. They never
+# add collision or modify either navigation grid.
 var grass_rects: Array[Rect2] = []
+var grass_groups: Array[Dictionary] = []
 var active_look := "standard"
 var player_pos := Vector2.ZERO
+var player_velocity := Vector2.ZERO
 var player_face := -PI / 2
 var player_path := PackedVector2Array()
 var player_router: RefCounted
@@ -120,6 +141,10 @@ var bullets: Array[Dictionary] = []
 var effects: Array[Dictionary] = []
 var loot_particles: Array[Dictionary] = []
 var blood_splats: Array[Dictionary] = []
+var blood_footprints: Array[Dictionary] = []
+var blood_steps_remaining := 0
+var blood_step_distance := 0.0
+var blood_left_foot := false
 var key_on_floor := false
 var key_position := Vector2.ZERO
 var key_icon: TextureRect
@@ -164,6 +189,7 @@ var guard_walkable_regions: Array = []
 var guard_region_by_cell := {}
 var map_backplate: Node2D
 var map_cover: Node2D
+var map_grass: Node2D
 var fx_font: FontVariation
 var backstabs := 0
 var pause_btn: Button
@@ -208,6 +234,10 @@ func _ready() -> void:
 	_build_guards()
 	_place_level_key()
 	_build_player()
+	# Above both actor rigs and cover, but below health/alert labels and HUD.
+	map_grass = GrassCanopy.new()
+	map_grass.setup(self)
+	add_child(map_grass)
 	_build_hud()
 	player_hp = _player_max_health()
 	_build_player_health_bar()
@@ -481,47 +511,53 @@ func _build_floor_details() -> void:
 		placed += 1
 
 func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int) -> bool:
-	# Dense beds like the reference: each patch is at least 3 by 3 floor
-	# cells. Cover is drawn above the grass, so a small obstacle may sit in a
-	# bed without changing collision or producing isolated single tiles.
-	for dimension in [160.0, 128.0, 96.0]:
-		var rect := Rect2(center - Vector2.ONE * dimension * 0.5, Vector2.ONE * dimension)
-		if not bounds.encloses(rect) or rect.grow(20.0).has_point(player_pos):
-			continue
-		if int(region_by_cell.get(_to_cell(center), -2)) != region_id or _solid(center):
-			continue
-		# Keep the majority of each bed on actual reachable floor. Also require
-		# a connected two-by-two clearing, even when cover crosses the bed.
-		var count := roundi(dimension / CELL)
-		var available := {}
-		var open_count := 0
-		for y in range(count):
-			for x in range(count):
-				var point := rect.position + Vector2(float(x) + 0.5, float(y) + 0.5) * CELL
-				if int(region_by_cell.get(_to_cell(point), -2)) == region_id and not _solid(point):
-					available[Vector2i(x, y)] = true
-					open_count += 1
-		if open_count < ceili(float(count * count) * 0.6):
-			continue
-		var connected_square := false
-		for y in range(count - 1):
-			for x in range(count - 1):
-				if available.has(Vector2i(x, y)) and available.has(Vector2i(x + 1, y)) and available.has(Vector2i(x, y + 1)) and available.has(Vector2i(x + 1, y + 1)):
-					connected_square = true
-		if not connected_square:
-			continue
-		var overlap := false
-		for existing in grass_rects:
-			if rect.grow(12.0).intersects(existing):
-				overlap = true
+	var anchor := _to_cell(center)
+	var first := (int(data.id) + grass_groups.size() * 2) % GRASS_LAYOUTS.size()
+	for layout_index in range(GRASS_LAYOUTS.size()):
+		var layout: Dictionary = GRASS_LAYOUTS[(first + layout_index) % GRASS_LAYOUTS.size()]
+		var rows: Array = layout.rows
+		var width := String(rows[0]).length()
+		var start := anchor - Vector2i(int(width / 2), int(rows.size() / 2))
+		var tiles: Array[Rect2] = []
+		var cells: Array[Vector2i] = []
+		var valid := true
+		for y in range(rows.size()):
+			var row := String(rows[y])
+			for x in range(width):
+				if row.substr(x, 1) != "#":
+					continue
+				var cell := start + Vector2i(x, y)
+				var tile := Rect2(ORIGIN + Vector2(cell) * GRASS_TILE, Vector2.ONE * GRASS_TILE)
+				if not bounds.encloses(tile) or tile.grow(20.0).has_point(player_pos) or int(region_by_cell.get(cell, -2)) != region_id:
+					valid = false
+					break
+				# No partial artwork behind a prop or wall: do not alter the prop,
+				# crop a tile, or move any existing level obstacle to make it fit.
+				for obstacle in blocking_rects:
+					if obstacle.intersects(tile, true):
+						valid = false
+						break
+				if not valid:
+					break
+				for existing in grass_rects:
+					if tile.grow(8.0).intersects(existing, true):
+						valid = false
+						break
+				if not valid:
+					break
+				tiles.append(tile)
+				cells.append(cell)
+			if not valid:
 				break
-		if not overlap:
-			grass_rects.append(rect)
+		if valid and tiles.size() >= 3:
+			grass_rects.append_array(tiles)
+			grass_groups.append({"layout": String(layout.name), "tiles": tiles, "cells": cells})
 			return true
 	return false
 
 func _build_grass() -> void:
 	grass_rects.clear()
+	grass_groups.clear()
 	var bounds := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
 	var region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
 	if region_id < 0 or region_id >= walkable_regions.size():
@@ -529,32 +565,31 @@ func _build_grass() -> void:
 	var cells: Array = walkable_regions[region_id]
 	if cells.is_empty():
 		return
-	# Authored grass cells are seeds only: expand them into real connected beds
-	# or skip them rather than leave a lone source tile.
+	# Authored cells are placement seeds, never standalone decorative tiles.
 	var offset := float(data.get("source_tile_offset", 0.5))
 	for c in data.get("source_grass", []):
 		var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
 		_try_grass_group(center, bounds, region_id)
-		if grass_rects.size() >= 3:
+		if grass_groups.size() >= 3:
 			return
-	# This RNG is local: patrol routes, combat and loot remain unchanged.
+	# Local RNG leaves combat, enemy patrols, loot and level generation alone.
 	var grass_rng := RandomNumberGenerator.new()
 	grass_rng.seed = 710931 + int(data.id) * 881
 	for attempt in range(mini(650, cells.size() * 3)):
 		var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
 		_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id)
-		if grass_rects.size() >= 3:
+		if grass_groups.size() >= 3:
 			return
-	# Exhaustive deterministic fallback for a narrow but accessible map.
-	if grass_rects.is_empty():
-		for cell in cells:
-			if _try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id):
-				return
+	# Deterministic exhaustive fallback on the existing accessible floor.
+	for cell in cells:
+		_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id)
+		if grass_groups.size() >= 3:
+			return
 
 func in_grass(p: Vector2) -> bool:
-	for patch in grass_rects:
-		# The three-unit transparent fringe is not concealment.
-		if patch.grow(-3.0).has_point(p):
+	# Adjacent complete tiles have no artificial stealth gaps at their seams.
+	for tile in grass_rects:
+		if tile.has_point(p):
 			return true
 	return false
 
@@ -1062,7 +1097,11 @@ func _move_player(delta: float) -> void:
 				player_path.remove_at(0)
 	var displacement := player_pos - before
 	var moved := displacement.length_squared() > 0.0001
+	player_velocity = displacement / delta if moved and delta > 0.00001 else Vector2.ZERO
 	if moved:
+		_update_bloody_steps(before, player_pos)
+		if is_instance_valid(map_grass):
+			map_grass.disturb(player_pos, displacement)
 		# Smooth facing across route corners instead of snapping to every grid turn.
 		player_face = lerp_angle(player_face, displacement.angle(), 1.0 - exp(-16.0 * delta))
 	player_rig.position = player_pos
@@ -1384,7 +1423,56 @@ func _add_blood_splatter(point: Vector2) -> void:
 		drops.append({"offset": Vector2.from_angle(angle) * distance, "radius": rng.randf_range(2.2, 6.4)})
 	# Stains belong to this level instance and are never faded or capped. A new
 	# level/restart constructs a fresh instance and thus clears them naturally.
-	blood_splats.append({"pos": point, "drops": drops})
+	blood_splats.append({"pos": point, "drops": drops, "size": BLOOD_DECAL_SIZE})
+	# Cover is retained, so only re-record it when a new stain can land on it.
+	if is_instance_valid(map_cover):
+		map_cover.queue_redraw()
+
+func _update_bloody_steps(from: Vector2, to: Vector2) -> void:
+	var movement := to - from
+	var distance := movement.length()
+	if distance <= 0.0001:
+		return
+	var direction := movement / distance
+	var first_contact := INF
+	for splat in blood_splats:
+		var toward: Vector2 = Vector2(splat.pos) - from
+		var projection := toward.dot(direction)
+		var across_squared := toward.length_squared() - projection * projection
+		var radius_squared := BLOOD_PICKUP_RADIUS * BLOOD_PICKUP_RADIUS
+		if across_squared <= radius_squared:
+			var entry := maxf(0.0, projection - sqrt(maxf(0.0, radius_squared - across_squared)))
+			var exit := projection + sqrt(maxf(0.0, radius_squared - across_squared))
+			if exit >= 0.0 and entry <= distance:
+				first_contact = minf(first_contact, entry)
+	var start := 0.0
+	if not is_inf(first_contact):
+		if blood_steps_remaining <= 0:
+			start = first_contact
+			blood_step_distance = 0.0
+		blood_steps_remaining = 12
+	if blood_steps_remaining <= 0:
+		blood_step_distance = 0.0
+		return
+	var consumed := start
+	var advance := BLOOD_PRINT_SPACING - blood_step_distance
+	while blood_steps_remaining > 0 and consumed + advance <= distance + 0.0001:
+		consumed += advance
+		var side := -1.0 if blood_left_foot else 1.0
+		var point := from + direction * consumed + Vector2(-direction.y, direction.x) * side * 5.0
+		if not _solid(point):
+			blood_footprints.append({"pos": point, "angle": direction.angle() + PI / 2.0,
+				"left": blood_left_foot, "opacity": clampf(0.28 + float(blood_steps_remaining) * 0.045, 0.28, 0.82)})
+			if blood_footprints.size() > BLOOD_PRINT_LIMIT:
+				blood_footprints.pop_front()
+		blood_left_foot = not blood_left_foot
+		blood_steps_remaining -= 1
+		blood_step_distance = 0.0
+		advance = BLOOD_PRINT_SPACING
+	if blood_steps_remaining > 0:
+		blood_step_distance += distance - consumed
+	else:
+		blood_step_distance = 0.0
 
 func _alert_guard(g: Dictionary, reported: Vector2) -> void:
 	var target_changed: bool = g.last_seen.distance_squared_to(reported) > CELL * CELL * 4.0
@@ -1696,6 +1784,8 @@ func _update_guards(delta: float) -> void:
 		g.rig.position = g.pos
 		g.rig.rotation = g.face + PI / 2
 		var did_move: bool = g.pos.distance_squared_to(previous_position) > 0.0001
+		if did_move and is_instance_valid(map_grass):
+			map_grass.disturb(g.pos, g.pos - previous_position)
 		# A close guard with a clean firing lane may stand and shoot; do not
 		# make it jitter just because a teammate blocks further approach.
 		var needs_escape: bool = not sees or g.pos.distance_to(g.last_seen) > float(g.vision) * 0.80
@@ -1721,13 +1811,46 @@ func _update_guards(delta: float) -> void:
 		g.rig.set_aiming(sees, aim_offset)
 		_sync_guard_marker(g)
 
+func _sniper_lead(g: Dictionary, target: Vector2, muzzle_offset: float) -> Vector2:
+	# A straight projectile intercepts the player's measured walking velocity;
+	# it never homes after launch, shoots through cover, or tracks hidden players.
+	if String(g.get("variant", "")) != "sniper" or player_velocity.length_squared() < 1.0:
+		return target
+	var muzzle := clampf(muzzle_offset, 0.0, maxf(0.0, target.length() - PLAYER_HIT_RADIUS * 0.5))
+	var a := player_velocity.length_squared() - BULLET_SPEED * BULLET_SPEED
+	var b := 2.0 * (target.dot(player_velocity) - BULLET_SPEED * muzzle)
+	var c := target.length_squared() - muzzle * muzzle
+	var time := -1.0
+	if absf(a) < 0.0001:
+		if absf(b) > 0.0001:
+			time = -c / b
+	else:
+		var discriminant := b * b - 4.0 * a * c
+		if discriminant >= 0.0:
+			var root := sqrt(discriminant)
+			var t1 := (-b - root) / (2.0 * a)
+			var t2 := (-b + root) / (2.0 * a)
+			if t1 > 0.0:
+				time = t1
+			if t2 > 0.0 and (time < 0.0 or t2 < time):
+				time = t2
+	if time <= 0.0 or time > 1.6:
+		return target
+	var predicted := player_pos + player_velocity * time
+	var arena := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
+	if not arena.has_point(predicted) or _solid(predicted) or not _los(g.pos, predicted):
+		return target
+	return predicted - Vector2(g.pos)
+
 func _fire(g: Dictionary) -> bool:
 	# Defense in depth: grass only permits body contact, and cover always
 	# blocks shots. Projectiles already in flight continue as before.
 	if not _los(g.pos, player_pos) or (in_grass(player_pos) and not _guard_touches_player(g)):
 		return false
 	var target: Vector2 = player_pos - g.pos
-	var dir: Vector2 = target.normalized() if target.length_squared() > 0.001 else Vector2.from_angle(g.face)
+	var tip_offset: float = absf(g.rig.muzzle.position.y) * g.rig.scale.x
+	var aim := _sniper_lead(g, target, tip_offset)
+	var dir: Vector2 = aim.normalized() if aim.length_squared() > 0.001 else Vector2.from_angle(g.face)
 	# A small deterministic spread makes the officer's high accuracy real,
 	# without consuming global RNG or altering authored level generation.
 	var shot_index := int(g.get("shots_fired", 0))
@@ -1736,7 +1859,6 @@ func _fire(g: Dictionary) -> bool:
 	dir = dir.rotated(angle)
 	# The long rifle is drawn on the character; launch from its pictured tip,
 	# but never teleport a projectile through cover or past a nearby player.
-	var tip_offset: float = absf(g.rig.muzzle.position.y) * g.rig.scale.x
 	var clear_distance: float = _raycast_distance(g.pos, dir, tip_offset)
 	var muzzle: float = maxf(0.0, minf(tip_offset, minf(clear_distance - 0.1, target.length() - PLAYER_HIT_RADIUS * 0.5)))
 	bullets.append({"pos": g.pos + dir * muzzle, "vel": dir * BULLET_SPEED,
@@ -2260,11 +2382,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		drag_repath = 0.0
 
 func _draw() -> void:
-	# Only the blood remains under actors, at full opacity for this level.
+	# The realistic wet decals and the shoe prints stay under actors and cover.
 	for splat in blood_splats:
-		draw_circle(splat.pos, 15.0, Color(0.42, 0.025, 0.035, 0.78))
-		for drop in splat.drops:
-			draw_circle(splat.pos + drop.offset, float(drop.radius), Color(0.52, 0.035, 0.045, 0.82))
+		var side := float(splat.get("size", BLOOD_DECAL_SIZE))
+		draw_texture_rect(BLOOD_TEX, Rect2(Vector2(splat.pos) - Vector2.ONE * side * 0.5, Vector2.ONE * side), false)
+	for print_data in blood_footprints:
+		var mirror := -1.0 if bool(print_data.left) else 1.0
+		draw_set_transform(Vector2(print_data.pos), float(print_data.angle), Vector2(mirror, 1.0))
+		draw_texture_rect(BLOOD_FOOTPRINT_TEX, Rect2(Vector2(-7.0, -13.0), Vector2(14.0, 26.0)), false, Color(1, 1, 1, float(print_data.opacity)))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if key_on_floor:
 		var bob := sin(elapsed * 4.0) * 3.0
 		# Keep the new portrait-shaped icon from stretching in world space.

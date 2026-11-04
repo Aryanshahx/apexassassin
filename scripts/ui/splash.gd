@@ -4,8 +4,11 @@ extends Control
 const IMAGE_SIZE := Vector2(720, 1280)
 const LOADING_PATCH_RECT := Rect2(235, 1118, 250, 60)
 const PUBLISHER_PATCH_RECT := Rect2(270, 1218, 180, 52)
+const TITLE_SHINE_RECT := Rect2(140, 45, 440, 220)
+const ShineShader := preload("res://scripts/ui/sweep_shine.gdshader")
 var bar: ProgressBar
 var bg: TextureRect
+var title_shine: TextureRect
 var loading_patch: TextureRect
 var publisher_patch: TextureRect
 var safe := Rect2()
@@ -22,6 +25,18 @@ func _ready() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	# The moving gleam is masked to the existing baked title letters only.
+	title_shine = TextureRect.new()
+	title_shine.name = "ApexAssassinTitleShine"
+	title_shine.texture = preload("res://assets/fx/splash_logo_shine_mask.png")
+	title_shine.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	title_shine.stretch_mode = TextureRect.STRETCH_SCALE
+	title_shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var material := ShaderMaterial.new()
+	material.shader = ShineShader
+	material.set_shader_parameter("shine_color", Color(1.0, 0.96, 0.88, 0.72))
+	title_shine.material = material
+	add_child(title_shine)
 	loading_patch = _make_patch("LoadingTextPatch", preload("res://assets/splash/loading_v61.png"))
 	publisher_patch = _make_patch("PublisherTextPatch", preload("res://assets/splash/publisher_v61.png"))
 
@@ -69,6 +84,8 @@ func _fit() -> void:
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED if cover else TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var factor := maxf(vp.x / IMAGE_SIZE.x, vp.y / IMAGE_SIZE.y) if cover else minf(vp.x / IMAGE_SIZE.x, vp.y / IMAGE_SIZE.y)
 	var origin := (vp - IMAGE_SIZE * factor) * 0.5
+	title_shine.position = origin + TITLE_SHINE_RECT.position * factor
+	title_shine.size = TITLE_SHINE_RECT.size * factor
 	loading_patch.position = origin + LOADING_PATCH_RECT.position * factor
 	loading_patch.size = LOADING_PATCH_RECT.size * factor
 	publisher_patch.position = origin + PUBLISHER_PATCH_RECT.position * factor
