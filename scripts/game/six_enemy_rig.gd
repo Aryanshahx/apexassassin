@@ -1,5 +1,5 @@
 extends "res://scripts/game/v72_sprite_rig.gd"
-## Six reference-guided enemy redraws. Existing guard AI and animation API are
+## Twelve reference-guided enemy redraws. Existing guard AI and animation API are
 ## retained; each image depicts its own gun already held between both fists.
 
 const Art := preload("res://scripts/game/six_enemy_art_meta.gd")

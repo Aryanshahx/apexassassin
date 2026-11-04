@@ -47,25 +47,31 @@ const KEY_TEX := preload("res://assets/ui/v72/key.png")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
-const BLOOD_TEX := preload("res://assets/fx/blood_splatter_real.png")
+const BLOOD_TEX := preload("res://assets/fx/blood_splatter_game.png")
 const BLOOD_FOOTPRINT_TEX := preload("res://assets/fx/blood_footprint.png")
 const BLOOD_DECAL_SIZE := 132.0
 const BLOOD_PICKUP_RADIUS := 28.0
 const BLOOD_PRINT_SPACING := 24.0
 const BLOOD_PRINT_LIMIT := 180
-const GRASS_TILE := 32.0
-# All shapes are connected, at least nine whole tiles, and are placed only on
-# navigable floor. The dots are empty cells, never clipped or half grass tiles.
+const GRASS_TILE := 40.0
+# Larger 40-unit whole tiles form connected patches. All preferred layouts
+# contain 12–16 tiles; compact fallbacks still cover more area than the old
+# minimum patch while fitting the narrowest existing arenas.
 const GRASS_LAYOUTS := [
-	{"name": "square", "rows": ["###", "###", "###"]},
-	{"name": "wide", "rows": ["####", "####", "####"]},
-	{"name": "tall", "rows": ["###", "###", "###", "###"]},
+	{"name": "square", "rows": ["####", "####", "####", "####"]},
+	{"name": "wide", "rows": ["#####", "#####", "#####"]},
+	{"name": "tall", "rows": ["###", "###", "###", "###", "###"]},
 	{"name": "staggered", "rows": [".###", "####", "####", ".###"]},
 	{"name": "corner", "rows": ["###.", "####", "####", "###."]},
 	{"name": "cross", "rows": [".###.", "#####", "#####", ".###."]},
+	{"name": "compact", "rows": ["###", "###", "###"]},
+	{"name": "strip-wide", "rows": ["####", "####"]},
+	{"name": "strip-tall", "rows": ["##", "##", "##", "##"]},
+	{"name": "short", "rows": ["###", "###"]},
+	{"name": "short-tall", "rows": ["##", "##", "##"]},
 ]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
-# Ten selectable characters. Guards keep their approved six-enemy gun rig.
+# Ten selectable characters. Guards keep their approved gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
 const FiveLookSelection := preload("res://scripts/game/ten_character_selection.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
@@ -104,6 +110,14 @@ const ENEMY_PROFILES := {
 	"heavy":   {"weapon": "MG-500", "damage": 100.0, "interval": 0.18, "speed": 45.0, "vision": 225.0, "hp": 3, "spread": 4.0},
 	"swat":    {"weapon": "Vector-X", "damage": 145.0, "interval": 0.26, "speed": 68.0, "vision": 250.0, "hp": 2, "spread": 1.5},
 	"sniper":  {"weapon": "SR-98",  "damage": 500.0, "interval": 1.65, "speed": 40.0, "vision": 340.0, "hp": 1, "spread": 0.02},
+	# Special enemies retain one-hit melee. Health here only permits Medic to
+	# heal already-wounded living allies; it never protects against the knife.
+	"medic":    {"weapon": "Med-Gun",      "damage": 105.0, "interval": 0.72, "speed": 56.0, "vision": 250.0, "hp": 2, "spread": 1.5},
+	"engineer": {"weapon": "Tesla-Gun",    "damage": 125.0, "interval": 1.10, "speed": 52.0, "vision": 250.0, "hp": 2, "spread": 1.0},
+	"bomber":   {"weapon": "GL-40",        "damage": 220.0, "interval": 1.45, "speed": 47.0, "vision": 245.0, "hp": 3, "spread": 1.2},
+	"shield":   {"weapon": "Pulse-SMG",    "damage": 130.0, "interval": 0.43, "speed": 48.0, "vision": 250.0, "hp": 3, "spread": 1.1},
+	"mutant":   {"weapon": "Bio-Rifle",    "damage": 110.0, "interval": 0.90, "speed": 61.0, "vision": 260.0, "hp": 2, "spread": 1.2},
+	"boss":     {"weapon": "Plasma-Rifle", "damage": 550.0, "interval": 1.85, "speed": 48.0, "vision": 300.0, "hp": 5, "spread": 0.25},
 }
 const DRAG_REPATH_INTERVAL := 0.045
 
@@ -120,7 +134,7 @@ var blocking_rects: Array[Rect2] = []
 # Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
 var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
-# Complete 32-unit grass tiles, grouped into connected layouts. They never
+# Complete 40-unit grass tiles, grouped into connected layouts. They never
 # add collision or modify either navigation grid.
 var grass_rects: Array[Rect2] = []
 var grass_groups: Array[Dictionary] = []
@@ -132,6 +146,11 @@ var player_path := PackedVector2Array()
 var player_router: RefCounted
 var player_hp := 1000.0
 var invuln := 0.0
+# Volatile combat states; never written to the player's save.
+var poison_ticks := 0
+var poison_timer := 0.0
+var poison_damage := 0.0
+var shock_slow_left := 0.0
 var attack_cd := 0.0
 var hunt_target := -1
 var repath := 0.0
@@ -510,12 +529,17 @@ func _build_floor_details() -> void:
 			floor_details.append({"kind": "arrow", "pos": p, "rot": float(rng.randi_range(0, 3)) * PI / 2.0})
 		placed += 1
 
-func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int) -> bool:
-	var anchor := _to_cell(center)
+func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int, min_tiles: int = 6) -> bool:
+	var anchor := Vector2i(floori((center.x - ORIGIN.x) / GRASS_TILE), floori((center.y - ORIGIN.y) / GRASS_TILE))
 	var first := (int(data.id) + grass_groups.size() * 2) % GRASS_LAYOUTS.size()
 	for layout_index in range(GRASS_LAYOUTS.size()):
 		var layout: Dictionary = GRASS_LAYOUTS[(first + layout_index) % GRASS_LAYOUTS.size()]
 		var rows: Array = layout.rows
+		var tile_count := 0
+		for row in rows:
+			tile_count += String(row).count("#")
+		if tile_count < min_tiles:
+			continue
 		var width := String(rows[0]).length()
 		var start := anchor - Vector2i(int(width / 2), int(rows.size() / 2))
 		var tiles: Array[Rect2] = []
@@ -528,7 +552,7 @@ func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int) -> bool:
 					continue
 				var cell := start + Vector2i(x, y)
 				var tile := Rect2(ORIGIN + Vector2(cell) * GRASS_TILE, Vector2.ONE * GRASS_TILE)
-				if not bounds.encloses(tile) or tile.grow(20.0).has_point(player_pos) or int(region_by_cell.get(cell, -2)) != region_id:
+				if not bounds.encloses(tile) or tile.grow(20.0).has_point(player_pos) or int(region_by_cell.get(_to_cell(tile.get_center()), -2)) != region_id:
 					valid = false
 					break
 				# No partial artwork behind a prop or wall: do not alter the prop,
@@ -565,26 +589,27 @@ func _build_grass() -> void:
 	var cells: Array = walkable_regions[region_id]
 	if cells.is_empty():
 		return
-	# Authored cells are placement seeds, never standalone decorative tiles.
+	# First search the entire accessible floor for genuinely larger patches,
+	# then use compact layouts only where the original geometry requires them.
+	# A local RNG does not perturb patrols, loot, or combat.
 	var offset := float(data.get("source_tile_offset", 0.5))
-	for c in data.get("source_grass", []):
-		var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
-		_try_grass_group(center, bounds, region_id)
-		if grass_groups.size() >= 3:
-			return
-	# Local RNG leaves combat, enemy patrols, loot and level generation alone.
-	var grass_rng := RandomNumberGenerator.new()
-	grass_rng.seed = 710931 + int(data.id) * 881
-	for attempt in range(mini(650, cells.size() * 3)):
-		var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
-		_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id)
-		if grass_groups.size() >= 3:
-			return
-	# Deterministic exhaustive fallback on the existing accessible floor.
-	for cell in cells:
-		_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id)
-		if grass_groups.size() >= 3:
-			return
+	for minimum in [12, 9, 8, 6]:
+		for c in data.get("source_grass", []):
+			var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
+			_try_grass_group(center, bounds, region_id, minimum)
+			if grass_groups.size() >= 3:
+				return
+		var grass_rng := RandomNumberGenerator.new()
+		grass_rng.seed = 710931 + int(data.id) * 881 + minimum * 37
+		for attempt in range(mini(650, cells.size() * 3)):
+			var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
+			_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id, minimum)
+			if grass_groups.size() >= 3:
+				return
+		for cell in cells:
+			_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id, minimum)
+			if grass_groups.size() >= 3:
+				return
 
 func in_grass(p: Vector2) -> bool:
 	# Adjacent complete tiles have no artificial stealth gaps at their seams.
@@ -667,7 +692,7 @@ func _player_max_health() -> float:
 	return GameState.max_health() * FiveLookSelection.health_multiplier(active_look)
 
 func _player_speed() -> float:
-	return GameState.player_speed() * FiveLookSelection.speed_multiplier(active_look)
+	return GameState.player_speed() * FiveLookSelection.speed_multiplier(active_look) * (0.68 if shock_slow_left > 0.0 else 1.0)
 
 func _build_player() -> void:
 	var appearance := FiveLookSelection.read_selection()
@@ -691,15 +716,23 @@ func _diamond_carrier_for_level(number: int, count: int) -> int:
 	return loot_rng.randi_range(0, count - 1) if loot_rng.randf() < DIAMOND_LEVEL_CHANCE else -1
 
 func _enemy_variant(number: int, index: int, _authored: Dictionary) -> String:
-	# Keep one baseline guard as a familiar progression reference, rotate the
-	# others, and introduce the deadliest classes after the earliest floors.
+	# Do not change enemy counts or spawn positions. Old designs remain in the
+	# rotation; the new specialists arrive gradually. One milestone Boss uses an
+	# existing slot, and level 100 is a complete twelve-class showcase.
+	if number == 100 and index < 12:
+		return ["guard", "soldier", "officer", "heavy", "swat", "sniper", "medic", "engineer", "bomber", "shield", "mutant", "boss"][index]
 	if index == 0:
 		return "guard"
+	if number >= 20 and number % 20 == 0 and index == data.guards.size() - 1:
+		return "boss"
 	var pool: Array[String] = ["soldier", "officer", "heavy"]
-	if number >= 4:
-		pool.append("swat")
-	if number >= 8:
-		pool.append("sniper")
+	if number >= 4: pool.append("swat")
+	if number >= 8: pool.append("sniper")
+	if number >= 6: pool.append("medic")
+	if number >= 10: pool.append("engineer")
+	if number >= 14: pool.append("bomber")
+	if number >= 18: pool.append("shield")
+	if number >= 22: pool.append("mutant")
 	return pool[(index - 1 + number - 1) % pool.size()]
 
 # Distribute guards over reachable floor instead of spawning a group together.
@@ -761,19 +794,33 @@ func _distributed_guard_starts() -> PackedVector2Array:
 func _build_guards() -> void:
 	var starts := _distributed_guard_starts()
 	var diamond_carrier := _diamond_carrier_for_level(int(data.id), data.guards.size())
+	var variants: Array[String] = []
+	for index in range(data.guards.size()):
+		variants.append(_enemy_variant(int(data.id), index, data.guards[index]))
+	# Move the two long-range classes to an existing safe start, not a new
+	# position. Swapping keeps every type on the level-100 showcase intact.
+	for index in range(variants.size()):
+		if variants[index] not in ["sniper", "boss"] or (starts[index] as Vector2).distance_to(player_pos) >= 410.0:
+			continue
+		var safer := -1
+		for candidate in range(1, variants.size()):
+			if variants[candidate] not in ["sniper", "boss"] and (starts[candidate] as Vector2).distance_to(player_pos) >= 410.0:
+				safer = candidate
+				break
+		if safer >= 0:
+			var swap := variants[index]
+			variants[index] = variants[safer]
+			variants[safer] = swap
+		else:
+			variants[index] = "officer"
 	for index in range(data.guards.size()):
 		var g: Dictionary = data.guards[index]
 		var route := PackedVector2Array()
 		for c in g.route:
 			route.append(_cell_center(c[0], c[1]))
-		var variant := _enemy_variant(int(data.id), index, g)
-		# A long-range sniper may not begin near the player's spawn.
-		# Existing positions and enemy counts are retained; use an officer when
-		# this specific starting position is too close for a safe introduction.
-		if variant == "sniper" and (starts[index] as Vector2).distance_to(player_pos) < 410.0:
-			variant = "officer"
+		var variant := variants[index]
 		var profile: Dictionary = ENEMY_PROFILES[variant]
-		var kind := "elite" if variant in ["heavy", "soldier", "swat"] else "guard"
+		var kind := "elite" if variant in ["heavy", "soldier", "swat", "bomber", "shield", "boss"] else "guard"
 		# Keep authored enemy counts and the existing level scaling.
 		var difficulty := float(int(data.id) - 1) / 99.0
 		var damage_scale := (1.0 + float(int(data.id) - 1) * 0.0055) * ENEMY_DAMAGE_MULTIPLIER
@@ -802,7 +849,8 @@ func _build_guards() -> void:
 			"shots_fired": 0, "mark": mark,
 			"pos": rig.position, "home_pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
-			"hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
+			"hp": int(profile.hp) + extra_armor, "max_hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
+			"support_left": 0.0, "med_cooldown": 1.5,
 			"state": GState.PATROL, "alert": 0.0, "shoot": 0.0, "burst": 0,
 			"alive": true, "path": PackedVector2Array(), "pi": 0,
 			"last_seen": Vector2.ZERO, "search_t": 0.0, "rig": rig,
@@ -1031,6 +1079,9 @@ func _physics_process(delta: float) -> void:
 	_apply_shake(delta)
 	elapsed += delta
 	invuln = maxf(0, invuln - delta)
+	_update_player_status(delta)
+	if finished:
+		return
 	attack_cd = maxf(0, attack_cd - delta)
 	repath = maxf(0, repath - delta)
 	# Continuous steering while dragging.
@@ -1655,6 +1706,7 @@ func _guard_touches_player(g: Dictionary) -> bool:
 	return g.pos.distance_squared_to(player_pos) <= radius * radius and _los(g.pos, player_pos)
 
 func _update_guards(delta: float) -> void:
+	_update_medic_support(delta)
 	var player_concealed := in_grass(player_pos)
 	for g in guards:
 		if not g.alive:
@@ -1740,7 +1792,7 @@ func _update_guards(delta: float) -> void:
 					g.shoot -= delta
 					if g.shoot <= 0 and float(g.shot_lock) <= 0.0:
 						if _fire(g):
-							g.shoot = float(g.shot_interval)
+							g.shoot = float(g.shot_lock)
 				else:
 					g.rig.set_aiming(false)
 				if g.state == GState.ALERT:
@@ -1811,6 +1863,32 @@ func _update_guards(delta: float) -> void:
 		g.rig.set_aiming(sees, aim_offset)
 		_sync_guard_marker(g)
 
+func _update_medic_support(delta: float) -> void:
+	# Living medics heal the nearest living ally and briefly improve its fire.
+	# No resurrection, healing through cover, or immunity to one-hit melee.
+	for ally in guards:
+		ally["support_left"] = maxf(0.0, float(ally.get("support_left", 0.0)) - delta)
+	for medic in guards:
+		if not bool(medic.get("alive", false)) or String(medic.get("variant", "")) != "medic":
+			continue
+		medic["med_cooldown"] = maxf(0.0, float(medic.get("med_cooldown", 0.0)) - delta)
+		if float(medic.med_cooldown) > 0.0:
+			continue
+		var chosen: Dictionary = {}
+		var nearest := 185.0
+		for ally in guards:
+			if ally == medic or not bool(ally.get("alive", false)):
+				continue
+			var distance: float = Vector2(medic.pos).distance_to(Vector2(ally.pos))
+			if distance <= nearest and _los(medic.pos, ally.pos):
+				chosen = ally
+				nearest = distance
+		if not chosen.is_empty():
+			chosen["hp"] = mini(int(chosen.get("max_hp", chosen.hp)), int(chosen.hp) + 2)
+			chosen["support_left"] = 4.0
+			medic["med_cooldown"] = 3.2
+			effects.append({"pos": medic.pos, "to": chosen.pos, "t": 0.45, "max": 0.45, "kind": "med_beam"})
+
 func _sniper_lead(g: Dictionary, target: Vector2, muzzle_offset: float) -> Vector2:
 	# A straight projectile intercepts the player's measured walking velocity;
 	# it never homes after launch, shoots through cover, or tracks hidden players.
@@ -1861,9 +1939,19 @@ func _fire(g: Dictionary) -> bool:
 	# but never teleport a projectile through cover or past a nearby player.
 	var clear_distance: float = _raycast_distance(g.pos, dir, tip_offset)
 	var muzzle: float = maxf(0.0, minf(tip_offset, minf(clear_distance - 0.1, target.length() - PLAYER_HIT_RADIUS * 0.5)))
-	bullets.append({"pos": g.pos + dir * muzzle, "vel": dir * BULLET_SPEED,
-		"life": 1.6, "damage": float(g.get("shot_damage", BULLET_DAMAGE))})
-	g.shot_lock = float(g.shot_interval)
+	var variant := String(g.get("variant", "guard"))
+	var shot_damage := float(g.get("shot_damage", BULLET_DAMAGE))
+	if variant == "shield":
+		# The original game has bonus health, not a separate armor bar. Pulse
+		# shots pierce that bonus proportionally; they NEVER pierce solid cover.
+		shot_damage *= maxf(1.0, _player_max_health() / GameState.BASE_HEALTH)
+	var supported := float(g.get("support_left", 0.0)) > 0.0
+	if supported:
+		shot_damage *= 1.22
+	var shot_speed := 430.0 if variant == "bomber" else BULLET_SPEED
+	bullets.append({"pos": g.pos + dir * muzzle, "vel": dir * shot_speed,
+		"life": 1.6, "damage": shot_damage, "ability": variant})
+	g.shot_lock = float(g.shot_interval) * (0.80 if supported else 1.0)
 	g.rig.play_anim("shoot", true)
 	Sfx.play("shot")
 	_alarm_others(g)
@@ -2240,35 +2328,84 @@ func _los(a: Vector2, b: Vector2) -> bool:
 		return not _solid(a)
 	return _raycast_distance(a, v / d, d) >= d - 0.001
 
+func _damage_player(amount: float, poison_tick := false) -> bool:
+	# All attacks, including poison and splash, honor the same invulnerability,
+	# health display, sound and defeat path as the original projectile.
+	if finished or invuln > 0.0 or amount <= 0.0:
+		return false
+	player_hp = maxf(0.0, player_hp - amount)
+	damage_taken += 1
+	invuln = 0.35
+	_update_player_health_bar()
+	player_rig.play_anim("hurt", true)
+	effects.append({"pos": player_pos, "t": 0.3, "max": 0.3, "kind": "poison_hurt" if poison_tick else "hurt"})
+	Sfx.play("hurt")
+	GameState.vibrate(60)
+	if player_hp <= 0.0:
+		player_rig.die()
+		_lose()
+	return true
+
+func _update_player_status(delta: float) -> void:
+	shock_slow_left = maxf(0.0, shock_slow_left - delta)
+	if poison_ticks <= 0:
+		return
+	poison_timer -= delta
+	while poison_ticks > 0 and poison_timer <= 0.0 and not finished:
+		poison_ticks -= 1
+		poison_timer += 0.75
+		_damage_player(poison_damage, true)
+
+func _detonate_projectile(b: Dictionary, point: Vector2) -> void:
+	var ability := String(b.get("ability", ""))
+	var shock := ability == "engineer"
+	var radius := 56.0 if shock else 76.0
+	var duration := 0.42 if shock else 0.55
+	effects.append({"pos": point, "t": duration, "max": duration, "kind": "shock_area" if shock else "blast_area", "radius": radius})
+	# The blast/shock is real area damage, but walls block its radius. A shot
+	# already in flight may hit grass, just like the existing normal bullets.
+	if point.distance_to(player_pos) <= radius + PLAYER_HIT_RADIUS and _los(point, player_pos):
+		if _damage_player(float(b.get("damage", BULLET_DAMAGE))) and shock:
+			shock_slow_left = maxf(shock_slow_left, 0.9)
+
 func _update_bullets(delta: float) -> void:
 	for i in range(bullets.size() - 1, -1, -1):
 		var b: Dictionary = bullets[i]
 		var old: Vector2 = b.pos
 		var travel: Vector2 = b.vel * delta
 		var distance := travel.length()
-		var wall_distance := _raycast_distance(old, travel / distance, distance) if distance > 0.0001 else 0.0
+		var direction := travel / distance if distance > 0.0001 else Vector2.ZERO
+		var wall_distance := _raycast_distance(old, direction, distance) if distance > 0.0001 else 0.0
 		var blocked := distance > 0.0001 and wall_distance < distance - 0.001
-		b.pos = old + (travel / distance * wall_distance if blocked else travel)
+		b.pos = old + (direction * wall_distance if blocked else travel)
 		b.life -= delta
+		var ability := String(b.get("ability", "guard"))
+		var area := ability in ["engineer", "bomber"]
+		var intersects_player: bool = float(b.life) > 0.0 and _segment_circle(old, b.pos, player_pos, PLAYER_HIT_RADIUS)
 		var hit := false
-		# Sweep to the first wall so a low-frame-rate bullet cannot tunnel
-		# through cover or hit someone who is behind it.
-		if invuln <= 0 and b.life > 0 and _segment_circle(old, b.pos, player_pos, PLAYER_HIT_RADIUS):
-			player_hp = maxf(0.0, player_hp - float(b.get("damage", BULLET_DAMAGE)))
-			damage_taken += 1
-			invuln = 0.35
-			_update_player_health_bar()
-			player_rig.play_anim("hurt", true)
-			effects.append({"pos": player_pos, "t": 0.3, "max": 0.3, "kind": "hurt"})
-			Sfx.play("hurt")
-			GameState.vibrate(60)
+		if area and intersects_player:
+			# Compute the swept closest point so even a large frame step explodes
+			# at the player rather than beyond them or through intervening cover.
+			var segment: Vector2 = b.pos - old
+			var fraction := clampf((player_pos - old).dot(segment) / maxf(segment.length_squared(), 0.001), 0.0, 1.0)
+			_detonate_projectile(b, old + segment * fraction)
 			hit = true
-			if player_hp <= 0:
-				player_rig.die()
-				_lose()
-		elif blocked or _solid(b.pos) or b.life <= 0:
+		elif not area and intersects_player and invuln <= 0.0:
+			if _damage_player(float(b.get("damage", BULLET_DAMAGE))):
+				if ability == "mutant" and not finished:
+					poison_ticks = 3
+					poison_timer = 0.75
+					poison_damage = maxf(20.0, float(b.get("damage", BULLET_DAMAGE)) * 0.25)
+				hit = true
+		elif blocked or _solid(b.pos) or b.life <= 0.0:
+			if area:
+				# Stay infinitesimally on the firing side of the wall; cover still
+				# blocks damage on its opposite side.
+				var point: Vector2 = old + direction * maxf(0.0, wall_distance - 0.15) if blocked else b.pos
+				_detonate_projectile(b, point)
+			else:
+				effects.append({"pos": b.pos, "t": 0.15, "max": 0.15, "kind": "spark"})
 			hit = true
-			effects.append({"pos": b.pos, "t": 0.15, "max": 0.15, "kind": "spark"})
 		if hit:
 			bullets.remove_at(i)
 
@@ -2382,7 +2519,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		drag_repath = 0.0
 
 func _draw() -> void:
-	# The realistic wet decals and the shoe prints stay under actors and cover.
+	# The stylized wet decals and the shoe prints stay under actors and cover.
 	for splat in blood_splats:
 		var side := float(splat.get("size", BLOOD_DECAL_SIZE))
 		draw_texture_rect(BLOOD_TEX, Rect2(Vector2(splat.pos) - Vector2.ONE * side * 0.5, Vector2.ONE * side), false)
@@ -2415,8 +2552,17 @@ func _draw() -> void:
 		draw_texture_rect(icon, Rect2(part.pos + Vector2(-12, -12 + bob), Vector2(24, 24)), false)
 	# Bullets.
 	for b in bullets:
-		draw_line(b.pos - b.vel.normalized() * 14, b.pos, Color(1, 0.9, 0.5, 0.9), 3)
-		draw_circle(b.pos, 3, Color("ffd23f"))
+		var ability := String(b.get("ability", "guard"))
+		var colour := Color("ffd23f")
+		if ability == "medic": colour = Color("91f574")
+		elif ability == "engineer": colour = Color("59eaff")
+		elif ability == "bomber": colour = Color("ff9b39")
+		elif ability == "shield": colour = Color("71bfff")
+		elif ability == "mutant": colour = Color("9bf639")
+		elif ability == "boss": colour = Color("ff4553")
+		var thickness := 5.0 if ability in ["bomber", "boss"] else 3.0
+		draw_line(b.pos - b.vel.normalized() * 14, b.pos, colour, thickness)
+		draw_circle(b.pos, thickness, colour)
 	# Effects.
 	for e in effects:
 		var k: float = e.t / e.max
@@ -2458,8 +2604,18 @@ func _draw() -> void:
 			draw_set_transform(e.pos, 0, Vector2.ONE * (0.6 + k))
 			draw_texture(SPARK_TEX, -SPARK_TEX.get_size() / 2, Color(1, 1, 1, k))
 			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
-		elif e.kind == "hurt":
-			draw_circle(e.pos, 26, Color(1, 0.2, 0.2, k * 0.5))
+		elif e.kind == "hurt" or e.kind == "poison_hurt":
+			var tint := Color(0.5, 1.0, 0.15, k * 0.5) if e.kind == "poison_hurt" else Color(1, 0.2, 0.2, k * 0.5)
+			draw_circle(e.pos, 26, tint)
+		elif e.kind == "med_beam":
+			draw_line(e.pos, e.to, Color(0.4, 1.0, 0.5, k * 0.8), 5.0)
+			draw_circle(e.to, 12.0, Color(0.5, 1.0, 0.5, k * 0.35))
+		elif e.kind == "shock_area" or e.kind == "blast_area":
+			var shock: bool = String(e.kind) == "shock_area"
+			var tint := Color(0.25, 0.9, 1.0, k * 0.8) if shock else Color(1.0, 0.45, 0.12, k * 0.8)
+			var radius := float(e.radius) * (0.35 + 0.65 * (1.0 - k))
+			draw_circle(e.pos, radius, Color(tint.r, tint.g, tint.b, k * 0.18))
+			draw_arc(e.pos, radius, 0.0, TAU, 32, tint, 3.0 + 2.0 * k)
 
 	# Guard alerts are displayed by the upright red question-mark labels above
 	# their sprites (see _sync_guard_marker), not as destination/tap rings.

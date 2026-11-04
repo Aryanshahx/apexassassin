@@ -1,5 +1,5 @@
 extends RefCounted
-## Image geometry for six reference-guided, redrawn enemy sprites.
+## Image geometry for twelve reference-guided, redrawn enemy sprites.
 const ENEMY_ART := {
   "guard": {
     "file": "res://assets/actors/six-enemy-update/guard.png",
@@ -96,5 +96,11 @@ const ENEMY_ART := {
       512,
       849
     ]
-  }
+  },
+  "medic": {"file": "res://assets/actors/special-enemy-update/medic.png", "width": 504.0, "center": [256.0, 238.9], "tip": [264.0, 715.0], "image_size": [512, 735]},
+  "engineer": {"file": "res://assets/actors/special-enemy-update/engineer.png", "width": 504.0, "center": [256.0, 243.8], "tip": [260.5, 730.0], "image_size": [512, 750]},
+  "bomber": {"file": "res://assets/actors/special-enemy-update/bomber.png", "width": 504.0, "center": [256.0, 244.7], "tip": [259.5, 733.0], "image_size": [512, 753]},
+  "shield": {"file": "res://assets/actors/special-enemy-update/shield.png", "width": 504.0, "center": [256.0, 243.8], "tip": [260.0, 730.0], "image_size": [512, 750]},
+  "mutant": {"file": "res://assets/actors/special-enemy-update/mutant.png", "width": 504.0, "center": [256.0, 244.4], "tip": [260.5, 732.0], "image_size": [512, 752]},
+  "boss": {"file": "res://assets/actors/special-enemy-update/boss.png", "width": 504.0, "center": [256.0, 243.8], "tip": [262.5, 730.0], "image_size": [512, 750]}
 }

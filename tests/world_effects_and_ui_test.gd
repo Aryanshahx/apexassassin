@@ -157,7 +157,7 @@ func _run() -> void:
 	lv.grass_rects.clear()
 	for y in range(3):
 		for x in range(3):
-			lv.grass_rects.append(Rect2(origin + Vector2(x - 1, y - 1) * 32.0, Vector2.ONE * 32.0))
+			lv.grass_rects.append(Rect2(origin + Vector2(x - 1, y - 1) * lv.GRASS_TILE, Vector2.ONE * lv.GRASS_TILE))
 	var guard: Dictionary = enemies.guard
 	lv.guards.clear()
 	lv.guards.append(guard)

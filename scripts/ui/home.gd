@@ -23,6 +23,14 @@ var hero_stage: TextureRect
 var change_button: Button
 var mission_panel: Panel
 var mission_nodes: Array[Control] = []
+var mission_scroll: ScrollContainer
+var mission_list: VBoxContainer
+var _mission_touch := -1
+var _mission_mouse := false
+var _mission_start_y := 0.0
+var _mission_start_scroll := 0
+var _mission_moved := false
+var _mission_suppress_until := 0
 var action_nodes: Array[Control] = []
 var design_h := 1280.0
 var wheel_button: BaseButton
@@ -61,7 +69,6 @@ func _ready() -> void:
 	add_child(canvas)
 	get_viewport().size_changed.connect(_fit)
 	_build_resources()
-	_build_logo()
 	_build_character_stage()
 	_build_action_cards()
 	_build_missions()
@@ -100,13 +107,13 @@ func _layout_in_safe_rect(safe: Rect2) -> void:
 		wheel_badge_pos = wheel_button.position + Vector2(118, -9)
 		if wheel_badge:
 			wheel_badge.position = wheel_badge_pos
-	var change_y := actions_y - 64.0
-	if change_button:
-		change_button.position = Vector2(203, change_y)
+	# The whole visible character is now the selector hit target. Removing the
+	# title and separate CHARACTERS button gives the spotlight more space.
+	var name_y := actions_y - 46.0
 	if selected_name_label:
-		selected_name_label.position = Vector2(140, change_y - 40.0)
-	var stage_top := 210.0
-	var stage_bottom := change_y + 20.0
+		selected_name_label.position = Vector2(140, name_y)
+	var stage_top := 126.0
+	var stage_bottom := name_y - 6.0
 	var stage_size := minf(440.0, maxf(190.0, stage_bottom - stage_top))
 	var stage_y := stage_top + (stage_bottom - stage_top - stage_size) * 0.5
 	if hero_stage:
@@ -115,6 +122,9 @@ func _layout_in_safe_rect(safe: Rect2) -> void:
 	if card_art:
 		card_art.position = Vector2((W - stage_size * 0.90) * 0.5, stage_y + stage_size * 0.07)
 		card_art.size = Vector2(stage_size * 0.90, stage_size * 0.79)
+	if change_button:
+		change_button.position = Vector2((W - stage_size) * 0.5, stage_y)
+		change_button.size = Vector2(stage_size, stage_size)
 
 func _font(size: int, outline: int = 0) -> Label:
 	var l := Label.new()
@@ -259,19 +269,6 @@ func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) 
 	p.add_child(plus)
 	return p
 
-func _build_logo() -> void:
-	var title := _font(68, 7)
-	title.name = "HomeTitle"
-	title.text = "APEX ASSASSIN"
-	title.add_theme_color_override("font_color", Color("ffce45"))
-	title.add_theme_color_override("font_outline_color", Color("17141b"))
-	title.position = Vector2(16, 126)
-	title.size = Vector2(688, 86)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	canvas.add_child(title)
-
 func _build_character_stage() -> void:
 	hero_stage = TextureRect.new()
 	hero_stage.name = "CharacterSpotlight"
@@ -294,22 +291,16 @@ func _build_character_stage() -> void:
 	selected_name_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	selected_name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(selected_name_label)
+	# A transparent button exactly overlays the stage and displayed rig. It is
+	# at least as large as the visible portrait and retains normal touch focus.
 	change_button = Button.new()
-	change_button.name = "AssassinButton"
-	change_button.size = Vector2(314, 58)
-	change_button.add_theme_stylebox_override("normal", _raised_box(Color("8839a7"), Color("28152e"), 15, 4))
-	change_button.add_theme_stylebox_override("hover", _raised_box(Color("aa53c5"), Color("28152e"), 15, 4))
-	change_button.add_theme_stylebox_override("pressed", _raised_box(Color("682a86"), Color("28152e"), 15, 4))
+	change_button.name = "CharacterSpotlightButton"
+	change_button.tooltip_text = "Choose character"
+	change_button.flat = true
+	for state_name in ["normal", "hover", "pressed", "focus"]:
+		change_button.add_theme_stylebox_override(state_name, StyleBoxEmpty.new())
 	change_button.pressed.connect(_open_assassins)
 	canvas.add_child(change_button)
-	var label := _font(30, 4)
-	label.text = "CHARACTERS"
-	label.position = Vector2(0, 2)
-	label.size = Vector2(314, 52)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	change_button.add_child(label)
 
 func _build_action_cards() -> void:
 	var knives := _action_card("KnivesButton", "KNIVES", preload("res://assets/home/card_upgrade.png"), Color("17b7a7"), 108.0, _open_knives)
@@ -379,22 +370,57 @@ func _build_missions() -> void:
 	title.text = "MISSIONS"
 	title.add_theme_color_override("font_color", Color("6be2bd"))
 	title.position = Vector2(24, 8)
-	title.size = Vector2(330, 48)
+	title.size = Vector2(300, 48)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mission_panel.add_child(title)
+	var hint := _font(20, 2)
+	hint.text = "SWIPE FOR MORE ↓"
+	hint.position = Vector2(350, 17)
+	hint.size = Vector2(270, 32)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mission_panel.add_child(hint)
+	mission_scroll = ScrollContainer.new()
+	mission_scroll.name = "MissionScroll"
+	mission_scroll.position = Vector2(12, 61)
+	mission_scroll.size = Vector2(628, 280)
+	mission_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	mission_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	mission_scroll.follow_focus = true
+	mission_panel.add_child(mission_scroll)
+	mission_list = VBoxContainer.new()
+	mission_list.name = "MissionList"
+	mission_list.custom_minimum_size.x = 612.0
+	mission_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mission_list.add_theme_constant_override("separation", 8)
+	mission_scroll.add_child(mission_list)
+	_populate_missions()
+
+func _populate_missions() -> void:
+	for old in mission_nodes:
+		mission_list.remove_child(old)
+		old.queue_free()
+	mission_nodes.clear()
 	mission_nodes.append(_mission_card(1, "ELIMINATE TARGETS", "Progress: %d / 30" % mini(GameState.total_kills, 30), 150, GameState.total_kills >= 30, GameState.mission1_claimed, preload("res://assets/ui/target.png")))
 	mission_nodes.append(_mission_card(2, "FREE SUPPLY DROP", "OFFLINE BONUS", 200, true, GameState.mission2_claimed, preload("res://assets/environment/depot/crate_real_top.png")))
 	mission_nodes.append(_mission_card(3, "NO DAMAGE CHALLENGE", "Level perfect: %d / 1" % mini(GameState.flawless_count, 1), 200, GameState.flawless_count >= 1, GameState.mission3_claimed, preload("res://assets/ui/heart.png")))
-	for i in range(mission_nodes.size()):
-		mission_nodes[i].position = Vector2(20, 61 + i * 96)
+	for i in range(GameState.MISSION_MILESTONES.size()):
+		var milestone: Dictionary = GameState.MISSION_MILESTONES[i]
+		var value := GameState.mission_progress(String(milestone.stat))
+		var goal := int(milestone.goal)
+		var icon: Texture2D = preload("res://assets/ui/target.png")
+		if milestone.icon == "heart": icon = preload("res://assets/ui/heart.png")
+		elif milestone.icon == "key": icon = preload("res://assets/ui/v72/key.png")
+		mission_nodes.append(_mission_card(i + 4, String(milestone.title), "Progress: %d / %d" % [mini(value, goal), goal], int(milestone.reward), value >= goal, bool(GameState.mission_claims.get(String(milestone.id), false)), icon))
 
 func _mission_card(index: int, title: String, progress: String, prize: int, complete: bool, claimed: bool, icon: Texture2D) -> Panel:
 	var p := Panel.new()
 	p.name = "Mission%d" % index
+	p.custom_minimum_size = Vector2(612, 88)
 	p.size = Vector2(612, 88)
 	p.add_theme_stylebox_override("panel", _box(Color("253a44"), Color("1a2b34"), 16, 3))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mission_panel.add_child(p)
+	mission_list.add_child(p)
 	var ic := TextureRect.new()
 	ic.texture = icon
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -433,6 +459,7 @@ func _mission_card(index: int, title: String, progress: String, prize: int, comp
 	btn.pressed.connect(_claim_mission.bind(index))
 	p.add_child(btn)
 	var label := _font(25, 3)
+	label.name = "MissionClaimLabel"
 	label.text = "CLAIMED" if claimed else ("CLAIM %d" % prize if claimable else "PRIZE %d" % prize)
 	label.position = Vector2(0, 3)
 	label.size = Vector2(190, 50)
@@ -443,6 +470,9 @@ func _mission_card(index: int, title: String, progress: String, prize: int, comp
 	return p
 
 func _claim_mission(index: int) -> void:
+	# A swipe beginning on CLAIM must never spend or claim accidentally.
+	if _mission_moved or Time.get_ticks_msec() < _mission_suppress_until:
+		return
 	var reward := 0
 	if index == 1 and GameState.total_kills >= 30 and not GameState.mission1_claimed:
 		GameState.mission1_claimed = true
@@ -453,11 +483,28 @@ func _claim_mission(index: int) -> void:
 	elif index == 3 and GameState.flawless_count >= 1 and not GameState.mission3_claimed:
 		GameState.mission3_claimed = true
 		reward = 200
+	elif index >= 4 and index - 4 < GameState.MISSION_MILESTONES.size():
+		var mission: Dictionary = GameState.MISSION_MILESTONES[index - 4]
+		var id := String(mission.id)
+		if not bool(GameState.mission_claims.get(id, false)) and GameState.mission_progress(String(mission.stat)) >= int(mission.goal):
+			GameState.mission_claims[id] = true
+			reward = int(mission.reward)
 	if reward > 0:
 		GameState.cash += reward
 		GameState.save_game()
+		# Update the pressed card in place. Never remove a Button while Godot is
+		# dispatching its touch event; this also preserves the scroll position.
+		var card: Control = mission_nodes[index - 1]
+		var button := card.find_child("Mission%dButton" % index, true, false) as Button
+		if button != null:
+			var claimed_style := _raised_box(Color("40535c"), Color("20343c"), 13, 3)
+			for style_name in ["normal", "disabled", "hover"]:
+				button.add_theme_stylebox_override(style_name, claimed_style)
+			button.disabled = true
+			var label := button.get_node_or_null("MissionClaimLabel") as Label
+			if label != null: label.text = "CLAIMED"
+		_refresh_values()
 		_toast("+%d cash claimed!" % reward)
-		get_tree().reload_current_scene()
 	else:
 		_toast("Mission not completed yet.")
 
@@ -471,7 +518,12 @@ func _build_start() -> void:
 	b.add_theme_stylebox_override("pressed", _raised_box(Color("e5a521"), Color("744a0d"), 25, 6))
 	b.pressed.connect(func(): GameState.start_level(GameState.current_level))
 	b.clip_contents = true
+	b.pivot_offset = b.size * 0.5
 	canvas.add_child(b)
+	# Scale stays >= 1.0, so the real touch target never shrinks as it pulses.
+	var pulse := create_tween().set_loops()
+	pulse.tween_property(b, "scale", Vector2.ONE * 1.045, 0.72).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	pulse.tween_property(b, "scale", Vector2.ONE, 0.72).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var shine := ColorRect.new()
 	shine.name = "StartButtonShine"
 	shine.color = Color.WHITE
@@ -863,6 +915,8 @@ func _restore_collection_position(target: ScrollContainer, value: int) -> void:
 		target.scroll_vertical = value
 
 func _input(event: InputEvent) -> void:
+	if overlay == null and is_instance_valid(mission_scroll) and mission_scroll.is_visible_in_tree():
+		_mission_input(event)
 	if not is_instance_valid(collection_scroll) or overlay == null or not collection_scroll.is_visible_in_tree():
 		return
 	if event is InputEventScreenTouch:
@@ -887,6 +941,50 @@ func _input(event: InputEvent) -> void:
 				_collection_mouse = false
 	elif event is InputEventMouseMotion and _collection_mouse and event.device != InputEvent.DEVICE_ID_EMULATION:
 		_collection_drag(event.position)
+
+func _mission_input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if event.pressed and _mission_touch == -1 and mission_scroll.get_global_rect().has_point(event.position):
+			_mission_touch = event.index
+			_mission_begin(event.position)
+		elif not event.pressed and event.index == _mission_touch:
+			_mission_finish()
+			_mission_touch = -1
+	elif event is InputEventScreenDrag and event.index == _mission_touch:
+		_mission_drag(event.position)
+	elif event is InputEventMouseButton and event.device != InputEvent.DEVICE_ID_EMULATION:
+		if event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and mission_scroll.get_global_rect().has_point(event.position):
+			mission_scroll.scroll_vertical += -120 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 120
+			get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed and _mission_touch == -1 and mission_scroll.get_global_rect().has_point(event.position):
+				_mission_mouse = true
+				_mission_begin(event.position)
+			elif not event.pressed and _mission_mouse:
+				_mission_finish()
+				_mission_mouse = false
+	elif event is InputEventMouseMotion and _mission_mouse and event.device != InputEvent.DEVICE_ID_EMULATION:
+		_mission_drag(event.position)
+
+func _mission_begin(point: Vector2) -> void:
+	_mission_start_y = (mission_scroll.get_global_transform().affine_inverse() * point).y
+	_mission_start_scroll = mission_scroll.scroll_vertical
+	_mission_moved = false
+
+func _mission_drag(point: Vector2) -> void:
+	var local_y := (mission_scroll.get_global_transform().affine_inverse() * point).y
+	var distance := local_y - _mission_start_y
+	if absf(distance) < 8.0 and not _mission_moved:
+		return
+	_mission_moved = true
+	_mission_suppress_until = Time.get_ticks_msec() + 250
+	mission_scroll.scroll_vertical = _mission_start_scroll - roundi(distance)
+	get_viewport().set_input_as_handled()
+
+func _mission_finish() -> void:
+	if _mission_moved:
+		_mission_suppress_until = Time.get_ticks_msec() + 250
+	_mission_moved = false
 
 func _collection_begin(point: Vector2) -> void:
 	_collection_start_y = (collection_scroll.get_global_transform().affine_inverse() * point).y

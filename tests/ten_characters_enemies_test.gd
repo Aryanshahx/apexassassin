@@ -37,16 +37,16 @@ func _run() -> void:
 	await process_frame
 	var lv = current_scene
 	lv.set_physics_process(false)
-	var names := ["guard", "soldier", "officer", "heavy", "swat", "sniper"]
-	var expected := {"guard": "AR-9", "soldier": "AK-47X", "officer": "M4A1-S", "heavy": "MG-500", "swat": "Vector-X", "sniper": "SR-98"}
-	check(lv.ENEMY_PROFILES.size() == 6, "only the six requested enemy profiles are active")
+	var names := ["guard", "soldier", "officer", "heavy", "swat", "sniper", "medic", "engineer", "bomber", "shield", "mutant", "boss"]
+	var expected := {"guard": "AR-9", "soldier": "AK-47X", "officer": "M4A1-S", "heavy": "MG-500", "swat": "Vector-X", "sniper": "SR-98", "medic": "Med-Gun", "engineer": "Tesla-Gun", "bomber": "GL-40", "shield": "Pulse-SMG", "mutant": "Bio-Rifle", "boss": "Plasma-Rifle"}
+	check(lv.ENEMY_PROFILES.size() == 12, "the original six plus six new enemy profiles are active")
 	var by_type := {}
 	for g in lv.guards:
 		check(names.has(g.variant), "level 100 guard uses the requested active roster")
 		if not by_type.has(g.variant): by_type[g.variant] = g
 	for kind in names:
 		check(lv.ENEMY_PROFILES.has(kind) and by_type.has(kind), kind + " actually spawns on level 100")
-	if by_type.size() != 6:
+	if by_type.size() != 12:
 		printerr("Actual spawned types: ", by_type.keys())
 		quit(1)
 		return
@@ -69,7 +69,7 @@ func _run() -> void:
 		var g: Dictionary = by_type[kind]
 		var spec: Dictionary = Enemy.Art.ENEMY_ART[kind]
 		check(g.weapon == expected[kind] and g.rig.look == kind, kind + " uses the correct gun and matching redraw")
-		check(g.rig.art.texture.resource_path.ends_with("/six-enemy-update/" + kind + ".png"), kind + " loads its own sprite")
+		check(g.rig.art.texture.resource_path.ends_with("/" + kind + ".png"), kind + " loads its own sprite")
 		var tip := _as_v(spec.tip)
 		var tip_in_body: Vector2 = g.rig.art.transform * (tip - g.rig.art.texture.get_size() * 0.5)
 		check(tip_in_body.distance_to(g.rig.muzzle.position) < 0.1 and g.rig.muzzle.position.y < -10.0 and absf(g.rig.muzzle.position.x) < 1.0, kind + " muzzle flash matches the pictured gun tip")
@@ -89,7 +89,7 @@ func _run() -> void:
 			lv._update_bullets(1.0 / 60.0)
 			check(is_equal_approx(lv.player_hp, 2000.0 - float(g.shot_damage)), kind + " hit subtracts damage without bypassing health")
 			if kind == "sniper": check(lv.player_hp > 0.0, "a healthy player can survive a sniper hit")
-	# Gunfire alert behavior remains shared by all six.
+	# Gunfire alert behavior remains shared by the original and new classes.
 	var spotter: Dictionary = by_type.guard
 	var witness: Dictionary = by_type.soldier
 	var distant: Dictionary = by_type.heavy
@@ -156,5 +156,5 @@ func _run() -> void:
 				for weapon in Choice.WEAPONS:
 					preview.rig.set_knife(weapon)
 					check(Rect2(Vector2.ZERO, preview.size).encloses(_sprite_bounds(preview, preview.rig.weapon_art)), card.name + " displays all of " + weapon)
-	print("TEN CHARACTERS AND SIX ENEMIES ", checks, " checks; ", failures, " failures")
+	print("TEN CHARACTERS AND TWELVE ENEMIES ", checks, " checks; ", failures, " failures")
 	quit(1 if failures else 0)

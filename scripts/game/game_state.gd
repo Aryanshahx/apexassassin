@@ -11,6 +11,20 @@ const KEY_LEVEL_CHANCE := 0.42
 const BASE_HEALTH := 1000.0
 # One purchased upgrade still adds one standard enemy hit of protection.
 const HEALTH_UPGRADE_AMOUNT := 100.0
+# Additive one-time milestones use statistics already present in old saves.
+const MISSION_MILESTONES := [
+	{"id": "kills_100", "title": "ELIMINATE 100 TARGETS", "stat": "kills", "goal": 100, "reward": 250, "icon": "target"},
+	{"id": "kills_250", "title": "ELIMINATE 250 TARGETS", "stat": "kills", "goal": 250, "reward": 450, "icon": "target"},
+	{"id": "kills_500", "title": "ELIMINATE 500 TARGETS", "stat": "kills", "goal": 500, "reward": 750, "icon": "target"},
+	{"id": "levels_10", "title": "CLEAR 10 LEVELS", "stat": "levels", "goal": 10, "reward": 250, "icon": "key"},
+	{"id": "levels_25", "title": "CLEAR 25 LEVELS", "stat": "levels", "goal": 25, "reward": 450, "icon": "key"},
+	{"id": "levels_50", "title": "CLEAR 50 LEVELS", "stat": "levels", "goal": 50, "reward": 750, "icon": "key"},
+	{"id": "levels_100", "title": "CLEAR ALL 100 LEVELS", "stat": "levels", "goal": 100, "reward": 1500, "icon": "key"},
+	{"id": "perfect_5", "title": "5 PERFECT WINS", "stat": "perfect", "goal": 5, "reward": 350, "icon": "heart"},
+	{"id": "perfect_10", "title": "10 PERFECT WINS", "stat": "perfect", "goal": 10, "reward": 650, "icon": "heart"},
+	{"id": "stars_10", "title": "10 THREE-STAR LEVELS", "stat": "stars", "goal": 10, "reward": 400, "icon": "target"},
+	{"id": "stars_25", "title": "25 THREE-STAR LEVELS", "stat": "stars", "goal": 25, "reward": 800, "icon": "target"},
+]
 
 const CHARACTERS := {
 	"ronin": {"name": "Ronin", "cost": 0, "speed_bonus": 0.0, "health_bonus": 0.0, "blurb": "Standard raven-blade specialist."},
@@ -87,6 +101,8 @@ var flawless_count: int = 0
 var mission1_claimed := false
 var mission2_claimed := false
 var mission3_claimed := false
+# The first three old boolean claims remain separate and unmodified.
+var mission_claims := {}
 var sound_enabled := true
 var haptics_enabled := true
 var upgrades := {"health": 0, "damage": 0, "speed": 0}
@@ -154,6 +170,12 @@ func load_game() -> void:
 	mission1_claimed = bool(p.get("mission1_claimed", false))
 	mission2_claimed = bool(p.get("mission2_claimed", false))
 	mission3_claimed = bool(p.get("mission3_claimed", false))
+	mission_claims = {}
+	var saved_missions: Variant = p.get("mission_claims", {})
+	if saved_missions is Dictionary:
+		for id in saved_missions:
+			if bool(saved_missions[id]):
+				mission_claims[String(id)] = true
 	sound_enabled = bool(p.get("sound_enabled", true))
 	haptics_enabled = bool(p.get("haptics_enabled", true))
 	var old_sel: Variant = p.get("selected_assassin", "ronin")
@@ -215,7 +237,7 @@ func save_game() -> void:
 		"unlocked_level": unlocked_level, "total_kills": total_kills,
 		"flawless_count": flawless_count,
 		"mission1_claimed": mission1_claimed, "mission2_claimed": mission2_claimed,
-		"mission3_claimed": mission3_claimed, "sound_enabled": sound_enabled,
+		"mission3_claimed": mission3_claimed, "mission_claims": mission_claims, "sound_enabled": sound_enabled,
 		"haptics_enabled": haptics_enabled, "upgrades": upgrades,
 		"selected_assassin": selected_assassin, "unlocked_assassins": unlocked_assassins,
 		"selected_knife": selected_knife, "unlocked_knives": unlocked_knives,
@@ -231,6 +253,23 @@ func save_game() -> void:
 	f.store_string(JSON.stringify(data))
 	f.close()
 	DirAccess.rename_absolute(tmp, SAVE_PATH)
+
+func mission_progress(stat: String) -> int:
+	match stat:
+		"kills": return total_kills
+		"perfect": return flawless_count
+		"levels":
+			# Old saves may only retain their unlocked level; level 100 is
+			# complete once it has an actual recorded result.
+			var completed := maxi(unlocked_level - 1, best_stars.size())
+			if best_stars.has("100"): completed = 100
+			return clampi(completed, 0, TOTAL_LEVELS)
+		"stars":
+			var count := 0
+			for stars in best_stars.values():
+				if int(stars) >= 3: count += 1
+			return count
+	return 0
 
 func start_level(level: int) -> void:
 	current_level = clampi(level, 1, TOTAL_LEVELS)

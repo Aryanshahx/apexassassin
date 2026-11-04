@@ -17,7 +17,7 @@ const FLOORS := {
 const WALL_H := preload("res://assets/environment/v71/wall_h.png")
 const WALL_V := preload("res://assets/environment/v71/wall_v.png")
 const GRASS := preload("res://assets/environment/stealth-grass.png")
-const BLOOD_TEX := preload("res://assets/fx/blood_splatter_real.png")
+const BLOOD_TEX := preload("res://assets/fx/blood_splatter_game.png")
 const MARK_H := preload("res://assets/environment/v71/hazard_mark_h.png")
 const MARK_V := preload("res://assets/environment/v71/hazard_mark_v.png")
 const GLOW := preload("res://assets/environment/v71/glow_warm.png")
@@ -78,11 +78,11 @@ func _draw_floor() -> void:
                 draw_texture_rect_region(tex,clipped,source)
 
 func _draw_source_grass() -> void:
-    # All generated rectangles are full 32-unit source tiles. A faint ground
+    # All generated rectangles are full 40-unit source tiles. A faint ground
     # layer plus the translucent canopy above actors shows them moving under it.
     for tile: Rect2 in level.grass_rects:
-        if is_equal_approx(tile.size.x, 32.0) and is_equal_approx(tile.size.y, 32.0):
-            draw_texture_rect(GRASS, tile.grow(2.0), false, Color(1, 1, 1, 0.54))
+        if is_equal_approx(tile.size.x, float(level.GRASS_TILE)) and is_equal_approx(tile.size.y, float(level.GRASS_TILE)):
+            draw_texture_rect(GRASS, tile, false, Color(1, 1, 1, 0.54))
 
 func _draw_floor_details() -> void:
     # Existing precomputed details are purely cosmetic, remain walkable, and
@@ -155,8 +155,16 @@ func _draw_prop_blood() -> void:
             var clipped := _prop_stain_overlap(splat, cover)
             if clipped.size.x <= 0.0 or clipped.size.y <= 0.0:
                 continue
+            # A clipped, offset dark rim plus the illustrated glossy highlights
+            # makes the stain read as a raised wet layer on the prop surface.
+            # Both passes stay inside the real cover rectangle.
+            var shadow_rect := Rect2(image_rect.position + Vector2(1.5, 2.5), image_rect.size)
+            var shadow_clip := shadow_rect.intersection(cover)
+            if shadow_clip.has_area():
+                var shadow_source := Rect2((shadow_clip.position - shadow_rect.position) / side * source_size, shadow_clip.size / side * source_size)
+                draw_texture_rect_region(BLOOD_TEX, shadow_clip, shadow_source, Color(0.25, 0.05, 0.06, 0.46))
             var source := Rect2((clipped.position - image_rect.position) / side * source_size, clipped.size / side * source_size)
-            draw_texture_rect_region(BLOOD_TEX, clipped, source, Color(1, 1, 1, 0.94))
+            draw_texture_rect_region(BLOOD_TEX, clipped, source, Color(1, 1, 1, 0.96))
 
 func _prop_stain_overlap(splat: Dictionary, cover: Rect2) -> Rect2:
     var side := float(splat.get("size", 132.0))

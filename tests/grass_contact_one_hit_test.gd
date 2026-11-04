@@ -47,11 +47,12 @@ func _run() -> void:
 				var tile: Rect2 = tiles[i]
 				var cell: Vector2i = cells[i]
 				full_tiles += 1
-				if tile.size != Vector2.ONE * map.GRASS_TILE or not map.in_grass(tile.get_center()) or int(map.region_by_cell.get(cell, -2)) != region:
+				if tile.size != Vector2.ONE * map.GRASS_TILE or not map.in_grass(tile.get_center()) or int(map.region_by_cell.get(map._to_cell(tile.get_center()), -2)) != region:
 					tile_ok = false
 				for obstacle: Rect2 in blockers:
 					if obstacle.intersects(tile, true): tile_ok = false
-				if map.guard_grid.is_in_boundsv(cell) and not map.guard_grid.is_point_solid(cell):
+				var nav_cell: Vector2i = map._to_cell(tile.get_center())
+				if map.guard_grid.is_in_boundsv(nav_cell) and not map.guard_grid.is_point_solid(nav_cell):
 					navigable_guard_tile = true
 			check(tile_ok, "level %d group has whole uncut reachable tiles clear of cover" % n)
 			check(navigable_guard_tile, "level %d grass group offers a guard-traversable tile" % n)
@@ -73,6 +74,8 @@ func _run() -> void:
 		check(first == map.grass_rects, "level %d grass is repeatable" % n)
 		map.free()
 	check(layouts.size() >= 3, "connected grass uses a variety of complete-tile layouts")
+	check(is_equal_approx(Level.GRASS_TILE, 40.0), "every whole grass tile is 25 percent wider than the old 32-unit tile")
+	check(float(full_tiles) * Level.GRASS_TILE * Level.GRASS_TILE > 3052.0 * 32.0 * 32.0 * 1.35, "total patch footprint is at least 35 percent larger than the previous update")
 	print("GROUPED GRASS: ", grouped_patches, " groups, ", full_tiles, " complete tiles in 100 levels; layouts ", layouts)
 
 	gs.selected_assassin = "ronin"
@@ -86,8 +89,8 @@ func _run() -> void:
 	var by_type := {}
 	for guard: Dictionary in lv.guards:
 		if not by_type.has(guard.variant): by_type[guard.variant] = guard
-	check(by_type.size() == 6, "all six real enemy types spawn at level 100")
-	if by_type.size() != 6:
+	check(by_type.size() == 12, "all twelve real enemy types spawn at level 100")
+	if by_type.size() != 12:
 		quit(1)
 		return
 	var origin: Vector2 = Fixture.open_arena(lv)
@@ -177,7 +180,7 @@ func _run() -> void:
 	lv._update_bullets(0.05)
 	check(is_equal_approx(lv.player_hp, 1950.0), "in-flight projectile can still hit a hidden player")
 
-	# Every look and equipped weapon one-hits each of the real six variants,
+	# Every look and equipped weapon one-hits each of the real twelve variants,
 	# including arbitrarily high HP and a head-on, already-alerted opponent.
 	lv.grass_rects.clear()
 	lv.blocking_rects.clear()
@@ -192,7 +195,7 @@ func _run() -> void:
 		lv.active_look = look
 		for weapon in Choice.WEAPONS:
 			rig.set_knife(weapon)
-			for kind in ["guard", "soldier", "officer", "heavy", "swat", "sniper"]:
+			for kind in ["guard", "soldier", "officer", "heavy", "swat", "sniper", "medic", "engineer", "bomber", "shield", "mutant", "boss"]:
 				g = by_type[kind]
 				lv.guards.clear()
 				lv.guards.append(g)
