@@ -174,7 +174,7 @@ func _run() -> void:
 	gs.load_game()
 	check(gs.selected_assassin == gs.VAULT_CHARACTER and gs.is_unlocked(gs.VAULT_CHARACTER), "secret character selection survives restart")
 	home._refresh_card()
-	check(home.card_art.rig.current_look == "red_scarf" and home.card_art.rig.moving, "the current draft appearance remains visible after the Elite entitlement is earned")
+	check(home.card_art.rig.current_look == "standard" and home.card_art.rig.moving, "Standard remains visible after the Elite entitlement is earned")
 
 	# Once unlocked, a new board is still possible and awards diamonds everywhere.
 	gs._make_locker_board(64001)

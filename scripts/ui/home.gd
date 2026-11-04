@@ -5,10 +5,10 @@ const W := 720.0
 const MIN_H := 1180.0
 const HOME_BG := preload("res://assets/home/home_bg_v59.jpg")
 const STAGE := preload("res://assets/home/character_stage.svg")
-# The selected portraits are reference-guided drafts, not final art.
+# Characters and their independently selected melee weapons are shown live.
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
-const FiveLooks := preload("res://scripts/game/five_look_selection.gd")
+const FiveLooks := preload("res://scripts/game/ten_character_selection.gd")
 const AnimatedLookPreview := preload("res://scripts/ui/animated_look_preview.gd")
 
 var canvas: Control
@@ -103,8 +103,8 @@ func _layout_in_safe_rect(safe: Rect2) -> void:
 		hero_stage.position = Vector2((W - stage_size) * 0.5, stage_y)
 		hero_stage.size = Vector2(stage_size, stage_size)
 	if card_art:
-		card_art.position = Vector2((W - stage_size * 0.68) * 0.5, stage_y + stage_size * 0.21)
-		card_art.size = Vector2(stage_size * 0.68, stage_size * 0.57)
+		card_art.position = Vector2((W - stage_size * 0.90) * 0.5, stage_y + stage_size * 0.07)
+		card_art.size = Vector2(stage_size * 0.90, stage_size * 0.79)
 
 func _font(size: int, outline: int = 0) -> Label:
 	var l := Label.new()
@@ -560,13 +560,13 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 func _open_assassins() -> void:
 	var box := _screen_base("Choose Character")
 	var caption := _font(21, 2)
-	caption.text = "5 looks • your saved bonuses and progress stay unchanged"
+	caption.text = "10 characters • character bonuses stack with your saved upgrades"
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(caption)
 	var grid := GridContainer.new()
-	grid.name = "FiveCharacterGrid"
-	grid.columns = 3
+	grid.name = "TenCharacterGrid"
+	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 14)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -599,6 +599,13 @@ func _new_look_card(id: String, selected: bool) -> Control:
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_label.custom_minimum_size = Vector2(0, 34)
 	wrap.add_child(name_label)
+	var bonus := _font(20, 2)
+	bonus.name = "CharacterBonus"
+	bonus.text = FiveLooks.bonus_label(id)
+	bonus.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bonus.add_theme_color_override("font_color", Color("a7ff84"))
+	bonus.custom_minimum_size = Vector2(0, 30)
+	wrap.add_child(bonus)
 	var button := Button.new()
 	button.name = "EquipLook"
 	button.text = "Equipped" if selected else "Equip"

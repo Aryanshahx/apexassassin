@@ -1,10 +1,10 @@
 extends Control
 ## Menu display only: the real equipped melee rig runs in place; no input or
 ## combat, save, collision, or gameplay movement logic is changed.
-const PlayerRig := preload("res://scripts/game/five_look_player.gd")
+const PlayerRig := preload("res://scripts/game/ten_character_player.gd")
 
 var rig
-var appearance := "red_scarf"
+var appearance := "standard"
 var weapon := "aurora"
 
 func _ready() -> void:

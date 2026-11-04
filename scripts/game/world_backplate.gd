@@ -16,7 +16,7 @@ const FLOORS := {
 }
 const WALL_H := preload("res://assets/environment/v71/wall_h.png")
 const WALL_V := preload("res://assets/environment/v71/wall_v.png")
-const GRASS := preload("res://assets/environment/v71/floor_military.png")
+const GRASS := preload("res://assets/environment/stealth-grass.png")
 const MARK_H := preload("res://assets/environment/v71/hazard_mark_h.png")
 const MARK_V := preload("res://assets/environment/v71/hazard_mark_v.png")
 const GLOW := preload("res://assets/environment/v71/glow_warm.png")
@@ -77,20 +77,10 @@ func _draw_floor() -> void:
                 draw_texture_rect_region(tex,clipped,source)
 
 func _draw_source_grass() -> void:
-    # Source :: tiles remain traversable. This is cosmetic; no new stealth
-    # mechanics are inferred from the unavailable original implementation.
-    var offset := float(level.data.get("source_tile_offset",0.5))
-    var tint := Color(0.80,0.90,0.76,0.28)
-    if theme == "snow": tint = Color(0.91,0.97,1.0,0.24)
-    if theme == "night": tint = Color(0.54,0.65,0.65,0.25)
-    var n := 0
-    for c in level.data.get("source_grass",[]):
-        var top_left: Vector2 = level.ORIGIN + (Vector2.ONE*offset + Vector2(float(c[0]),float(c[1]))*2.0)*level.CELL
-        draw_texture_rect(GRASS,Rect2(top_left,Vector2.ONE*FLOOR_TILE),false,tint)
-        # Selected hazard marking is a floor-only detail, never a blocker.
-        if theme in ["factory","dockyard","rooftop"] and n % 4 == 0:
-            draw_texture_rect(MARK_H,Rect2(top_left+Vector2(0,46),Vector2(FLOOR_TILE,10)),false,Color(1,1,1,0.55))
-        n += 1
+    # The same ground rectangles used for stealth are drawn here. These are
+    # decoration only: cover, pathfinding and collision are untouched.
+    for patch in level.grass_rects:
+        draw_texture_rect(GRASS, patch, false)
 
 func _draw_floor_details() -> void:
     # Existing precomputed details are purely cosmetic, remain walkable, and

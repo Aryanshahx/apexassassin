@@ -19,8 +19,9 @@ func _run() -> void:
     for theme in back.FLOORS:
         var tex: Texture2D = back.FLOORS[theme]
         check(tex != null and tex.resource_path.begins_with(back.ART) and tex.get_width() >= 64, "%s selected floor loads" % theme)
-    for tex in [back.WALL_H, back.WALL_V, back.GRASS, back.MARK_H, back.MARK_V, back.GLOW, back.FLOOR_GRATE, back.LAMP]:
+    for tex in [back.WALL_H, back.WALL_V, back.MARK_H, back.MARK_V, back.GLOW, back.FLOOR_GRATE, back.LAMP]:
         check(tex != null and tex.resource_path.begins_with(back.ART) and tex.get_width() > 1, "selected wall, hazard and decorative textures load")
+    check(back.GRASS != null and back.GRASS.resource_path == "res://assets/environment/stealth-grass.png" and back.GRASS.get_width() >= 64, "reference-guided stealth grass texture loads")
     var all_geometry := true
     var kind_count := {}
     for n in range(1, 101):

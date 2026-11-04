@@ -48,9 +48,9 @@ const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
-# Private reference-derived draft.  Guards keep their original gun rig.
-const FiveLookPlayerRig := preload("res://scripts/game/five_look_player.gd")
-const FiveLookSelection := preload("res://scripts/game/five_look_selection.gd")
+# Ten selectable characters. Guards keep their approved six-enemy gun rig.
+const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
+const FiveLookSelection := preload("res://scripts/game/ten_character_selection.gd")
 const WorldBackplate := preload("res://scripts/game/world_backplate.gd")
 const VisibilityRouter := preload("res://scripts/game/visibility_router.gd")
 # Account for the guard artwork's visible footprint, not just its centre.
@@ -100,6 +100,9 @@ var blocking_rects: Array[Rect2] = []
 # Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
 var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
+# Ground-only grass rectangles. They never add collision or change the grid.
+var grass_rects: Array[Rect2] = []
+var active_look := "standard"
 var player_pos := Vector2.ZERO
 var player_face := -PI / 2
 var player_path := PackedVector2Array()
@@ -186,6 +189,7 @@ func _ready() -> void:
 	_build_walkable_regions()
 	_build_shadows()
 	_build_floor_details()
+	_build_grass()
 	# Static floor and cover are recorded once instead of rebuilt every frame.
 	map_backplate = WorldBackplate.new()
 	map_backplate.setup(self)
@@ -203,7 +207,7 @@ func _ready() -> void:
 	_place_level_key()
 	_build_player()
 	_build_hud()
-	player_hp = GameState.max_health()
+	player_hp = _player_max_health()
 	_build_player_health_bar()
 	get_viewport().size_changed.connect(_fit_world)
 	get_viewport().size_changed.connect(_layout_hud)
@@ -212,7 +216,7 @@ func _ready() -> void:
 	if GameState.locker_ready():
 		call_deferred("_show_locker")
 	if GameState.current_level == 1:
-		hint.text = "Tap to move  •  Tap a guard to hunt  •  Stay out of the light"
+		hint.text = "Tap to move  •  Tap a guard to hunt  •  Hide in grass"
 		var tw := create_tween()
 		tw.tween_interval(5.0)
 		tw.tween_property(hint, "modulate:a", 0.0, 0.8)
@@ -474,6 +478,82 @@ func _build_floor_details() -> void:
 			floor_details.append({"kind": "arrow", "pos": p, "rot": float(rng.randi_range(0, 3)) * PI / 2.0})
 		placed += 1
 
+func _build_grass() -> void:
+	# Reuse all reachable authored grass cells, then add a few patches on open
+	# floor. A separate RNG leaves patrol, loot, and level layouts unchanged.
+	grass_rects.clear()
+	var bounds := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
+	var region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
+	var offset := float(data.get("source_tile_offset", 0.5))
+	for c in data.get("source_grass", []):
+		var at := ORIGIN + (Vector2.ONE * offset + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
+		var patch := Rect2(at, Vector2.ONE * CELL * 2.0).intersection(bounds)
+		if patch.size.x < 24.0 or patch.size.y < 24.0:
+			continue
+		if int(region_by_cell.get(_to_cell(patch.get_center()), -2)) != region_id:
+			continue
+		# Do not change an authored starting encounter by spawning in cover.
+		if patch.grow(20.0).has_point(player_pos):
+			continue
+		grass_rects.append(patch)
+	if region_id < 0 or region_id >= walkable_regions.size():
+		return
+	var cells: Array = walkable_regions[region_id]
+	if cells.is_empty():
+		return
+	var grass_rng := RandomNumberGenerator.new()
+	grass_rng.seed = 710931 + int(data.id) * 881
+	var added := 0
+	for attempt in range(mini(650, cells.size() * 3)):
+		var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
+		var center := _cell_center(cell.x, cell.y)
+		if center.distance_to(player_pos) < 190.0:
+			continue
+		for dimension in [128.0, 96.0, 64.0]:
+			var rect := Rect2(center - Vector2.ONE * dimension * 0.5, Vector2.ONE * dimension)
+			if not bounds.encloses(rect):
+				continue
+			var blocked := false
+			for obstacle in blocking_rects:
+				if obstacle.intersects(rect):
+					blocked = true
+					break
+			if blocked:
+				continue
+			for existing in grass_rects:
+				if rect.grow(16.0).intersects(existing):
+					blocked = true
+					break
+			if blocked:
+				continue
+			grass_rects.append(rect)
+			added += 1
+			break
+		if added >= 3:
+			break
+	# Very narrow maps still get at least one reachable grass patch.
+	if grass_rects.is_empty():
+		for cell in cells:
+			var center: Vector2 = _cell_center(cell.x, cell.y)
+			var small := Rect2(center - Vector2.ONE * 20.0, Vector2.ONE * 40.0)
+			if center.distance_to(player_pos) < 75.0 or not bounds.encloses(small):
+				continue
+			var blocked := false
+			for obstacle in blocking_rects:
+				if obstacle.intersects(small):
+					blocked = true
+					break
+			if not blocked:
+				grass_rects.append(small)
+				break
+
+func in_grass(p: Vector2) -> bool:
+	for patch in grass_rects:
+		# The three-unit transparent fringe is not concealment.
+		if patch.grow(-3.0).has_point(p):
+			return true
+	return false
+
 func in_shadow(p: Vector2) -> bool:
 	for r in shadow_rects:
 		if r.has_point(p):
@@ -543,9 +623,16 @@ func _locker_finished() -> void:
 	locker_ui = null
 	_refresh_wallet()
 
+func _player_max_health() -> float:
+	# Apply the pictured bonus on top of the untouched existing saved stats.
+	return GameState.max_health() * FiveLookSelection.health_multiplier(active_look)
+
+func _player_speed() -> float:
+	return GameState.player_speed() * FiveLookSelection.speed_multiplier(active_look)
+
 func _build_player() -> void:
-	# Visual-only preview; existing player stats, saves, combat and guard AI are unchanged.
 	var appearance := FiveLookSelection.read_selection()
+	active_look = appearance.look
 	player_rig = FiveLookPlayerRig.new()
 	player_rig.setup(appearance.look, "player")
 	player_rig.set_knife(appearance.weapon)
@@ -852,7 +939,7 @@ func _update_player_health_bar() -> void:
 	if player_health_anchor == null:
 		return
 	player_health_anchor.position = player_pos + Vector2(-HEALTH_BAR_SIZE.x * 0.5, -76)
-	player_health_bar.max_value = GameState.max_health()
+	player_health_bar.max_value = _player_max_health()
 	player_health_bar.value = clampf(player_hp, 0.0, player_health_bar.max_value)
 	player_health_label.text = str(maxi(0, ceili(player_hp)))
 
@@ -950,7 +1037,7 @@ func _update_hunt() -> void:
 		_path_to(g.pos)
 
 func _move_player(delta: float) -> void:
-	var speed: float = GameState.player_speed()
+	var speed: float = _player_speed()
 	var budget := speed * delta
 	var before := player_pos
 	while player_path.size() > 0 and budget > 0.0:
@@ -1479,16 +1566,17 @@ func _redirect_traffic_recovery(g: Dictionary, target: Vector2) -> bool:
 	return false
 
 func _update_guards(delta: float) -> void:
+	var player_concealed := in_grass(player_pos)
 	for g in guards:
 		if not g.alive:
 			_sync_guard_marker(g)
 			continue
 		var previous_position: Vector2 = g.pos
 		g.light_age += delta
-		var cone_sees := _can_see(g.pos, g.face, player_pos, g.vision)
+		var cone_sees := not player_concealed and _can_see(g.pos, g.face, player_pos, g.vision)
 		# An informed guard can turn toward and fire at a directly visible
 		# player outside its old cone; walls and vision range still block shots.
-		var informed_sees: bool = g.state == GState.ALERT and not cone_sees and g.pos.distance_to(player_pos) <= float(g.vision) + PLAYER_LIGHT_RADIUS and _los(g.pos, player_pos)
+		var informed_sees: bool = not player_concealed and g.state == GState.ALERT and not cone_sees and g.pos.distance_to(player_pos) <= float(g.vision) + PLAYER_LIGHT_RADIUS and _los(g.pos, player_pos)
 		var sees: bool = cone_sees or informed_sees
 		var first_contact: bool = sees and not g.sees_player
 		if sees:
@@ -1542,8 +1630,10 @@ func _update_guards(delta: float) -> void:
 						g.avoid_time = 0.0
 						g.yield_partner = -1
 						g.rig.set_aiming(false)
-					else:
-						g.last_seen = player_pos  # live pursuit during the short memory window
+					elif not player_concealed:
+						# Preserve the existing short live chase outside grass; inside,
+						# pursue only the last position actually known to the guard.
+						g.last_seen = player_pos
 				var target_angle: float = (player_pos - g.pos).angle()
 				if sees and g.state == GState.ALERT:
 					g.face = target_angle if first_contact else lerp_angle(g.face, target_angle, minf(1.0, delta * 10))
@@ -1621,8 +1711,9 @@ func _update_guards(delta: float) -> void:
 		_sync_guard_marker(g)
 
 func _fire(g: Dictionary) -> void:
-	# Defense in depth: even a direct caller cannot shoot through cover.
-	if not _los(g.pos, player_pos):
+	# Defense in depth: direct callers cannot shoot through cover or at a
+	# player concealed in grass. Projectiles already in flight still travel.
+	if in_grass(player_pos) or not _los(g.pos, player_pos):
 		return
 	var target: Vector2 = player_pos - g.pos
 	var dir: Vector2 = target.normalized() if target.length_squared() > 0.001 else Vector2.from_angle(g.face)
@@ -2074,7 +2165,10 @@ func _update_stealth_hud() -> void:
 	for g in guards:
 		if g.alive and g.state == GState.ALERT:
 			seen = true
-	if seen:
+	if in_grass(player_pos):
+		status_label.text = "HIDDEN IN GRASS"
+		status_label.add_theme_color_override("font_color", Color("7CFC7C"))
+	elif seen:
 		status_label.text = "SPOTTED!"
 		status_label.add_theme_color_override("font_color", Color("ff5a6e"))
 	elif in_shadow(player_pos):
