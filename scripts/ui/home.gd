@@ -9,11 +9,12 @@ const STAGE := preload("res://assets/home/character_stage.svg")
 const LuckyWheelScript := preload("res://scripts/ui/lucky_wheel.gd")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const FiveLooks := preload("res://scripts/game/five_look_selection.gd")
+const AnimatedLookPreview := preload("res://scripts/ui/animated_look_preview.gd")
 
 var canvas: Control
 var cash_label: Label
 var gems_label: Label
-var card_art: TextureRect
+var card_art: Control
 var selected_name_label: Label
 var overlay: Control
 var start_button: Button
@@ -269,11 +270,10 @@ func _build_character_stage() -> void:
 	hero_stage.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	hero_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(hero_stage)
-	card_art = TextureRect.new()
+	card_art = AnimatedLookPreview.new()
 	card_art.name = "SelectedAssassinPortrait"
-	card_art.texture = _character_portrait(GameState.selected_assassin)
-	card_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	card_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var equipped := FiveLooks.read_selection()
+	card_art.configure(equipped.look, equipped.weapon)
 	card_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(card_art)
 	selected_name_label = _font(29, 4)
@@ -501,7 +501,7 @@ func _character_portrait(_id: String) -> Texture2D:
 
 func _refresh_card() -> void:
 	if card_art:
-		card_art.texture = _character_portrait(GameState.selected_assassin)
+		card_art.configure(FiveLooks.read_selection().look, FiveLooks.read_selection().weapon)
 	if selected_name_label:
 		selected_name_label.text = String(FiveLooks.LOOK_NAMES[FiveLooks.read_selection().look]).to_upper()
 
@@ -585,10 +585,9 @@ func _new_look_card(id: String, selected: bool) -> Control:
 	picture.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	picture.add_theme_stylebox_override("normal", _box(Color("205669") if selected else Color("38475a"), Color("83ff92") if selected else Color("a0b2c1"), 16, 4))
 	picture.pressed.connect(func(): _on_look_pressed(id))
-	var icon := TextureRect.new()
-	icon.texture = FiveLooks.portrait(id)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var icon := AnimatedLookPreview.new()
+	icon.name = "RunningCharacterWithEquippedWeapon"
+	icon.configure(id, FiveLooks.read_selection().weapon)
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	icon.offset_left = 8; icon.offset_right = -8; icon.offset_top = 6; icon.offset_bottom = -6
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -690,6 +689,7 @@ func _on_new_weapon_pressed(id: String) -> void:
 	var old := FiveLooks.read_selection()
 	if FiveLooks.save_selection(old.look, id):
 		Sfx.play("upgrade")
+		_refresh_card()
 		_open_knives()
 	else:
 		_toast("Could not save the weapon. Your progress is unchanged.")

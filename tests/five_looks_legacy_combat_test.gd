@@ -76,8 +76,8 @@ func _run() -> void:
 		root.remove_child(guard_rig)
 		guard_rig.free()
 
-	var type_at := {1: "guard", 7: "guard", 8: "ranger", 24: "ranger", 25: "breacher", 49: "breacher", 50: "captain", 100: "captain"}
-	var hp_at := {1: 1, 7: 1, 8: 2, 24: 2, 25: 3, 49: 4, 50: 5, 100: 6}
+	var type_at := {1: "guard", 7: "guard", 8: "guard", 24: "guard", 25: "guard", 49: "guard", 50: "guard", 100: "guard"}
+	var hp_at := {1: 1, 7: 1, 8: 1, 24: 1, 25: 1, 49: 2, 50: 2, 100: 3}
 	var last_damage := 0.0
 	for number in [1, 7, 8, 24, 25, 49, 50, 100]:
 		gs.start_level(number)
@@ -90,7 +90,7 @@ func _run() -> void:
 		check(float(first.shot_damage) >= last_damage, "level %d enemy damage does not regress" % number)
 		last_damage = float(first.shot_damage)
 		check(is_equal_approx(lv.ALERT_SPEED_MULTIPLIER, 1.8 * 1.15), "level %d alerted speed is 15%% above v0.6.3" % number)
-	check(last_damage > 250.0, "late-game captain is substantially stronger")
+	check(last_damage > 190.0, "late-game guard damage continues to increase")
 
 	gs.start_level(1)
 	await process_frame

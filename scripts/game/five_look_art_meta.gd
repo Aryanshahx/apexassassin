@@ -227,25 +227,18 @@ const LOOK_DATA := {
   }
 }
 const WEAPON_GRIP := {
-  "thor": [
-    447.0,
-    170.0
-  ],
-  "aurora": [
-    360.0,
-    67.0
-  ],
-  "wolverine": [
-    341.0,
-    190.0
-  ],
-  "dracula": [
-    365.0,
-    79.0
-  ],
-  "leviathan": [
-    633.0,
-    328.0
-  ]
+  "thor": [405.0, 170.0],
+  "aurora": [351.0, 92.0],
+  "wolverine": [341.0, 190.0],
+  "dracula": [345.0, 92.0],
+  "leviathan": [551.0, 328.0],
 }
 const RED_HAND_ORIGIN := [426, 254]
+
+# Centres of the visible hand-layer alpha, in the same source coordinate space.
+# Every weapon grip is placed here and drawn immediately behind the fist.
+const HAND_GRIP_CENTRES := {
+	"red_scarf": [514.0, 366.0], "white_hood": [502.6, 384.3],
+	"blue_tactical": [509.2, 388.7], "green_fighter": [505.9, 383.5],
+	"yellow_hazmat": [504.3, 388.4],
+}

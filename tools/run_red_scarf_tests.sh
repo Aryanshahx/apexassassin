@@ -16,7 +16,7 @@ XDG_DATA_HOME="$TEST_TMP/import/data" XDG_CONFIG_HOME="$TEST_TMP/import/config" 
 # locker tests preserve their gameplay checks but expect the new preview artwork.
 # The randomized legacy traffic stress test is a separate optional diagnostic.
 tests=(background_music_test five_looks_draft_test movement_test roaming_test transition_test red_scarf_combat_test
- collision_test splash_test layout_test gate_test enemy_types_test player_path_test
+ collision_test splash_test layout_test gate_test six_enemies_test player_path_test
  loot_speed_test button_feedback_test tap_audio_import_test five_looks_locker_test
  v72_deferred_locker_test v72_progression_test v72_key_audio_import_test
  five_looks_legacy_combat_test v64_path_stress_test
@@ -34,4 +34,4 @@ for seed in 70000 71000 72000; do
   APEX_SAFETY_SEED="$seed" XDG_DATA_HOME="$sandbox/data" XDG_CONFIG_HOME="$sandbox/config" \
     XDG_CACHE_HOME="$sandbox/cache" timeout 120 "$GODOT" --headless --path . --script tests/v71_start_safety_test.gd
 done
-echo 'Five-look preview test suites completed using isolated synthetic saves.'
+echo 'Six-enemy and preserved-gameplay test suites completed using isolated synthetic saves.'

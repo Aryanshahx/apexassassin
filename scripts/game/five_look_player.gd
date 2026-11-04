@@ -83,7 +83,7 @@ func _setup_red_scarf() -> void:
 	var shoulder := Vector2(950.0,154.0)
 	var elbow := Vector2(635.0,135.0)
 	wrist_anchor = Vector2(529.0,300.0)
-	weapon_fist = Vector2(490.0,365.0)
+	weapon_fist = _v(Meta.HAND_GRIP_CENTRES.red_scarf)
 	_body(RED_TORSO,Vector2(654.0,51.0))
 	knife_shoulder = _shoulder("KnifeShoulder",RED_UPPER,shoulder,Vector2(524.0,6.0))
 	knife_elbow = _elbow_pivot(knife_shoulder,RED_FOREARM,elbow,shoulder,Vector2(468.0,60.0))
@@ -101,7 +101,7 @@ func _setup_new_look() -> void:
 	var shoulder := _v(data.shoulder)
 	var elbow := _v(data.elbow)
 	wrist_anchor = _v(data.wrist)
-	weapon_fist = _v(data.fist)
+	weapon_fist = _v(Meta.HAND_GRIP_CENTRES[current_look])
 	var free_anchor := _v(data.free_shoulder)
 	var folder := ROOT + current_look + "/"
 	_body(load(folder + "torso.png"),_v(origins.torso))

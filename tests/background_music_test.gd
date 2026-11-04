@@ -2,7 +2,7 @@ extends SceneTree
 ## Run only with isolated synthetic saves. Requires both intended MP3s after
 ## Godot import, and exercises real home/level scenes and the existing mute.
 const HOME_PATH := "res://assets/audio/homeaudio.mp3"
-const GAME_PATH := "res://assets/audio/gameplay.mp3"
+const GAME_PATH := "res://assets/audio/gameplay2.mp3"
 const HOME_SCENE := "res://scenes/home/home.tscn"
 const LEVEL_SCENE := "res://scenes/level/level.tscn"
 var checks := 0
@@ -81,7 +81,7 @@ func _run() -> void:
 	await process_frame
 	music.call("_process", 0.0)
 	check(music.context == "gameplay", "the actual level scene selects gameplay music")
-	check(music.selected_path == GAME_PATH, "level uses gameplay.mp3")
+	check(music.selected_path == GAME_PATH, "level uses gameplay2.mp3")
 	check(player.stream is AudioStreamMP3 and player.stream.resource_path == GAME_PATH, "gameplay stream replaces home music")
 	check(player.stream_paused, "transitioning scenes while muted keeps gameplay music muted")
 	gs.sound_enabled = true

@@ -55,9 +55,9 @@ func _run() -> void:
 			check(pair[1].data == bytes and pair[1].get_length() > 0.0, pair[0] + " uses exact, playable file bytes")
 		else:
 			check(false, pair[0] + " uses exact, playable file bytes")
-	var baseline := {"scout": 0.65, "guard": 1.0, "heavy": 1.45, "ranger": 0.8, "breacher": 1.15, "captain": 0.95}
-	for kind in baseline:
-		check(is_equal_approx(float(lv.ENEMY_PROFILES[kind].interval) * 2.0, float(baseline[kind])), kind + " has exactly half the previous shot interval")
+	var intervals := {"guard": 0.5, "soldier": 0.6, "officer": 0.48, "heavy": 0.18, "swat": 0.26, "sniper": 1.65}
+	for kind in intervals:
+		check(is_equal_approx(float(lv.ENEMY_PROFILES[kind].interval), float(intervals[kind])), kind + " has its new requested fire interval")
 	var original: Array = lv.guards.duplicate()
 	var source: Dictionary = original[0]
 	var witness: Dictionary = original[1]

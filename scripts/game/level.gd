@@ -47,7 +47,7 @@ const KEY_TEX := preload("res://assets/ui/v72/key.png")
 const LockerRewards := preload("res://scripts/ui/locker_rewards.gd")
 const SLASH_TEX := preload("res://assets/fx/slash.png")
 const SPARK_TEX := preload("res://assets/fx/spark.png")
-const ActorRigScript := preload("res://scripts/game/v72_sprite_rig.gd")
+const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Private reference-derived draft.  Guards keep their original gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/five_look_player.gd")
 const FiveLookSelection := preload("res://scripts/game/five_look_selection.gd")
@@ -58,7 +58,7 @@ const GUARD_GAP := 78.0
 # Body clearance beyond the universal four-unit blocker: wider than before.
 const GUARD_WALL_MARGIN := 20.0
 const GUARD_AVOID_HOLD := 0.55
-const PLAYER_SCALE := 1.40
+const PLAYER_SCALE := 2.05
 const PLAYER_HIT_RADIUS := 16.0
 const PLAYER_LIGHT_RADIUS := 22.0
 const ENEMY_DAMAGE_MULTIPLIER := 1.25
@@ -76,12 +76,14 @@ const MONEY_HEAVY := 20
 const MONEY_SILENT_BONUS := 5
 const HEALTH_BAR_SIZE := Vector2(64, 8)
 const ENEMY_PROFILES := {
-	"scout": {"damage": 65.0, "interval": 0.325, "speed": 68.0, "vision": 250.0, "hp": 1, "tint": Color(0.55, 0.88, 1.0)},
-	"guard": {"damage": 100.0, "interval": 0.50, "speed": 58.0, "vision": 250.0, "hp": 1, "tint": Color.WHITE},
-	"heavy": {"damage": 160.0, "interval": 0.725, "speed": 48.0, "vision": 220.0, "hp": 2, "tint": Color(1.0, 0.78, 0.68)},
-	"ranger": {"damage": 120.0, "interval": 0.40, "speed": 70.0, "vision": 290.0, "hp": 2, "tint": Color(0.50, 0.86, 1.0)},
-	"breacher": {"damage": 185.0, "interval": 0.575, "speed": 62.0, "vision": 245.0, "hp": 3, "tint": Color(0.83, 0.64, 1.0)},
-	"captain": {"damage": 230.0, "interval": 0.475, "speed": 68.0, "vision": 285.0, "hp": 4, "tint": Color(1.0, 0.83, 0.38)},
+	# Damage, fire interval, run speed and aim spread are gameplay properties,
+	# not cosmetic names. Sniper hits are very damaging, but not automatically fatal.
+	"guard":   {"weapon": "AR-9",   "damage": 100.0, "interval": 0.50, "speed": 58.0, "vision": 250.0, "hp": 1, "spread": 2.0},
+	"soldier": {"weapon": "AK-47X", "damage": 190.0, "interval": 0.60, "speed": 56.0, "vision": 255.0, "hp": 2, "spread": 2.5},
+	"officer": {"weapon": "M4A1-S", "damage": 120.0, "interval": 0.48, "speed": 61.0, "vision": 260.0, "hp": 2, "spread": 0.3},
+	"heavy":   {"weapon": "MG-500", "damage": 100.0, "interval": 0.18, "speed": 45.0, "vision": 225.0, "hp": 3, "spread": 4.0},
+	"swat":    {"weapon": "Vector-X", "damage": 145.0, "interval": 0.26, "speed": 68.0, "vision": 250.0, "hp": 2, "spread": 1.5},
+	"sniper":  {"weapon": "SR-98",  "damage": 500.0, "interval": 1.65, "speed": 40.0, "vision": 340.0, "hp": 1, "spread": 0.1},
 }
 const DRAG_REPATH_INTERVAL := 0.045
 
@@ -562,17 +564,17 @@ func _diamond_carrier_for_level(number: int, count: int) -> int:
 	loot_rng.seed = 630000 + number * 31
 	return loot_rng.randi_range(0, count - 1) if loot_rng.randf() < DIAMOND_LEVEL_CHANCE else -1
 
-func _enemy_variant(number: int, index: int, authored: Dictionary) -> String:
-	# A fresh special enemy is guaranteed from each threshold onward; the
-	# original scout, guard and heavy still appear alongside it.
-	if index % 6 == 0:
-		if number >= 50:
-			return "captain"
-		if number >= 25:
-			return "breacher"
-		if number >= 8:
-			return "ranger"
-	return "heavy" if bool(authored.get("elite", false)) or index % 5 == 2 else ("scout" if index % 3 == 1 else "guard")
+func _enemy_variant(number: int, index: int, _authored: Dictionary) -> String:
+	# Keep one baseline guard as a familiar progression reference, rotate the
+	# others, and introduce the deadliest classes after the earliest floors.
+	if index == 0:
+		return "guard"
+	var pool: Array[String] = ["soldier", "officer", "heavy"]
+	if number >= 4:
+		pool.append("swat")
+	if number >= 8:
+		pool.append("sniper")
+	return pool[(index - 1 + number - 1) % pool.size()]
 
 # Distribute guards over reachable floor instead of spawning a group together.
 # Preserve level geometry and guard count; the first authored guard is the seed
@@ -639,10 +641,14 @@ func _build_guards() -> void:
 		for c in g.route:
 			route.append(_cell_center(c[0], c[1]))
 		var variant := _enemy_variant(int(data.id), index, g)
+		# A long-range sniper may not begin near the player's spawn.
+		# Existing positions and enemy counts are retained; use an officer when
+		# this specific starting position is too close for a safe introduction.
+		if variant == "sniper" and (starts[index] as Vector2).distance_to(player_pos) < 410.0:
+			variant = "officer"
 		var profile: Dictionary = ENEMY_PROFILES[variant]
-		var kind := "elite" if variant in ["heavy", "breacher", "captain"] else "guard"
-		# Existing AI profiles remain unchanged; later floors scale gently and
-		# continuously rather than abruptly adding a new combat mechanic.
+		var kind := "elite" if variant in ["heavy", "soldier", "swat"] else "guard"
+		# Keep authored enemy counts and the existing level scaling.
 		var difficulty := float(int(data.id) - 1) / 99.0
 		var damage_scale := (1.0 + float(int(data.id) - 1) * 0.0055) * ENEMY_DAMAGE_MULTIPLIER
 		var extra_armor := int((int(data.id) - 1) / 40)
@@ -665,8 +671,9 @@ func _build_guards() -> void:
 		mark.visible = false
 		add_child(mark)
 		guards.append({
-			"id": index, "variant": variant, "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage) * damage_scale,
-			"shot_interval": float(profile.interval) * (1.0 - difficulty * 0.08), "mark": mark,
+			"id": index, "variant": variant, "weapon": String(profile.weapon), "diamond_carrier": index == diamond_carrier, "shot_damage": float(profile.damage) * damage_scale,
+			"shot_interval": float(profile.interval) * (1.0 - difficulty * 0.08), "spread": float(profile.spread),
+			"shots_fired": 0, "mark": mark,
 			"pos": rig.position, "home_pos": rig.position, "face": deg_to_rad(float(g.face)),
 			"route": route, "ri": 0, "wait": rng.randf_range(0.0, 1.2),
 			"hp": int(profile.hp) + extra_armor, "elite": kind == "elite",
@@ -1617,13 +1624,21 @@ func _fire(g: Dictionary) -> void:
 	# Defense in depth: even a direct caller cannot shoot through cover.
 	if not _los(g.pos, player_pos):
 		return
-	var toward_player: Vector2 = player_pos - g.pos
-	var dir: Vector2 = toward_player.normalized() if toward_player.length_squared() > 0.001 else Vector2.from_angle(g.face)
-	# Never place a point-blank muzzle beyond the player.
-	var muzzle_offset := minf(24.0, maxf(0.0, toward_player.length() - PLAYER_HIT_RADIUS * 0.5))
-	bullets.append({"pos": g.pos + dir * muzzle_offset, "vel": dir * BULLET_SPEED,
+	var target: Vector2 = player_pos - g.pos
+	var dir: Vector2 = target.normalized() if target.length_squared() > 0.001 else Vector2.from_angle(g.face)
+	# A small deterministic spread makes the officer's high accuracy real,
+	# without consuming global RNG or altering authored level generation.
+	var shot_index := int(g.get("shots_fired", 0))
+	var angle := deg_to_rad(float(g.get("spread", 0.0))) * sin(float(g.get("id", 0)) * 1.73 + float(shot_index) * 2.399 + 0.73)
+	g["shots_fired"] = shot_index + 1
+	dir = dir.rotated(angle)
+	# The long rifle is drawn on the character; launch from its pictured tip,
+	# but never teleport a projectile through cover or past a nearby player.
+	var tip_offset: float = absf(g.rig.muzzle.position.y) * g.rig.scale.x
+	var clear_distance: float = _raycast_distance(g.pos, dir, tip_offset)
+	var muzzle: float = maxf(0.0, minf(tip_offset, minf(clear_distance - 0.1, target.length() - PLAYER_HIT_RADIUS * 0.5)))
+	bullets.append({"pos": g.pos + dir * muzzle, "vel": dir * BULLET_SPEED,
 		"life": 1.6, "damage": float(g.get("shot_damage", BULLET_DAMAGE))})
-	# The muzzle flash is attached to the moving gun, not floating in the world.
 	g.rig.play_anim("shoot", true)
 	Sfx.play("shot")
 	_alarm_others(g)

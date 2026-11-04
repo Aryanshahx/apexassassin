@@ -48,8 +48,8 @@ func _run() -> void:
 	check(float(late.shot_damage) > early_damage * 1.5, "later guards do progressively more damage")
 	check(float(late.shot_interval) < early_interval and int(late.hp) > early_hp, "later guards fire modestly faster and have the existing progressive armor")
 	check(is_equal_approx(float(late.speed),early_speed) and is_equal_approx(float(late.vision),early_vision), "existing patrol speed, vision and AI behavior remain compatible")
-	var variants := {"guard":"guard","scout":"soldier","heavy":"heavy","ranger":"sniper","captain":"officer","breacher":"shield"}
-	for variant in variants:
-		check(String(lv.ActorRigScript.ENEMY_LOOK[variant]) == variants[variant], variant + " uses the correct user-supplied appearance")
+	for variant in ["guard", "soldier", "officer", "heavy", "swat", "sniper"]:
+		var path := String(lv.ActorRigScript.Art.ENEMY_ART[variant].file)
+		check(path.ends_with("/six-enemy-update/" + variant + ".png"), variant + " uses its matching redrawn appearance")
 	print("V72 PROGRESSION %d checks, %d failures; total guards=%d" % [checks,failures,total])
 	quit(1 if failures else 0)
