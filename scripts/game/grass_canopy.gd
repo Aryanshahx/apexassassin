@@ -1,8 +1,8 @@
 extends Node2D
 ## A retained, non-colliding canopy above both player and guards. Each complete
 ## 40-unit tile uses the whole source texture; local footsteps briefly rustle it.
-const GRASS := preload("res://assets/environment/stealth-grass.png")
-const TILE := 40.0
+const GRASS := preload("res://assets/environment/stealth-grass-seamless.png")
+const TILE := 32.0
 const MAX_RIPPLES := 12
 const DURATION := 0.60
 var level: Node2D
@@ -57,21 +57,21 @@ func _draw() -> void:
 		var shift := Vector2.ZERO
 		for ripple in ripples:
 			var distance := center.distance_to(Vector2(ripple.pos))
-			if distance > 58.0:
+			if distance > 72.0:
 				continue
 			var age := float(ripple.age)
-			var influence := (1.0 - distance / 58.0) * (1.0 - age / DURATION)
+			var influence := (1.0 - distance / 72.0) * (1.0 - age / DURATION)
 			var oscillation := sin(age * 27.0 - distance * 0.07) * influence
 			bounce += oscillation
-			shift += Vector2(ripple.direction) * oscillation * 1.0
+			shift += Vector2(ripple.direction) * oscillation * 3.0
 		bounce = clampf(bounce, -1.0, 1.0)
-		# Whole contiguous canopy tiles remove dark gaps between neighbours.
-		# A second inset image visibly ripples but remains inside the safe tile,
-		# never protruding into an obstacle or exposing a clipped half tile.
-		draw_texture_rect(GRASS, tile, false, Color(1, 1, 1, 0.64))
+		# A continuous base keeps neighbours filled while a clearly visible
+		# spring layer expands and tilts above it on contact.
+		draw_rect(tile.grow(0.35), Color(0.18, 0.30, 0.035, 0.38), true)
+		draw_texture_rect(GRASS, tile.grow(0.35), false, Color(1, 1, 1, 0.80))
 		if absf(bounce) > 0.005:
-			var puff := 0.88 + absf(bounce) * 0.04
-			draw_set_transform(center + shift, bounce * 0.02, Vector2.ONE * puff)
-			draw_texture_rect(GRASS, Rect2(-Vector2.ONE * TILE * 0.5, Vector2.ONE * TILE), false, Color(1, 1, 1, 0.25 * absf(bounce)))
+			var puff := 1.0 + absf(bounce) * 0.18
+			draw_set_transform(center + shift, bounce * 0.07, Vector2.ONE * puff)
+			draw_texture_rect(GRASS, Rect2(-Vector2.ONE * TILE * 0.5, Vector2.ONE * TILE), false, Color(1, 1, 1, 0.70 * absf(bounce)))
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

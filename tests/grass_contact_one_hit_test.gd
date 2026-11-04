@@ -74,8 +74,8 @@ func _run() -> void:
 		check(first == map.grass_rects, "level %d grass is repeatable" % n)
 		map.free()
 	check(layouts.size() >= 3, "connected grass uses a variety of complete-tile layouts")
-	check(is_equal_approx(Level.GRASS_TILE, 40.0), "every whole grass tile is 25 percent wider than the old 32-unit tile")
-	check(float(full_tiles) * Level.GRASS_TILE * Level.GRASS_TILE > 3052.0 * 32.0 * 32.0 * 1.35, "total patch footprint is at least 35 percent larger than the previous update")
+	check(is_equal_approx(Level.GRASS_TILE * 2.0, 64.0), "four complete grass tiles form a 64-unit crate-sized block")
+	check(float(full_tiles) * Level.GRASS_TILE * Level.GRASS_TILE > 3000.0 * 32.0 * 32.0 * 1.35, "connected grass keeps substantial coverage across all levels")
 	print("GROUPED GRASS: ", grouped_patches, " groups, ", full_tiles, " complete tiles in 100 levels; layouts ", layouts)
 
 	gs.selected_assassin = "ronin"

@@ -53,22 +53,20 @@ const BLOOD_DECAL_SIZE := 132.0
 const BLOOD_PICKUP_RADIUS := 28.0
 const BLOOD_PRINT_SPACING := 24.0
 const BLOOD_PRINT_LIMIT := 180
-const GRASS_TILE := 40.0
-# Larger 40-unit whole tiles form connected patches. All preferred layouts
-# contain 12–16 tiles; compact fallbacks still cover more area than the old
-# minimum patch while fitting the narrowest existing arenas.
+const GRASS_TILE := 32.0
+# Four full 32-unit tiles make a 64-unit block, matching a wooden box.
+# Larger patches are connected mixes of those seamless four-tile blocks.
 const GRASS_LAYOUTS := [
+	{"name": "large-square", "rows": ["######", "######", "######", "######", "######", "######"]},
+	{"name": "wide", "rows": ["########", "########", "########", "########"]},
+	{"name": "tall", "rows": ["####", "####", "####", "####", "####", "####", "####", "####"]},
+	{"name": "block-square", "rows": ["######", "######", "######", "######"]},
+	{"name": "block-corner", "rows": ["####..", "####..", "######", "######", "..####", "..####"]},
 	{"name": "square", "rows": ["####", "####", "####", "####"]},
-	{"name": "wide", "rows": ["#####", "#####", "#####"]},
-	{"name": "tall", "rows": ["###", "###", "###", "###", "###"]},
-	{"name": "staggered", "rows": [".###", "####", "####", ".###"]},
-	{"name": "corner", "rows": ["###.", "####", "####", "###."]},
-	{"name": "cross", "rows": [".###.", "#####", "#####", ".###."]},
-	{"name": "compact", "rows": ["###", "###", "###"]},
-	{"name": "strip-wide", "rows": ["####", "####"]},
-	{"name": "strip-tall", "rows": ["##", "##", "##", "##"]},
-	{"name": "short", "rows": ["###", "###"]},
-	{"name": "short-tall", "rows": ["##", "##", "##"]},
+	{"name": "strip-wide", "rows": ["######", "######"]},
+	{"name": "strip-tall", "rows": ["##", "##", "##", "##", "##", "##"]},
+	{"name": "double", "rows": ["####", "####"]},
+	{"name": "single-box", "rows": ["##", "##"]},
 ]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Ten selectable characters. Guards keep their approved gun rig.
@@ -165,6 +163,12 @@ var blood_steps_remaining := 0
 var blood_step_distance := 0.0
 var blood_left_foot := false
 var key_on_floor := false
+var key_magnet_active := false
+const KEY_MAGNET_RADIUS := 120.0
+const KEY_MAGNET_SPEED := 320.0
+var is_bonus_level := false
+var bonus_milestone := 0
+var bonus_badge: Label
 var key_position := Vector2.ZERO
 var key_icon: TextureRect
 var key_label: Label
@@ -230,8 +234,13 @@ func _load_depot() -> void:
 
 func _ready() -> void:
 	_load_depot()
-	rng.seed = 9000 + GameState.current_level
-	_load_level(GameState.current_level)
+	bonus_milestone = GameState.active_bonus_level
+	is_bonus_level = bonus_milestone > 0
+	# Use a different authored arena from the just-cleared milestone, so the
+	# extra stage is not simply the same level repeated.
+	var map_number := maxi(1, bonus_milestone - 5) if is_bonus_level else GameState.current_level
+	rng.seed = 9000 + map_number
+	_load_level(map_number)
 	_build_grid()
 	_build_walkable_regions()
 	_build_shadows()
@@ -266,7 +275,9 @@ func _ready() -> void:
 	_layout_hud()
 	if GameState.locker_ready():
 		call_deferred("_show_locker")
-	if GameState.current_level == 1:
+	if is_bonus_level:
+		hint.text = "BONUS LEVEL — ENEMIES CANNOT DAMAGE YOU"
+	elif GameState.current_level == 1:
 		hint.text = "Tap to move  •  Tap a guard to hunt  •  Hide in grass"
 		var tw := create_tween()
 		tw.tween_interval(5.0)
@@ -350,6 +361,8 @@ func _layout_hud_for_rect(safe: Rect2) -> void:
 		key_label.size.x = maxf(1.0, slot - 46.0)
 	if status_label:
 		status_label.position = safe.position + Vector2(30, 96)
+	if bonus_badge:
+		bonus_badge.position = safe.position + Vector2(30, 130)
 	if key_guide:
 		key_guide.position = Vector2(safe.end.x - 198, safe.position.y + 92)
 	if pause_btn:
@@ -593,7 +606,7 @@ func _build_grass() -> void:
 	# then use compact layouts only where the original geometry requires them.
 	# A local RNG does not perturb patrols, loot, or combat.
 	var offset := float(data.get("source_tile_offset", 0.5))
-	for minimum in [12, 9, 8, 6]:
+	for minimum in [24, 16, 12, 8, 4]:
 		for c in data.get("source_grass", []):
 			var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
 			_try_grass_group(center, bounds, region_id, minimum)
@@ -626,6 +639,9 @@ func in_shadow(p: Vector2) -> bool:
 
 func _place_level_key() -> void:
 	key_on_floor = false
+	key_magnet_active = false
+	if is_bonus_level:
+		return
 	var number := int(data.id)
 	if not GameState.key_available(number):
 		return
@@ -664,11 +680,22 @@ func _guide_to_key() -> void:
 	hunt_target = -1
 	_path_to(key_position)
 
+func _magnetize_key(delta: float) -> void:
+	if not key_on_floor:
+		return
+	var distance := player_pos.distance_to(key_position)
+	if distance <= KEY_MAGNET_RADIUS and _los(key_position, player_pos):
+		key_magnet_active = true
+	if key_magnet_active and _los(key_position, player_pos):
+		key_position = key_position.move_toward(player_pos, maxf(0.0, delta) * KEY_MAGNET_SPEED)
+	_collect_key_if_close()
+
 func _collect_key_if_close() -> void:
 	if not key_on_floor or player_pos.distance_to(key_position) > 28.0:
 		return
 	if GameState.collect_level_key(int(data.id)):
 		key_on_floor = false
+		key_magnet_active = false
 		Sfx.play("pickkey", -3.0)
 		effects.append({"pos": key_position, "t": 1.0, "max": 1.0, "kind": "keytext"})
 		_refresh_wallet()
@@ -967,6 +994,12 @@ func _build_hud() -> void:
 	status_label.add_theme_color_override("font_color", Color("7CFC7C"))
 	status_label.text = "HIDDEN"
 	hud.add_child(status_label)
+	if is_bonus_level:
+		bonus_badge = _label(23, 4)
+		bonus_badge.name = "BonusInvincibleBadge"
+		bonus_badge.text = "BONUS %d  •  INVINCIBLE" % bonus_milestone
+		bonus_badge.add_theme_color_override("font_color", Color("ffe263"))
+		hud.add_child(bonus_badge)
 	var pause := Button.new()
 	pause_btn = pause
 	pause.text = "II"
@@ -1093,7 +1126,7 @@ func _physics_process(delta: float) -> void:
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
-	_collect_key_if_close()
+	_magnetize_key(delta)
 	if locker_ui != null:
 		return
 	# Resolve light contact before melee so a guard can fire immediately even
@@ -1150,6 +1183,7 @@ func _move_player(delta: float) -> void:
 	var moved := displacement.length_squared() > 0.0001
 	player_velocity = displacement / delta if moved and delta > 0.00001 else Vector2.ZERO
 	if moved:
+		_grass_boundary_events(before, player_pos)
 		_update_bloody_steps(before, player_pos)
 		if is_instance_valid(map_grass):
 			map_grass.disturb(player_pos, displacement)
@@ -1164,6 +1198,23 @@ func _move_player(delta: float) -> void:
 		player_rig.modulate = Color(1, 0.5, 0.5)
 	else:
 		player_rig.modulate = Color.WHITE
+
+func _grass_boundary_events(from: Vector2, to: Vector2) -> void:
+	# Sample the path, so even a long frame crossing a complete patch produces
+	# its enter and exit sound. Adjacent tiles count as one continuous canopy.
+	var length := from.distance_to(to)
+	var samples := maxi(1, ceili(length / 8.0))
+	var previous := in_grass(from)
+	var last := from
+	for i in range(1, samples + 1):
+		var point := from.lerp(to, float(i) / float(samples))
+		var inside := in_grass(point)
+		if inside != previous:
+			Sfx.play("grass", -3.0)
+			if is_instance_valid(map_grass):
+				map_grass.disturb(point if inside else last, to - from)
+		previous = inside
+		last = point
 
 func _visible_player_anchors(point: Vector2, only_region: int = -1) -> Array[Vector2i]:
 	# A rectangular obstacle can clip a corner of a grid cell even when that
@@ -1444,14 +1495,18 @@ func _kill_guard(index: int, silent := false) -> void:
 	kills += 1
 	_update_counter()
 	_add_blood_splatter(g.pos)
-	# Keep credit and save exactly as before; no kill-only particles or text.
+	# Saved credit is awarded once; visible icons/text are cosmetic only.
 	var money := MONEY_HEAVY if g.elite else MONEY_STANDARD
 	if silent:
 		money += MONEY_SILENT_BONUS
 	var diamonds := 1 if bool(g.get("diamond_carrier", false)) else 0
 	money_collected += money
 	gems_collected += diamonds
+	if is_bonus_level:
+		money *= 2
+		money_collected += money / 2
 	GameState.add_combat_loot(money, diamonds)
+	_spawn_loot_effect(g.pos, money, diamonds)
 	_refresh_wallet()
 	# Any takedown, including a backstab, alerts nearby reachable guards.
 	# Unlike a gunshot this is local: distant guards stay on patrol.
@@ -1465,6 +1520,16 @@ func _kill_guard(index: int, silent := false) -> void:
 		was_alerted = true
 	if hunt_target == index:
 		hunt_target = -1
+
+func _spawn_loot_effect(point: Vector2, money: int, diamonds: int) -> void:
+	for i in range(3):
+		var angle := -PI * 0.83 + float(i) * PI * 0.33
+		loot_particles.append({"kind": "money", "pos": point, "vel": Vector2.from_angle(angle) * (105.0 + i * 15.0), "t": 0.0})
+	effects.append({"pos": point + Vector2(0, -24), "t": 0.95, "max": 0.95, "kind": "moneytext", "amount": money})
+	if diamonds > 0:
+		loot_particles.append({"kind": "diamond", "pos": point, "vel": Vector2(65, -135), "t": 0.0})
+		effects.append({"pos": point + Vector2(20, -46), "t": 0.95, "max": 0.95, "kind": "diamondtext", "amount": diamonds})
+	Sfx.play("coin", -5.0)
 
 func _add_blood_splatter(point: Vector2) -> void:
 	var drops := []
@@ -2331,7 +2396,7 @@ func _los(a: Vector2, b: Vector2) -> bool:
 func _damage_player(amount: float, poison_tick := false) -> bool:
 	# All attacks, including poison and splash, honor the same invulnerability,
 	# health display, sound and defeat path as the original projectile.
-	if finished or invuln > 0.0 or amount <= 0.0:
+	if is_bonus_level or finished or invuln > 0.0 or amount <= 0.0:
 		return false
 	player_hp = maxf(0.0, player_hp - amount)
 	damage_taken += 1
@@ -2705,6 +2770,16 @@ func _win() -> void:
 	finished = true
 	var level_no := GameState.current_level
 	player_rig.set_moving(false)
+	if is_bonus_level:
+		var cleared := GameState.complete_bonus_level(bonus_milestone, kills)
+		_refresh_wallet()
+		Sfx.play("win")
+		var bonus_text := "+%d cash  +%d diamonds" % [100 + bonus_milestone * 5 + money_collected, 10 + gems_collected] if cleared else "Reward already claimed"
+		_end_panel("BONUS COMPLETE!", Color("f5bd32"), bonus_text, [
+			["Next Level", func(): GameState.start_level(GameState.current_level)],
+			["Home", func(): get_tree().change_scene_to_file("res://scenes/home/home.tscn")],
+		])
+		return
 	var stars := 3
 	if was_alerted:
 		stars = 2
@@ -2714,7 +2789,7 @@ func _win() -> void:
 	_refresh_wallet()
 	Sfx.play("win")
 	_end_panel("LEVEL COMPLETE!", Color("4caf20"), "★".repeat(stars) + "  +%d cash  +%d diamonds" % [50 + level_no * 5 + money_collected, gems_collected], [
-		["Next Level", func(): GameState.start_level(GameState.current_level)],
+		["Bonus Level" if GameState.pending_bonus_level > 0 else "Next Level", func(): GameState.start_level(GameState.current_level)],
 		["Home", func(): get_tree().change_scene_to_file("res://scenes/home/home.tscn")],
 	])
 	if GameState.locker_ready():

@@ -13,17 +13,8 @@ const BASE_HEALTH := 1000.0
 const HEALTH_UPGRADE_AMOUNT := 100.0
 # Additive one-time milestones use statistics already present in old saves.
 const MISSION_MILESTONES := [
-	{"id": "kills_100", "title": "ELIMINATE 100 TARGETS", "stat": "kills", "goal": 100, "reward": 250, "icon": "target"},
-	{"id": "kills_250", "title": "ELIMINATE 250 TARGETS", "stat": "kills", "goal": 250, "reward": 450, "icon": "target"},
-	{"id": "kills_500", "title": "ELIMINATE 500 TARGETS", "stat": "kills", "goal": 500, "reward": 750, "icon": "target"},
 	{"id": "levels_10", "title": "CLEAR 10 LEVELS", "stat": "levels", "goal": 10, "reward": 250, "icon": "key"},
-	{"id": "levels_25", "title": "CLEAR 25 LEVELS", "stat": "levels", "goal": 25, "reward": 450, "icon": "key"},
-	{"id": "levels_50", "title": "CLEAR 50 LEVELS", "stat": "levels", "goal": 50, "reward": 750, "icon": "key"},
-	{"id": "levels_100", "title": "CLEAR ALL 100 LEVELS", "stat": "levels", "goal": 100, "reward": 1500, "icon": "key"},
-	{"id": "perfect_5", "title": "5 PERFECT WINS", "stat": "perfect", "goal": 5, "reward": 350, "icon": "heart"},
-	{"id": "perfect_10", "title": "10 PERFECT WINS", "stat": "perfect", "goal": 10, "reward": 650, "icon": "heart"},
 	{"id": "stars_10", "title": "10 THREE-STAR LEVELS", "stat": "stars", "goal": 10, "reward": 400, "icon": "target"},
-	{"id": "stars_25", "title": "25 THREE-STAR LEVELS", "stat": "stars", "goal": 25, "reward": 800, "icon": "target"},
 ]
 
 const CHARACTERS := {
@@ -103,6 +94,11 @@ var mission2_claimed := false
 var mission3_claimed := false
 # The first three old boolean claims remain separate and unmodified.
 var mission_claims := {}
+# New fields are additive. Unknown/removed mission claims are retained.
+var superior_unlocks := {}
+var pending_bonus_level := 0
+var completed_bonus_levels := {}
+var active_bonus_level := 0
 var sound_enabled := true
 var haptics_enabled := true
 var upgrades := {"health": 0, "damage": 0, "speed": 0}
@@ -176,6 +172,22 @@ func load_game() -> void:
 		for id in saved_missions:
 			if bool(saved_missions[id]):
 				mission_claims[String(id)] = true
+	superior_unlocks = {}
+	var saved_superior: Variant = p.get("superior_unlocks", {})
+	if saved_superior is Dictionary:
+		for id in saved_superior:
+			if bool(saved_superior[id]): superior_unlocks[String(id)] = true
+	completed_bonus_levels = {}
+	var saved_bonus: Variant = p.get("completed_bonus_levels", {})
+	if saved_bonus is Dictionary:
+		for id in saved_bonus:
+			var milestone := int(id)
+			if milestone >= 10 and milestone <= TOTAL_LEVELS and milestone % 10 == 0 and bool(saved_bonus[id]):
+				completed_bonus_levels[str(milestone)] = true
+	pending_bonus_level = int(p.get("pending_bonus_level", 0))
+	if pending_bonus_level < 10 or pending_bonus_level > TOTAL_LEVELS or pending_bonus_level % 10 != 0 or bool(completed_bonus_levels.get(str(pending_bonus_level), false)):
+		pending_bonus_level = 0
+	active_bonus_level = 0
 	sound_enabled = bool(p.get("sound_enabled", true))
 	haptics_enabled = bool(p.get("haptics_enabled", true))
 	var old_sel: Variant = p.get("selected_assassin", "ronin")
@@ -243,7 +255,8 @@ func save_game() -> void:
 		"selected_knife": selected_knife, "unlocked_knives": unlocked_knives,
 		"best_stars": best_stars, "last_wheel_day": last_wheel_day,
 		"keys_collected": keys_collected, "key_levels_claimed": key_levels_claimed,
-		"locker_board": locker_board,
+		"locker_board": locker_board, "superior_unlocks": superior_unlocks,
+		"pending_bonus_level": pending_bonus_level, "completed_bonus_levels": completed_bonus_levels,
 	}
 	var tmp := SAVE_PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
@@ -271,12 +284,35 @@ func mission_progress(stat: String) -> int:
 			return count
 	return 0
 
+func is_superior_unlocked(id: String) -> bool:
+	return bool(superior_unlocks.get(id, false))
+
+func buy_superior(id: String, cost: int) -> bool:
+	# The caller supplies the published price; validate it against one canonical
+	# catalogue so no arbitrary/negative cost can bypass the diamond balance.
+	var catalogue = load("res://scripts/game/ten_character_selection.gd")
+	if not catalogue.SUPERIOR_LOOKS.has(id) or int(catalogue.SUPERIOR_COSTS[id]) != cost or is_superior_unlocked(id) or gems < cost:
+		return false
+	gems -= cost
+	superior_unlocks[id] = true
+	save_game()
+	return true
+
 func start_level(level: int) -> void:
-	current_level = clampi(level, 1, TOTAL_LEVELS)
+	# A queued bonus survives closing the app or returning home. Replaying a
+	# previously completed milestone does not give another completion reward.
+	if pending_bonus_level > 0:
+		active_bonus_level = pending_bonus_level
+	else:
+		active_bonus_level = 0
+		current_level = clampi(level, 1, TOTAL_LEVELS)
 	save_game()
 	get_tree().change_scene_to_file("res://scenes/level/level.tscn")
 
 func complete_level(kills: int, flawless: bool, stars: int) -> void:
+	var cleared := current_level
+	if cleared >= 10 and cleared % 10 == 0 and pending_bonus_level == 0 and not bool(completed_bonus_levels.get(str(cleared), false)):
+		pending_bonus_level = cleared
 	total_kills += kills
 	if flawless:
 		flawless_count += 1
@@ -290,6 +326,18 @@ func complete_level(kills: int, flawless: bool, stars: int) -> void:
 	if locker_pending():
 		locker_board["eligible"] = true
 	save_game()
+
+func complete_bonus_level(milestone: int, bonus_kills: int) -> bool:
+	if pending_bonus_level != milestone or milestone < 10 or milestone > TOTAL_LEVELS or milestone % 10 != 0 or bool(completed_bonus_levels.get(str(milestone), false)):
+		return false
+	total_kills += maxi(0, bonus_kills)
+	cash += 100 + milestone * 5
+	gems += 10
+	completed_bonus_levels[str(milestone)] = true
+	pending_bonus_level = 0
+	active_bonus_level = 0
+	save_game()
+	return true
 
 func character() -> Dictionary:
 	return CHARACTERS.get(selected_assassin, CHARACTERS.ronin)

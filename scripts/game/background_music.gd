@@ -7,7 +7,7 @@ extends Node
 const HOME_SCENE := "res://scenes/home/home.tscn"
 const GAME_SCENE := "res://scenes/level/level.tscn"
 const HOME_MUSIC := "res://assets/audio/homeaudio.mp3"
-const GAME_MUSIC := "res://assets/audio/gameplay2.mp3"
+const GAME_MUSIC := "res://assets/audio/gameplay3.mp3"
 const MUSIC_VOLUME_DB := -10.0
 
 var player: AudioStreamPlayer

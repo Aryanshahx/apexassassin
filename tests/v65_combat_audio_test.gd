@@ -137,7 +137,7 @@ func _run() -> void:
 	lv._auto_attack()
 	check(stab is AudioStream and is_playing(sfx, stab), "a real stab triggers the selected stab MP3")
 	check(not witness.alive and not witness.rig.visible and lv.blood_splats.size() == 1, "kill removes the body and creates one blood splatter")
-	check(lv.effects.is_empty() and lv.loot_particles.is_empty(), "kill creates no slash, ring, poof, floating reward or loot particles")
+	check(lv.effects.size() == 2 and lv.loot_particles.size() == 4, "kill shows the restored money and diamond collection effects")
 	check(gs.cash > cash_before and gs.gems == gems_before + 1, "money and diamond rewards are still saved")
 	var first_stain: Dictionary = lv.blood_splats[0].duplicate(true)
 	lv._update_effects(3600.0)

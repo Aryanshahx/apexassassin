@@ -7,6 +7,7 @@ extends Node2D
 
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
+const SuperiorMeta := preload("res://scripts/game/superior_art_meta.gd")
 const RED_ROOT := "res://assets/characters/red-scarf-preview/"
 const ROOT := "res://assets/characters/ten-character-update/"
 const WEAPON_ROOT := "res://assets/characters/five-look-draft/weapons/"
@@ -58,7 +59,7 @@ func _v(a: Array) -> Vector2:
 func setup(kind: String, _role: String = "player") -> void:
 	if visual != null:
 		return
-	current_look = kind if Choice.LOOKS.has(kind) else "standard"
+	current_look = kind if Choice.ALL_LOOKS.has(kind) else "standard"
 	visual = Node2D.new()
 	visual.name = "TenCharacterVisual"
 	# Source art faces left; rest direction in the level is up.
@@ -73,6 +74,8 @@ func setup(kind: String, _role: String = "player") -> void:
 	ankle_b = _ankle_pivot("AnkleB")
 	if current_look == "standard":
 		_setup_red_scarf()
+	elif Choice.SUPERIOR_LOOKS.has(current_look):
+		_setup_superior()
 	else:
 		_setup_new_look()
 	_set_leg(leg_a, leg_art_a, ankle_a, hip_a, Vector2(730.0, 355.0), 0.0)
@@ -119,13 +122,59 @@ func _setup_new_look() -> void:
 	head_pivot.name = "HeadAnchor"
 	visual.add_child(head_pivot)
 
-func _body(texture: Texture2D, origin: Vector2) -> void:
+func _setup_superior() -> void:
+	# The supplied art faces left in a 1514x744 canvas. The legs are the same
+	# animated tapered reference legs as the original roster, under the body.
+	centre = Vector2(970.0, 390.0)
+	hip_a = Vector2(1065.0, 370.0)
+	hip_b = Vector2(1065.0, 410.0)
+	var shoulder := Vector2(850.0, 135.0)
+	wrist_anchor = Vector2(455.0, 365.0)
+	weapon_fist = wrist_anchor
+	var folder := "res://assets/characters/superior-update/" + current_look + "/"
+	var origins: Dictionary = SuperiorMeta.ORIGINS[current_look]
+	_body(load(folder + "body.png"), _v(origins.body), 2.0)
+	knife_shoulder = Node2D.new()
+	knife_shoulder.name = "KnifeShoulder"
+	knife_shoulder.position = shoulder - centre
+	visual.add_child(knife_shoulder)
+	knife_elbow = Node2D.new()
+	knife_elbow.name = "KnifeElbow"
+	knife_shoulder.add_child(knife_elbow)
+	wrist = Node2D.new()
+	wrist.name = "KnifeHandPivot"
+	wrist.position = wrist_anchor - shoulder
+	knife_elbow.add_child(wrist)
+	weapon_art = Sprite2D.new()
+	weapon_art.name = "SelectedMeleeWeapon"
+	weapon_art.centered = false
+	weapon_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	wrist.add_child(weapon_art)
+	# The arm is drawn after the weapon so the grip remains behind the fist.
+	var arm := Sprite2D.new()
+	arm.name = "UpperAndHandArt"
+	arm.centered = false
+	arm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	arm.texture = load(folder + "upper.png")
+	arm.position = _v(origins.upper) - shoulder
+	arm.scale = Vector2.ONE * 2.0
+	knife_shoulder.add_child(arm)
+	free_shoulder = _shoulder("FreeShoulder", load(folder + "free_arm.png"), Vector2(855.0, 630.0), _v(origins.free_arm), 2.0)
+	free_pivot = Node2D.new()
+	free_pivot.name = "FreeHandAnchor"
+	free_shoulder.add_child(free_pivot)
+	head_pivot = Node2D.new()
+	head_pivot.name = "HeadAnchor"
+	visual.add_child(head_pivot)
+
+func _body(texture: Texture2D, origin: Vector2, art_scale: float = 1.0) -> void:
 	var torso := Sprite2D.new()
 	torso.name = "ReferenceBody"
 	torso.centered = false
 	torso.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	torso.texture = texture
 	torso.position = origin - centre
+	torso.scale = Vector2.ONE * art_scale
 	visual.add_child(torso)
 
 func _leg_pivot(node_name: String) -> Node2D:
@@ -155,7 +204,7 @@ func _ankle_pivot(node_name: String) -> Node2D:
 	node.add_child(art)
 	return node
 
-func _shoulder(node_name: String, texture: Texture2D, anchor: Vector2, crop_origin: Vector2) -> Node2D:
+func _shoulder(node_name: String, texture: Texture2D, anchor: Vector2, crop_origin: Vector2, art_scale: float = 1.0) -> Node2D:
 	var node := Node2D.new()
 	node.name = node_name
 	node.position = anchor - centre
@@ -166,6 +215,7 @@ func _shoulder(node_name: String, texture: Texture2D, anchor: Vector2, crop_orig
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	art.texture = texture
 	art.position = crop_origin - anchor
+	art.scale = Vector2.ONE * art_scale
 	node.add_child(art)
 	return node
 

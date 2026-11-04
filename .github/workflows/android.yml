@@ -44,7 +44,7 @@ jobs:
       - name: Check all original audio before building
         run: |
           set -euo pipefail
-          for f in ui_tap_audio.mp3 stab.mp3 suspect.mp3 stab2.mp3 suspect2.mp3 pickkey.mp3 unlockkey.mp3; do
+          for f in ui_tap_audio.mp3 stab.mp3 suspect.mp3 stab2.mp3 suspect2.mp3 pickkey.mp3 unlockkey.mp3 grass.mp3 gameplay3.mp3; do
             if [ ! -s "assets/audio/$f" ]; then
               echo "::error::Missing assets/audio/$f in this checkout. No silent replacement is generated."
               echo 'The Pi copy stays untouched. Add the recording only after approving GitHub upload and checking repository visibility.'

@@ -38,6 +38,7 @@ var wheel_badge_pos := Vector2.ZERO
 var wheel_badge: Control
 # Collection swipes begin over cards as well as empty space. A completed drag
 # is never allowed to activate the card under the finger.
+var character_category := "standard"
 var collection_scroll: ScrollContainer
 var _collection_touch := -1
 var _collection_mouse := false
@@ -94,7 +95,7 @@ func _layout_in_safe_rect(safe: Rect2) -> void:
 	canvas.position = safe.position + (safe.size - Vector2(W, design_h) * s) * 0.5
 	# Anchoring the menu and missions to the bottom leaves a spacious spotlight
 	# on tall phones and compresses it gracefully on shorter phone screens.
-	var start_y := design_h - 164.0
+	var start_y := design_h - 228.0
 	if start_button:
 		start_button.position = Vector2(112, start_y)
 	var missions_y := start_y - 376.0
@@ -545,7 +546,7 @@ func _build_start() -> void:
 	b.add_child(title)
 	var lv := _font(30, 0)
 	lv.name = "CurrentLevelLabel"
-	lv.text = "LEVEL %d" % GameState.current_level
+	lv.text = "BONUS AFTER LEVEL %d" % GameState.pending_bonus_level if GameState.pending_bonus_level > 0 else "LEVEL %d" % GameState.current_level
 	lv.add_theme_color_override("font_color", Color("754419"))
 	lv.position = Vector2(0, 87)
 	lv.size = Vector2(496, 40)
@@ -635,28 +636,47 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	scroll.add_child(content)
 	return content
 
-func _open_assassins() -> void:
-	var box := _screen_base("Choose Character")
+func _open_assassins(category: String = "standard") -> void:
+	character_category = category if category in ["standard", "superior"] else "standard"
+	var box := _screen_base("Choose Character", character_category == "superior")
+	var tabs := HBoxContainer.new()
+	tabs.name = "CharacterCategories"
+	tabs.add_theme_constant_override("separation", 12)
+	box.add_child(tabs)
+	for item in [["standard", "STANDARD"], ["superior", "SUPERIOR"]]:
+		var category_id := String(item[0])
+		var tab := Button.new()
+		tab.name = "SuperiorCategoryButton" if category_id == "superior" else "StandardCategoryButton"
+		tab.text = String(item[1])
+		tab.custom_minimum_size = Vector2(0, 58)
+		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tab.add_theme_font_size_override("font_size", 24)
+		if category_id == character_category: tab.add_theme_color_override("font_color", Color("251b16"))
+		tab.add_theme_stylebox_override("normal", _box(Color("f1ab32") if category_id == character_category else Color("43516b"), Color("181c2c"), 12, 3))
+		tab.pressed.connect(func(): _open_assassins(category_id))
+		tabs.add_child(tab)
 	var caption := _font(21, 2)
-	caption.text = "10 characters • character bonuses stack with your saved upgrades"
+	caption.text = "Superior characters unlock with diamonds • bonuses match the reference" if character_category == "superior" else "10 characters • bonuses stack with your saved upgrades"
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(caption)
 	var grid := GridContainer.new()
-	grid.name = "TenCharacterGrid"
+	grid.name = "SuperiorCharacterGrid" if character_category == "superior" else "TenCharacterGrid"
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 12)
 	grid.add_theme_constant_override("v_separation", 14)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(grid)
 	var chosen: String = FiveLooks.read_selection().look
-	for id in FiveLooks.LOOKS:
+	var roster: Array = FiveLooks.SUPERIOR_LOOKS if character_category == "superior" else FiveLooks.LOOKS
+	for id in roster:
 		grid.add_child(_new_look_card(id, chosen == id))
 
 func _new_look_card(id: String, selected: bool) -> Control:
 	var wrap := VBoxContainer.new()
 	wrap.name = "LookCard_" + id
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var locked := FiveLooks.SUPERIOR_LOOKS.has(id) and not GameState.is_superior_unlocked(id)
 	var picture := Button.new()
 	picture.name = "PortraitButton"
 	picture.custom_minimum_size = Vector2(0, 200)
@@ -669,7 +689,19 @@ func _new_look_card(id: String, selected: bool) -> Control:
 	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	icon.offset_left = 8; icon.offset_right = -8; icon.offset_top = 6; icon.offset_bottom = -6
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if locked: icon.modulate = Color(0.65, 0.65, 0.7, 1.0)
 	picture.add_child(icon)
+	if locked:
+		var lock := TextureRect.new()
+		lock.name = "SuperiorLock"
+		lock.texture = preload("res://assets/ui/lock.png")
+		lock.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		lock.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		lock.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		lock.position = Vector2(-46, 10)
+		lock.size = Vector2(36, 36)
+		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		picture.add_child(lock)
 	wrap.add_child(picture)
 	var name_label := _font(22, 2)
 	name_label.text = String(FiveLooks.LOOK_NAMES[id])
@@ -686,7 +718,9 @@ func _new_look_card(id: String, selected: bool) -> Control:
 	wrap.add_child(bonus)
 	var button := Button.new()
 	button.name = "EquipLook"
-	button.text = "Equipped" if selected else "Equip"
+	button.text = "Equipped" if selected else ("Unlock %d diamonds" % int(FiveLooks.SUPERIOR_COSTS[id]) if locked else "Equip")
+	button.add_theme_color_override("font_color", Color("251b16"))
+	button.add_theme_color_override("font_hover_color", Color("251b16"))
 	button.disabled = selected
 	button.custom_minimum_size = Vector2(0, 48)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -699,12 +733,39 @@ func _new_look_card(id: String, selected: bool) -> Control:
 func _on_look_pressed(id: String) -> void:
 	if _collection_moved or Time.get_ticks_msec() < _collection_suppress_until:
 		return
+	if FiveLooks.SUPERIOR_LOOKS.has(id) and not GameState.is_superior_unlocked(id):
+		_confirm_superior(id)
+		return
+	_equip_look(id)
+
+func _confirm_superior(id: String) -> void:
+	var price := int(FiveLooks.SUPERIOR_COSTS[id])
+	if GameState.gems < price:
+		_toast("Need %d diamonds to unlock %s" % [price, FiveLooks.LOOK_NAMES[id]])
+		return
+	var dialog := ConfirmationDialog.new()
+	dialog.name = "SuperiorPurchaseConfirmation"
+	dialog.title = "Unlock Superior character?"
+	dialog.dialog_text = "Unlock %s for %d diamonds?" % [FiveLooks.LOOK_NAMES[id], price]
+	dialog.ok_button_text = "Unlock"
+	add_child(dialog)
+	dialog.confirmed.connect(func():
+		if GameState.buy_superior(id, price):
+			_equip_look(id)
+		else:
+			_toast("Could not unlock character. Diamonds unchanged.")
+		dialog.queue_free())
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.popup_centered(Vector2i(460, 220))
+
+func _equip_look(id: String) -> void:
 	var old := FiveLooks.read_selection()
 	var position_before := collection_scroll.scroll_vertical if is_instance_valid(collection_scroll) else 0
 	if FiveLooks.save_selection(id, old.weapon):
 		Sfx.play("upgrade")
+		_refresh_values()
 		_refresh_card()
-		_open_assassins()
+		_open_assassins(character_category)
 		_restore_collection_position(collection_scroll, position_before)
 	else:
 		_toast("Could not save the appearance. Your progress is unchanged.")

@@ -91,8 +91,8 @@ func _run() -> void:
 	check(lv.gems_collected == diamonds_before + 1 and lv.money_collected == 35, "level collection totals reflect both kills")
 	var kill_visuals := 0
 	for e in lv.effects:
-		if e.kind in ["moneytext", "diamondtext", "poof", "killring", "backstab"]: kill_visuals += 1
-	check(kill_visuals == 0 and lv.loot_particles.is_empty() and lv.blood_splats.size() == 2, "kill visuals are only persistent blood; rewards remain in the HUD")
+		if e.kind in ["moneytext", "diamondtext"]: kill_visuals += 1
+	check(kill_visuals == 3 and lv.loot_particles.size() == 7 and lv.blood_splats.size() == 2, "money and diamond collection effects return without losing blood")
 	lv._kill_guard(1, true)
 	check(gs.cash == 535 and gs.gems == 43, "repeated kill call cannot pay twice")
 	gs.cash = 0

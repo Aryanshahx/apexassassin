@@ -132,7 +132,7 @@ func _run() -> void:
 	await process_frame; await process_frame
 	var claim4: Button = home.find_child("Mission4Button", true, false)
 	await _tap(_input_point(claim4))
-	check(bool(gs.mission_claims.get("kills_100", false)) and gs.cash == after_old + 250, "real touch claims the 100-kill milestone for 250")
+	check(bool(gs.mission_claims.get("levels_10", false)) and gs.cash == after_old + 250, "real touch claims the 10-level milestone for 250")
 	var after_new: int = gs.cash
 	home._claim_mission(4)
 	check(gs.cash == after_new, "new milestone cannot pay twice")
@@ -142,7 +142,7 @@ func _run() -> void:
 	gs.cash = 0; gs.mission_claims = {}; gs.mission1_claimed = false
 	gs.load_game()
 	check(gs.cash == after_new and gs.mission1_claimed and gs.mission2_claimed and gs.mission3_claimed, "old flags and claimed rewards survive save/reload")
-	check(bool(gs.mission_claims.get("kills_100", false)) and bool(gs.mission_claims.get("future_unknown", false)), "new and unknown mission claim IDs survive save/reload")
+	check(bool(gs.mission_claims.get("levels_10", false)) and bool(gs.mission_claims.get("future_unknown", false)), "new and unknown mission claim IDs survive save/reload")
 	check(gs.gems == 73 and gs.upgrades.health == 2 and gs.keys_collected == 1 and gs.key_levels_claimed.has("17"), "mission claims leave currency, upgrades and keys intact")
 	check(home.start_button.find_child("StartButtonShine", true, false) is ColorRect, "start shine is retained")
 	await create_timer(0.4).timeout
