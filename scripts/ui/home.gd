@@ -894,7 +894,7 @@ func _open_settings() -> void:
 	# an older download without touching progress, data or signing settings.
 	var build_id := _font(18, 0)
 	build_id.name = "BuildIdentity"
-	build_id.text = "BUILD: ROSTER-3"
+	build_id.text = "BUILD: GALLERY-4"
 	build_id.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	build_id.add_theme_color_override("font_color", Color("c5d3db"))
 	box.add_child(build_id)

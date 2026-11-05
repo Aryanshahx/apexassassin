@@ -1,6 +1,6 @@
 extends SceneTree
 ## Uses only a declared, disposable user-data root. Exercises the new roster,
-## attached patch sizes, actual touch input and an interrupted saved board.
+## gallery patch sizes, actual touch input and an interrupted saved board.
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Rig := preload("res://scripts/game/ten_character_player.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
@@ -61,14 +61,15 @@ func _run() -> void:
 		var tex := Choice.portrait(id)
 		check(tex != null and tex.resource_path == "res://assets/characters/superior-roster-v2/%s.webp" % id, id + " loads the replacement supplied art")
 		var actor := Rig.new(); root.add_child(actor); actor.setup(id, "player"); actor.set_process(false)
-		var body := actor.knife_shoulder.get_node("ReferenceBody") as Sprite2D
-		check(body.texture == tex and actor.weapon_art.get_parent() == actor.wrist and actor.knife_elbow.get_index() < body.get_index(), id + " uses coherent new art drawn over its independent weapon")
+		var body := actor.visual.get_node("ReferenceBody") as Sprite2D
+		var hand := actor.wrist.get_node("HandArt") as Sprite2D
+		check(body.texture != null and hand.texture != null and actor.weapon_art.get_parent() == actor.wrist and actor.weapon_art.get_index() < hand.get_index(), id + " uses supplied art layers drawn over its independent weapon")
 		for weapon in Choice.WEAPONS:
 			actor.set_knife(weapon)
 			var data: Array = Meta.WEAPON_GRIP[weapon]
 			var grip := Vector2(float(data[0]), float(data[1]))
-			var local: Vector2 = body.to_local(actor.weapon_art.to_global(grip))
-			var image := body.texture.get_image()
+			var local: Vector2 = hand.to_local(actor.weapon_art.to_global(grip))
+			var image := hand.texture.get_image()
 			var pixel := Vector2i(roundi(local.x), roundi(local.y))
 			check(Rect2i(Vector2i.ZERO,image.get_size()).has_point(pixel) and image.get_pixelv(pixel).a > 0.5, id + "/" + weapon + " grip lands inside an opaque fist pixel")
 		actor.set_moving(true); actor._process(1.0 / 12.0)
@@ -81,8 +82,8 @@ func _run() -> void:
 	check(gs.superior_unlocks.size() == 10 and Choice.read_selection() == {"look":"warrior_monk","weapon":"dracula"}, "old slot unlocks, final selection and weapon survive reload")
 	check(gs.gems == 987 and gs.cash == 654 and gs.current_level == 37 and gs.keys_collected == 1 and gs.upgrades.health == 3, "roster replacement never resets money, level, keys or upgrades")
 
-	# Every group is a filled rectangle tiled as 2 or 3 adjacent 2x2 boxes.
-	# The depth suite separately retains prop, collision and guard-access checks.
+	# Every group is filled and connected: two/three box-area strips, or a
+	# 3x3 square covering approximately two box areas. Collision checks remain.
 	var Level = load("res://scripts/game/level.gd")
 	var group_total := 0; var tile_total := 0
 	for n in range(1,101):
@@ -92,15 +93,15 @@ func _run() -> void:
 			group_total += 1; tile_total += g.tiles.size()
 			var bounds: Rect2 = g.bounds
 			var x := roundi(bounds.size.x / 32.0); var y := roundi(bounds.size.y / 32.0)
-			var valid_shape := (x == 2 and y in [4,6]) or (y == 2 and x in [4,6])
-			check(valid_shape and g.tiles.size() == x*y and g.tiles.size() in [8,12], "level %d patch is exactly two or three adjoining box-sized sections" % n)
+			var valid_shape := (x == 2 and y in [4,6]) or (y == 2 and x in [4,6]) or (x == 3 and y == 3)
+			check(valid_shape and g.tiles.size() == x*y and g.tiles.size() in [8,9,12], "level %d patch is a connected strip or square of two to three box areas" % n)
 			var occupied := {}
 			for tile: Rect2 in g.tiles:
 				var offset := (tile.position - bounds.position) / 32.0
 				occupied[Vector2i(roundi(offset.x),roundi(offset.y))] = true
 			check(occupied.size() == x*y, "level %d patch has no gaps or overlapping tiles" % n)
 		lv.free()
-	print("ROSTER-3 GRASS: ", group_total, " patches; ", tile_total, " tiles; all 100 levels")
+	print("GALLERY GRASS: ", group_total, " patches; ", tile_total, " tiles; all 100 levels")
 
 	# Both bars are hidden but retain a scroll range, and actual swipes beginning
 	# on their buttons still scroll without activating the button.

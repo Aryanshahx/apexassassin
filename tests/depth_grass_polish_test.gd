@@ -82,10 +82,13 @@ func _run() -> void:
 		check(m.grass_groups.size() >= 2 and m.grass_groups.size() <= 3, "level %d has only two or three grass spots" % number)
 		for g: Dictionary in m.grass_groups:
 			group_count += 1; tile_count += g.tiles.size(); shape_counts[g.layout] = true
-			var prop: Rect2 = m.crate_rects[int(g.prop_index)]; var patch: Rect2 = g.bounds
-			check(touching(patch, prop), "level %d grass touches its real prop with no gap" % number)
-			check(not patch.intersects(prop, false), "level %d grass does not cover the prop" % number)
-			check(patch.size.x >= 64.0 and patch.size.y >= 64.0 and g.tiles.size() in [8, 12], "level %d has two or three connected 2x2 grass-box sections" % number)
+			var patch: Rect2 = g.bounds
+			check(bool(g.get("gallery",false)) and int(g.prop_index) == -1, "level %d places grass independently on gallery floor" % number)
+			var clear := true
+			for cover: Rect2 in m.wall_rects + m.crate_rects:
+				if patch.intersects(cover,false): clear = false
+			check(clear, "level %d grass does not cover any wall or prop" % number)
+			check(patch.size.x >= 64.0 and patch.size.y >= 64.0 and g.tiles.size() in [8, 9, 12], "level %d has a connected strip or square of two to three box areas" % number)
 			var guard_tile := false
 			for tile: Rect2 in g.tiles:
 				var cell: Vector2i = m._to_cell(tile.get_center())
@@ -94,8 +97,8 @@ func _run() -> void:
 			check(guard_can_approach(m,g), "level %d grass has a guard-clear entry and reachable search tile" % number)
 		check(m.blocking_rects == before and m.guard_blocking_rects == guard_before, "level %d adds no collision or blockers" % number)
 		m.free()
-	check(shape_counts.size() == 4 and group_count >= 200 and group_count <= 300, "2x4, 4x2, 2x6 and 6x2 arrangements are varied across the catalogue")
-	print("PROP-ATTACHED GRASS: ", group_count, " spots and ",tile_count," tiles across 100 levels")
+	check(shape_counts.size() == 5 and group_count >= 200 and group_count <= 300, "square and both orientations of two/three-box strips appear across the catalogue")
+	print("WALKABLE GALLERY GRASS: ", group_count, " spots and ",tile_count," tiles across 100 levels")
 
 	var world := World.new()
 	for i in range(15): check(world._progressive_prop_name(10,i).is_empty(), "no newly introduced prop before level 11")
@@ -170,10 +173,10 @@ func _run() -> void:
 	lv.player_velocity = Vector2.ZERO; var offset_a: Vector2 = existing._cover_depth_offset(probe_rect)
 	lv.player_pos += Vector2(40,20); lv.player_velocity = Vector2(180,50)
 	var offset_b: Vector2 = existing._cover_depth_offset(probe_rect)
-	check(offset_a.distance_to(offset_b) > 0.1 and absf(offset_b.x) <= 3.5 and absf(offset_b.y) <= 3.5, "prop perspective changes subtly with player motion and stays within blocker margin")
+	check(offset_a.distance_to(offset_b) > 0.1 and absf(offset_b.x) <= 8.0 and absf(offset_b.y) <= 4.0, "stronger prop perspective changes with player motion and stays bounded")
 	check(lv.blocking_rects == map_before, "2.5D effect does not alter physics, map geometry or paths")
 
-	# A real authored prop-attached patch must also be enterable; choose an
+	# A real authored gallery patch must also be enterable; choose an
 	# unobstructed outer approach without moving or removing any cover.
 	var real_guard: Dictionary = lv.guards[0]
 	lv.guards.clear(); lv.guards.append(real_guard)
@@ -205,10 +208,10 @@ func _run() -> void:
 		for tick in range(150):
 			lv._update_guards(0.025)
 			if lv.in_grass(real_guard.pos): entered_real = true; break
-		check(entered_real, "alert guard enters an actual prop-attached grass spot without crossing cover")
+		check(entered_real, "alert guard enters an actual gallery grass spot without crossing cover")
 		found_real = true
 		break
-	check(found_real, "real level provides an accessible prop-edge guard approach")
+	check(found_real, "real level provides an accessible gallery guard approach")
 
 	# Search an observed grass entry from all four sides in a collision-free
 	# synthetic arena. Concealment still hides the player's live position.

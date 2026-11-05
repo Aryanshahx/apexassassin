@@ -43,7 +43,7 @@ func _run() -> void:
 	home._open_settings()
 	await process_frame
 	var identity := home.find_child("BuildIdentity",true,false) as Label
-	check(identity != null and identity.text == "BUILD: ROSTER-3", "settings visibly identify this exact APK generation")
+	check(identity != null and identity.text == "BUILD: GALLERY-4", "settings visibly identify this exact APK generation")
 	if identity != null:
 		check(identity.is_visible_in_tree() and ScreenUtil.safe_rect(root).encloses(identity.get_global_rect()), "build identifier is visible inside safe viewport")
 	home.queue_free(); await process_frame

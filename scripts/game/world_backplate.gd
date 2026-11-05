@@ -141,29 +141,66 @@ func _progressive_prop_name(number: int, index: int) -> String:
     return available[int(index / 3) % available.size()]
 
 func _cover_depth_offset(r: Rect2) -> Vector2:
-    # Bounded fake height/parallax as the camera follows the moving character.
-    # Offset never exceeds the existing four-unit blocker clearance.
-    var radial: Vector2 = (r.get_center() - level.player_pos) * 0.012
-    var motion: Vector2 = -level.player_velocity.limit_length(200.0) * 0.004
+    # Perspective reacts visibly as the player/camera moves, while the
+    # projected top is clipped to the unchanged, solid cover footprint.
+    var radial: Vector2 = (r.get_center() - level.player_pos) * 0.022
+    var motion: Vector2 = -level.player_velocity.limit_length(200.0) * 0.014
     var shift := radial + motion
-    return Vector2(clampf(shift.x, -3.5, 3.5), clampf(shift.y, -3.5, 3.5))
+    return Vector2(clampf(shift.x,-8.0,8.0),clampf(shift.y,-4.0,4.0))
 
-func _cover_base(r: Rect2) -> Rect2:
-    # Fill the fixed collision footprint so prop edges still meet adjacent
-    # grass; lift the textured top by only a few units for subtle 2.5D depth.
+func _cover_top_rect(r: Rect2) -> Rect2:
+    # Substantial front/side faces give cover readable height even at rest.
+    # Only the top rectangle shifts: it can never leave the real rectangle.
+    var shift := _cover_depth_offset(r)
+    var side := minf(8.0,r.size.x * 0.09)
+    var face_max := minf(24.0,r.size.y * 0.38)
+    var face := clampf(minf(r.size.x,r.size.y) * 0.22 + shift.y, minf(8.0,face_max), face_max)
+    var dx := clampf(side + clampf(shift.x,-side,side),0.1,side*2.0-0.1)
+    return Rect2(r.position + Vector2(dx,0.75),Vector2(r.size.x-side*2.0,maxf(1.0,r.size.y-face-0.75)))
+
+func _depth_ink(kind: String) -> Color:
+    if kind == "wall" or kind == "gate": return Color(0.21,0.24,0.28)
+    if kind == "crate_red" or kind == "barrel_pallet": return Color(0.34,0.13,0.12)
+    if kind == "crate_blue" or kind == "crate_steel": return Color(0.16,0.22,0.27)
+    if kind == "crate_green" or kind == "ammo_crate": return Color(0.21,0.25,0.15)
+    if kind == "sandbags": return Color(0.32,0.28,0.19)
+    return Color(0.30,0.21,0.14)
+
+func _cover_base(r: Rect2, kind: String) -> Rect2:
     _draw_shadow(r)
-    draw_rect(r, Color(0.12, 0.13, 0.14, 0.95))
-    return Rect2(r.position + _cover_depth_offset(r), r.size)
+    var top := _cover_top_rect(r)
+    var ink := _depth_ink(kind)
+    draw_rect(r,ink)
+    # Left and right sloping cheeks, all within the authored collision box.
+    draw_colored_polygon(PackedVector2Array([r.position,top.position,Vector2(top.position.x,top.end.y),Vector2(r.position.x,r.end.y)]),ink.darkened(0.24))
+    draw_colored_polygon(PackedVector2Array([Vector2(top.end.x,top.position.y),Vector2(r.end.x,r.position.y),r.end,top.end]),ink.lightened(0.12))
+    return top
+
+func _draw_cover_front(r: Rect2, top: Rect2, tex: Texture2D, kind: String) -> void:
+    var face := Rect2(Vector2(top.position.x,top.end.y),Vector2(top.size.x,r.end.y-top.end.y))
+    if not face.has_area(): return
+    # Reuse the approved cover art for a shaded front face instead of adding
+    # solids or substituting a different map. Thin highlights emphasize the
+    # corner and the foot of the extrusion at normal phone zoom.
+    var size := tex.get_size()
+    # A lower texture slice reads as the prop's side, rather than repeating
+    # miniature barrel tops, sandbag stacks or crate emblems on the face.
+    var source := Rect2(Vector2(0.0,size.y*0.70),Vector2(size.x,size.y*0.27))
+    draw_texture_rect_region(tex,face,source,Color(0.54,0.56,0.58,1.0) if kind == "wall" or kind == "gate" else Color(0.56,0.53,0.49,1.0))
+    draw_line(Vector2(top.position.x+1.0,top.end.y+1.0),Vector2(top.end.x-1.0,top.end.y+1.0),Color(0.86,0.88,0.88,0.55),1.8)
+    draw_line(Vector2(r.position.x+1.0,r.end.y-1.0),Vector2(r.end.x-1.0,r.end.y-1.0),Color(0.04,0.05,0.06,0.85),1.8)
 
 func _draw_cover() -> void:
     var kinds: Dictionary = level.data.get("wall_kinds",{})
     for i in range(level.wall_rects.size()):
         var r: Rect2 = level.wall_rects[i]
-        var top := _cover_base(r)
+        var kind := str(kinds.get(str(i),"wall"))
+        var top := _cover_base(r,kind)
         var horizontal := r.size.x >= r.size.y
         var tex: Texture2D = WALL_H if horizontal else WALL_V
         draw_texture_rect(tex,top,false)
-        if str(kinds.get(str(i),"wall")) == "gate":
+        _draw_cover_front(r,top,tex,kind)
+        if kind == "gate":
             var mark: Texture2D = MARK_H if horizontal else MARK_V
             draw_texture_rect(mark,top.grow(-4.0),false,Color(1,1,1,0.9))
         var lamp_point := _lamp_outside(r,i)
@@ -173,17 +210,17 @@ func _draw_cover() -> void:
         var r: Rect2 = level.crate_rects[i]
         var item: Array = level.data.crates[i]
         var kind := str(item[4]) if item.size() > 4 else "crate_wood"
-        var new_kind := _progressive_prop_name(int(level.data.id), i)
+        var new_kind := _progressive_prop_name(int(level.data.id),i)
         var tex: Texture2D = NEW_PROPS[new_kind] if not new_kind.is_empty() else PROPS.get(kind,PROPS["crate_wood"])
-        var top := _cover_base(r)
-        # Existing wide wooden-crate pairs keep their authored division; a
-        # progressive prop is a single illustration across the same footprint.
+        var face_kind := new_kind if not new_kind.is_empty() else kind
+        var top := _cover_base(r,face_kind)
         if new_kind.is_empty() and kind.begins_with("crate_") and r.size.x > r.size.y * 1.4:
-            var half := r.size.x * 0.5
-            draw_texture_rect(tex,Rect2(top.position,Vector2(half,r.size.y)),false)
-            draw_texture_rect(tex,Rect2(top.position+Vector2(half,0),Vector2(r.size.x-half,r.size.y)),false)
+            var half := top.size.x * 0.5
+            draw_texture_rect(tex,Rect2(top.position,Vector2(half,top.size.y)),false)
+            draw_texture_rect(tex,Rect2(top.position+Vector2(half,0),Vector2(top.size.x-half,top.size.y)),false)
         else:
             draw_texture_rect(tex,top,false)
+        _draw_cover_front(r,top,tex,face_kind)
     _draw_prop_blood()
 
 func _draw_prop_blood() -> void:

@@ -7,7 +7,7 @@ extends Node2D
 
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
-const SuperiorMeta := preload("res://scripts/game/superior_art_meta.gd")
+const SuperiorRigMeta := preload("res://scripts/game/superior_rig_meta_v3.gd")
 const RepairMeta := preload("res://scripts/game/character_repair_meta.gd")
 const RED_ROOT := "res://assets/characters/red-scarf-preview/"
 const ROOT := "res://assets/characters/ten-character-update/"
@@ -172,46 +172,27 @@ func _setup_repaired_guard() -> void:
 	visual.add_child(head_pivot)
 
 func _setup_superior() -> void:
-	# The new supplied roster shows whole upper bodies, not separable limb
-	# frames. Keep each pose coherent rather than inventing hidden pixels.
-	# The independently equipped weapon still pivots behind the gripping fist.
-	centre = Vector2(970.0, 390.0)
-	hip_a = Vector2(1015.0, 370.0)
-	hip_b = Vector2(1015.0, 410.0)
-	var shoulder := Vector2(850.0, 135.0)
-	wrist_anchor = Vector2(527.0, 367.0)
+	# Six overlapping cuts from the supplied figure form actual visible,
+	# independently pivoted arms and hands. The original portrait remains
+	# untouched; weapons stay separate and are drawn behind the gripping hand.
+	centre = Vector2(970.0,390.0)
+	hip_a = Vector2(1015.0,370.0)
+	hip_b = Vector2(1015.0,410.0)
+	var scale_art: float = SuperiorRigMeta.SCALE
+	var origins: Dictionary = SuperiorRigMeta.ORIGINS[current_look]
+	var shoulder := Vector2(758.0,108.8)
+	var elbow := Vector2(571.0,244.8)
+	wrist_anchor = Vector2(527.0,367.0)
 	weapon_fist = wrist_anchor
-	knife_shoulder = Node2D.new()
-	knife_shoulder.name = "KnifeShoulder"
-	knife_shoulder.position = shoulder - centre
-	visual.add_child(knife_shoulder)
-	knife_elbow = Node2D.new()
-	knife_elbow.name = "KnifeElbow"
-	knife_shoulder.add_child(knife_elbow)
-	wrist = Node2D.new()
-	wrist.name = "KnifeWrist"
-	wrist.position = wrist_anchor - shoulder
-	knife_elbow.add_child(wrist)
-	weapon_art = Sprite2D.new()
-	weapon_art.name = "EquippedMeleeBehindHand"
-	weapon_art.centered = false
-	weapon_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	wrist.add_child(weapon_art)
-	var sprite := Sprite2D.new()
-	sprite.name = "ReferenceBody"
-	sprite.texture = load("res://assets/characters/superior-roster-v2/%s.webp" % current_look)
-	sprite.centered = false
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	sprite.position = Vector2(350.0, 0.0) - shoulder
-	sprite.scale = Vector2.ONE * 3.4
-	# Add after the weapon so the original fist naturally covers its handle.
-	knife_shoulder.add_child(sprite)
-	free_shoulder = Node2D.new()
-	free_shoulder.name = "FreeShoulder"
-	visual.add_child(free_shoulder)
-	free_pivot = Node2D.new()
-	free_pivot.name = "FreeHandAnchor"
-	free_shoulder.add_child(free_pivot)
+	var free_anchor := Vector2(979.0,533.8)
+	var free_hand_anchor := Vector2(717.2,493.0)
+	var folder := "res://assets/characters/superior-rig-v3/" + current_look + "/"
+	_body(load(folder + "body.webp"),_v(origins.body),scale_art)
+	knife_shoulder = _shoulder("KnifeShoulder",load(folder + "upper.webp"),shoulder,_v(origins.upper),scale_art)
+	knife_elbow = _elbow_pivot(knife_shoulder,load(folder + "forearm.webp"),elbow,shoulder,_v(origins.forearm),scale_art)
+	wrist = _wrist_pivot(knife_elbow,load(folder + "hand.webp"),wrist_anchor,elbow,_v(origins.hand),scale_art)
+	free_shoulder = _shoulder("FreeShoulder",load(folder + "free_arm.webp"),free_anchor,_v(origins.free_arm),scale_art)
+	free_pivot = _hand_pivot(free_shoulder,"ReferenceFreeHand",load(folder + "free_hand.webp"),free_hand_anchor,free_anchor,_v(origins.free_hand),scale_art)
 	head_pivot = Node2D.new()
 	head_pivot.name = "HeadAnchor"
 	visual.add_child(head_pivot)
@@ -268,7 +249,7 @@ func _shoulder(node_name: String, texture: Texture2D, anchor: Vector2, crop_orig
 	node.add_child(art)
 	return node
 
-func _elbow_pivot(parent: Node2D, texture: Texture2D, elbow: Vector2, shoulder: Vector2, crop_origin: Vector2) -> Node2D:
+func _elbow_pivot(parent: Node2D, texture: Texture2D, elbow: Vector2, shoulder: Vector2, crop_origin: Vector2, art_scale: float = 1.0) -> Node2D:
 	var node := Node2D.new()
 	node.name = "KnifeElbow"
 	node.position = elbow - shoulder
@@ -279,10 +260,11 @@ func _elbow_pivot(parent: Node2D, texture: Texture2D, elbow: Vector2, shoulder: 
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	art.texture = texture
 	art.position = crop_origin - elbow
+	art.scale = Vector2.ONE * art_scale
 	node.add_child(art)
 	return node
 
-func _wrist_pivot(parent: Node2D, texture: Texture2D, hand: Vector2, parent_anchor: Vector2, crop_origin: Vector2) -> Node2D:
+func _wrist_pivot(parent: Node2D, texture: Texture2D, hand: Vector2, parent_anchor: Vector2, crop_origin: Vector2, art_scale: float = 1.0) -> Node2D:
 	var node := Node2D.new()
 	node.name = "KnifeHandPivot"
 	node.position = hand - parent_anchor
@@ -298,10 +280,11 @@ func _wrist_pivot(parent: Node2D, texture: Texture2D, hand: Vector2, parent_anch
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	art.texture = texture
 	art.position = crop_origin - hand
+	art.scale = Vector2.ONE * art_scale
 	node.add_child(art)
 	return node
 
-func _hand_pivot(parent: Node2D, node_name: String, texture: Texture2D, hand: Vector2, parent_anchor: Vector2, crop_origin: Vector2) -> Node2D:
+func _hand_pivot(parent: Node2D, node_name: String, texture: Texture2D, hand: Vector2, parent_anchor: Vector2, crop_origin: Vector2, art_scale: float = 1.0) -> Node2D:
 	var node := Node2D.new()
 	node.name = node_name
 	node.position = hand - parent_anchor
@@ -312,6 +295,7 @@ func _hand_pivot(parent: Node2D, node_name: String, texture: Texture2D, hand: Ve
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	art.texture = texture
 	art.position = crop_origin - hand
+	art.scale = Vector2.ONE * art_scale
 	node.add_child(art)
 	return node
 
@@ -389,7 +373,7 @@ func _process(delta: float) -> void:
 	# elbow, hand and weapon stay parented to their original shoulder pivots.
 	var shoulder_gait := sin(walk_time * TAU * 1.5) if moving and not attack_active and not dead else 0.0
 	knife_shoulder.rotation = deg_to_rad(-3.0 * cycle + 4.8 * shoulder_gait)
-	knife_elbow.rotation = 0.0 if current_look in ["health_10", "health_30"] or Choice.SUPERIOR_LOOKS.has(current_look) else deg_to_rad(-15.0 * cycle + 7.0 * wave + 2.0 * shoulder_gait)
+	knife_elbow.rotation = 0.0 if current_look in ["health_10", "health_30"] else deg_to_rad(-15.0 * cycle + 7.0 * wave + 2.0 * shoulder_gait)
 	free_shoulder.rotation = deg_to_rad(2.5 * cycle - 5.0 * shoulder_gait)
 	wrist.rotation = deg_to_rad(-4.5 * wave - 1.0 * shoulder_gait)
 	free_pivot.rotation = deg_to_rad(-3.0 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else deg_to_rad(2.0 * wave)
