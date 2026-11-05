@@ -27,7 +27,7 @@ func _run() -> void:
 	check(not lv.money_caption.visible and not lv.gem_caption.visible and not lv.money_panel.visible and not lv.gem_panel.visible, "currency backgrounds and words are hidden during gameplay")
 	for safe in [Rect2(0,0,720,1280), Rect2(12,20,640,1100), Rect2(20,40,600,900)]:
 		lv._layout_hud_for_rect(safe)
-		check(not Rect2(lv.money_label.position, lv.money_label.size).intersects(Rect2(lv.gem_icon.position, lv.gem_icon.size)) and not Rect2(lv.gem_label.position, lv.gem_label.size).intersects(Rect2(lv.key_icon.position, lv.key_icon.size)) and not Rect2(lv.key_label.position, lv.key_label.size).intersects(Rect2(lv.pause_btn.position, lv.pause_btn.size)), "wallet totals do not overlap at safe width %s" % safe.size.x)
+		check(not Rect2(lv.money_label.position, lv.money_label.size * lv.money_label.scale).intersects(Rect2(lv.gem_icon.position, lv.gem_icon.size)) and not Rect2(lv.gem_label.position, lv.gem_label.size * lv.gem_label.scale).intersects(Rect2(lv.key_icon.position, lv.key_icon.size)) and not Rect2(lv.key_label.position, lv.key_label.size * lv.key_label.scale).intersects(Rect2(lv.pause_btn.position, lv.pause_btn.size)), "wallet totals do not overlap at safe width %s" % safe.size.x)
 		check(is_equal_approx(lv.money_icon.position.y, lv.gem_icon.position.y) and is_equal_approx(lv.gem_icon.position.y, lv.key_icon.position.y) and is_equal_approx(lv.money_label.position.y, lv.gem_label.position.y) and is_equal_approx(lv.gem_label.position.y, lv.key_label.position.y), "money, diamonds and keys are in one straight row at width %s" % safe.size.x)
 	lv._layout_hud()
 	gs.cash = 1234567890

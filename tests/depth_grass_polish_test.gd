@@ -121,7 +121,8 @@ func _run() -> void:
 		var actor := Rig.new(); root.add_child(actor); actor.setup(id,"player"); actor.set_process(false)
 		check(not actor.leg_a.visible and not actor.leg_b.visible and not actor.ankle_a.visible and not actor.ankle_b.visible, id + " starts with legs hidden")
 		actor.set_moving(true); actor._process(0.11)
-		check(actor.leg_a.visible and actor.leg_b.visible and actor.ankle_a.visible and actor.ankle_b.visible, id + " shows both moving legs")
+		var expected_legs: bool = not Choice.SUPERIOR_LOOKS.has(id)
+		check(actor.leg_a.visible == expected_legs and actor.leg_b.visible == expected_legs and actor.ankle_a.visible == expected_legs and actor.ankle_b.visible == expected_legs, id + " uses appropriate moving leg visibility")
 		check(not is_zero_approx(actor.knife_shoulder.rotation) and not is_zero_approx(actor.free_shoulder.rotation), id + " still animates both shoulders")
 		actor.set_knife("leviathan")
 		check(actor.weapon_art.get_parent() == actor.wrist and actor.weapon_art.texture != null, id + " still holds an independent weapon")
@@ -147,24 +148,12 @@ func _run() -> void:
 	home._claim_mission(2); check(gs.cash == old_cash + 200, "mission cannot be claimed twice")
 	home._open_assassins("superior"); await process_frame
 	home._on_look_pressed("green_ghillie"); await process_frame
-	var toast: Panel = home.find_child("CenteredToast",true,false)
-	var safe := ScreenUtil.safe_rect(root)
-	check(toast != null and toast.get_global_rect().get_center().distance_to(safe.get_center()) < 1.0 and safe.encloses(toast.get_global_rect()), "need-diamonds message is centered inside the safe area")
-	if toast:
-		var label := toast.get_node("ToastText") as Label
-		var font := label.get_theme_font("font"); var fs := label.get_theme_font_size("font_size")
-		var text_size := font.get_multiline_string_size(label.text,HORIZONTAL_ALIGNMENT_CENTER,label.size.x,fs)
-		check(label.text.contains("40 diamonds") and text_size.y <= label.size.y and not label.clip_text, "40-diamond message is fully visible and wraps")
+	check(home.find_child("CenteredToast",true,false) == null, "home no longer displays claim or insufficient-diamond transient notices")
 	var initial_view := root.size
 	for size in [Vector2i(320,568),Vector2i(400,860),Vector2i(900,500)]:
 		root.size = size; await process_frame
-		home._toast("Need 40 diamonds to unlock Golden Guard")
-		var note: Panel = home.find_child("CenteredToast",true,false)
-		var viewport_safe := ScreenUtil.safe_rect(root)
-		var body := note.get_node("ToastText") as Label
-		var font := body.get_theme_font("font")
-		var dimensions := font.get_multiline_string_size(body.text,HORIZONTAL_ALIGNMENT_CENTER,body.size.x,body.get_theme_font_size("font_size"))
-		check(viewport_safe.encloses(note.get_global_rect()) and note.get_global_rect().get_center().distance_to(viewport_safe.get_center()) < 1.0 and dimensions.y <= body.size.y, "notice is centered and readable at viewport " + str(size))
+		home._toast("This old notice is intentionally suppressed")
+		check(home.find_child("CenteredToast",true,false) == null, "transient home notices stay suppressed at viewport " + str(size))
 	root.size = initial_view; await process_frame
 	home.queue_free(); await process_frame
 

@@ -63,31 +63,31 @@ func _run() -> void:
 	for id in Choice.SUPERIOR_LOOKS:
 		var actor := Rig.new(); root.add_child(actor); actor.setup(id,"player"); actor.set_process(false)
 		var body := actor.visual.get_node("ReferenceBody") as Sprite2D
-		var upper := actor.knife_shoulder.get_node("Art") as Sprite2D
-		var forearm := actor.knife_elbow.get_node("ForearmArt") as Sprite2D
-		var hand := actor.wrist.get_node("HandArt") as Sprite2D
-		var other_arm := actor.free_shoulder.get_node("Art") as Sprite2D
-		var other_hand := actor.free_pivot.get_node("HandArt") as Sprite2D
-		for sprite in [body,upper,forearm,hand,other_arm,other_hand]:
-			check(sprite.texture != null and sprite.texture.get_image().get_used_rect().has_area(), id + " has a nonempty visible " + sprite.name + " layer")
-			if sprite.texture != null:
-				check(detached_alpha_pixels(sprite.texture) == 0, id + " has no disconnected pixels in " + sprite.name)
-		check(actor.knife_elbow.get_parent() == actor.knife_shoulder and actor.wrist.get_parent() == actor.knife_elbow and actor.free_pivot.get_parent() == actor.free_shoulder, id + " has articulated connected shoulders, elbow and both hands")
-		var hand_before := hand.to_global(Vector2.ZERO); var other_before := other_hand.to_global(Vector2.ZERO)
+		check(body.texture != null and body.texture.resource_path == "res://assets/characters/superior-roster-v2/%s.webp" % id, id + " renders the entire supplied portrait")
+		check(body.material == actor.superior_material and actor.superior_material.shader != null, id + " has the continuous motion shader")
+		check(actor.knife_shoulder.get_node_or_null("Art") == null and actor.knife_elbow.get_node_or_null("ForearmArt") == null and actor.wrist.get_node_or_null("HandArt") == null and actor.free_pivot.get_node_or_null("HandArt") == null, id + " has no separately cut Superior arm or hand sprites")
+		check(actor.knife_elbow.get_parent() == actor.knife_shoulder and actor.wrist.get_parent() == actor.knife_elbow and actor.free_pivot.get_parent() == actor.free_shoulder, id + " retains its logical moving joints")
+		check(actor.weapon_art.get_parent() == actor.wrist and body.get_index() > actor.knife_shoulder.get_index(), id + " draws the supplied fist over the independently selected weapon")
 		actor.set_moving(true); actor._process(0.11)
-		check(same_pose(rotations(actor),walking), id + " matches all five Standard walking-joint rotations")
-		check(hand_before.distance_to(hand.to_global(Vector2.ZERO)) > 0.01 and other_before.distance_to(other_hand.to_global(Vector2.ZERO)) > 0.01, id + " actually moves both visible hand sprites while walking")
+		var walk_grip: Vector2 = actor.superior_material.get_shader_parameter("grip_shift")
+		var walk_free: Vector2 = actor.superior_material.get_shader_parameter("other_shift")
+		check(walk_grip.length() > 0.001 and walk_free.length() > 0.001, id + " moves both intact arms while walking")
+		check(not actor.leg_a.visible and not actor.leg_b.visible and not actor.ankle_a.visible and not actor.ankle_b.visible, id + " never displays foreign Standard leg and foot fragments")
 		actor.play_anim("attack",true); actor._process(0.075)
-		check(same_pose(rotations(actor),attacking), id + " matches all five Standard attack-joint rotations")
-		check(actor.weapon_art.get_parent() == actor.wrist and actor.weapon_art.get_index() < hand.get_index(), id + " weapon remains behind the articulated fist")
+		var attack_grip: Vector2 = actor.superior_material.get_shader_parameter("grip_shift")
+		var attack_free: Vector2 = actor.superior_material.get_shader_parameter("other_shift")
+		check(attack_grip.distance_to(walk_grip) > 0.001 and attack_free.distance_to(walk_free) > 0.001, id + " changes both arm deformations on attack")
+		var center: Vector2 = actor.superior_material.get_shader_parameter("grip_center")
+		var size := body.texture.get_size()
+		var original := Vector2i(roundi(center.x * size.x),roundi(center.y * size.y))
+		var image := body.texture.get_image()
+		check(Rect2i(Vector2i.ZERO,image.get_size()).has_point(original) and image.get_pixelv(original).a > 0.5, id + " original gripping fist is opaque")
 		for weapon in Choice.WEAPONS:
 			actor.set_knife(weapon); weapon_combinations += 1
 			var g: Array = Meta.WEAPON_GRIP[weapon]
 			var grip := Vector2(float(g[0]),float(g[1]))
-			var local := hand.to_local(actor.weapon_art.to_global(grip))
-			var pixel := Vector2i(roundi(local.x),roundi(local.y))
-			var im := hand.texture.get_image()
-			check(Rect2i(Vector2i.ZERO,im.get_size()).has_point(pixel) and im.get_pixelv(pixel).a > 0.5, id + "/" + weapon + " grip stays on an opaque moving fist pixel during attack")
+			var actual_uv: Vector2 = body.to_local(actor.weapon_art.to_global(grip)) / size
+			check(actual_uv.distance_to(center + attack_grip) * size.x < 0.03, id + "/" + weapon + " grip follows the deformed intact fist during attack")
 		actor.free()
 	standard.free()
 
@@ -114,6 +114,10 @@ func _run() -> void:
 				var vertical := (absf(box.end.x-prop.position.x)<0.01 or absf(prop.end.x-box.position.x)<0.01) and absf(box.get_center().y-prop.get_center().y)<0.01
 				var horizontal := (absf(box.end.y-prop.position.y)<0.01 or absf(prop.end.y-box.position.y)<0.01) and absf(box.get_center().x-prop.get_center().x)<0.01
 				check(vertical or horizontal, "level %d prop square is centered and flush" % n)
+				var seam_world := World.new()
+				var bridge: Rect2 = seam_world._grass_prop_underlay(box,prop)
+				check(bridge.has_area() and prop.encloses(bridge) and box.intersects(bridge,true), "level %d visual grass underlay closes the real prop edge without adding tiles" % n)
+				seam_world.free()
 			else:
 				has_open = true
 				check(map._gallery_clear_of_props(box), "level %d open square is separate from props" % n)

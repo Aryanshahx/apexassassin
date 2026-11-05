@@ -246,7 +246,8 @@ func _run() -> void:
 	check(hash.finish().hex_encode() != "027ff49eb2a8880231b7de7530d89d56150c2c9ac92e7fafc4a9a17a02bf273a", "the user-requested new layouts replace the v0.6.5 catalog")
 	check(is_equal_approx(lv.ENEMY_DAMAGE_MULTIPLIER, 1.25) and is_equal_approx(lv.BULLET_DAMAGE, 125.0), "enemy bullet damage and fallback are increased by exactly 25 percent")
 
-	# Home labels and both icons/amounts are aligned along the same actual row.
+	# All three home resources have icons and values on the same row, without
+	# the old CASH/DIAMOND captions or message-opening plus buttons.
 	gs.cash = 123456789
 	gs.gems = 987654321
 	change_scene_to_file("res://scenes/home/home.tscn")
@@ -254,19 +255,19 @@ func _run() -> void:
 	await process_frame
 	var home = current_scene
 	var controls: Array[Control] = []
-	for node_name in ["DiamondsIcon", "DiamondsCaption", "GemsValue", "DiamondsButton", "CashIcon", "CashCaption", "CashValue", "CashButton"]:
+	for node_name in ["CashIcon", "CashValue", "DiamondsIcon", "GemsValue", "KeysIcon", "KeysValue"]:
 		var node := home.find_child(node_name, true, false) as Control
 		if node != null:
 			controls.append(node)
-	check(controls.size() == 8, "diamond and cash icons, captions, values and buttons exist")
-	var same_row := controls.size() == 8
+	check(controls.size() == 6, "cash, diamond and key icons and values exist")
+	var same_row := controls.size() == 6
 	if same_row:
 		var y := controls[0].get_global_rect().get_center().y
 		for node in controls:
 			if absf(node.get_global_rect().get_center().y - y) > 0.6:
 				same_row = false
-	check(same_row, "both home resource groups share one horizontal centerline")
-	check(home.find_child("DiamondsCaption", true, false).text == "DIAMOND" and home.find_child("CashCaption", true, false).text == "CASH", "diamond and cash captions are visible")
+	check(same_row, "all home resource groups share one horizontal centerline")
+	check(home.find_child("DiamondsCaption",true,false) == null and home.find_child("CashCaption",true,false) == null and home.find_child("DiamondsButton",true,false) == null and home.find_child("CashButton",true,false) == null, "home has no resource captions or info-message buttons")
 	var amounts_fit := true
 	for label in [home.cash_label, home.gems_label]:
 		var font: Font = label.get_theme_font("font")

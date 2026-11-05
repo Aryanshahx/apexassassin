@@ -15,6 +15,7 @@ const ShineShader := preload("res://scripts/ui/sweep_shine.gdshader")
 var canvas: Control
 var cash_label: Label
 var gems_label: Label
+var keys_label: Label
 var card_art: Control
 var selected_name_label: Label
 var overlay: Control
@@ -189,12 +190,15 @@ func _badge(parent_pos: Vector2) -> Panel:
 	return p
 
 func _build_resources() -> void:
-	var gems := _resource_pill("DIAMONDS", Vector2(24, 20), preload("res://assets/ui/gem.png"), func(): _popup("Diamonds", "A few guards carry diamonds. Unlock assassins and special knives."))
-	gems_label = gems.get_meta("value_label")
-	gems_label.name = "GemsValue"
-	var cash := _resource_pill("CASH", Vector2(285, 20), preload("res://assets/ui/cash.png"), func(): _popup("Cash", "Earn cash by defeating guards, completing levels and missions."))
+	var cash := _resource_pill("Cash", Vector2(24, 20), preload("res://assets/ui/cash.png"))
 	cash_label = cash.get_meta("value_label")
 	cash_label.name = "CashValue"
+	var gems := _resource_pill("Diamonds", Vector2(198, 20), preload("res://assets/ui/gem.png"))
+	gems_label = gems.get_meta("value_label")
+	gems_label.name = "GemsValue"
+	var keys := _resource_pill("Keys", Vector2(372, 20), preload("res://assets/ui/v72/key.png"))
+	keys_label = keys.get_meta("value_label")
+	keys_label.name = "KeysValue"
 	_refresh_values()
 	var setting := Button.new()
 	setting.name = "SettingsButton"
@@ -215,17 +219,16 @@ func _build_resources() -> void:
 	gear.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	setting.add_child(gear)
 
-func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) -> Panel:
+func _resource_pill(kind: String, pos: Vector2, icon: Texture2D) -> Panel:
 	var p := Panel.new()
+	p.name = kind + "Pill"
 	p.position = pos
-	p.size = Vector2(257, 98)
+	p.size = Vector2(168, 98)
 	p.add_theme_stylebox_override("panel", _raised_box(Color("34434c"), Color("15242c"), 20, 5))
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(p)
-	# Icon, caption, actual amount and plus button share one horizontal
-	# centerline in each pill; both pills are on the same top-screen row.
 	var ic := TextureRect.new()
-	ic.name = title.capitalize() + "Icon"
+	ic.name = kind + "Icon"
 	ic.texture = icon
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -233,41 +236,15 @@ func _resource_pill(title: String, pos: Vector2, icon: Texture2D, cb: Callable) 
 	ic.size = Vector2(40, 40)
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(ic)
-	var heading := _font(19, 2)
-	heading.name = title.capitalize() + "Caption"
-	heading.text = "DIAMOND" if title == "DIAMONDS" else title
-	heading.position = Vector2(49, 29)
-	heading.size = Vector2(81, 40)
-	heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_child(heading)
 	var value := _font(26, 2)
-	value.position = Vector2(130, 29)
-	value.size = Vector2(69, 40)
+	value.position = Vector2(52, 25)
+	value.size = Vector2(108, 48)
 	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	value.clip_text = true
 	value.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(value)
 	p.set_meta("value_label", value)
-	var plus := Button.new()
-	plus.name = title.capitalize() + "Button"
-	plus.tooltip_text = "About " + title.to_lower()
-	plus.text = "+"
-	plus.position = Vector2(203, 26)
-	plus.size = Vector2(46, 46)
-	plus.add_theme_font_override("font", FONT)
-	plus.add_theme_font_size_override("font_size", 26)
-	plus.add_theme_color_override("font_color", Color("0e534f"))
-	var plus_style := _box(Color("ffcc50"), Color("6c4319"), 11, 3)
-	plus_style.content_margin_left = 0
-	plus_style.content_margin_right = 0
-	plus_style.content_margin_top = 0
-	plus_style.content_margin_bottom = 0
-	plus.add_theme_stylebox_override("normal", plus_style)
-	plus.add_theme_stylebox_override("hover", _box(Color("ffe083"), Color("6c4319"), 11, 3))
-	plus.pressed.connect(cb)
-	p.add_child(plus)
 	return p
 
 func _build_character_stage() -> void:
@@ -522,9 +499,6 @@ func _claim_mission(index: int) -> void:
 			var label := button.get_node_or_null("MissionClaimLabel") as Label
 			if label != null: label.text = "CLAIMED"
 		_refresh_values()
-		_toast("+%d cash claimed!" % reward)
-	else:
-		_toast("Mission not completed yet.")
 
 func _build_start() -> void:
 	var b := Button.new()
@@ -587,6 +561,9 @@ func _refresh_values() -> void:
 	if gems_label:
 		gems_label.text = str(GameState.gems)
 		_fit_amount(gems_label)
+	if keys_label:
+		keys_label.text = str(GameState.displayed_key_count())
+		_fit_amount(keys_label)
 
 func _character_portrait(_id: String) -> Texture2D:
 	return FiveLooks.portrait(FiveLooks.read_selection().look)
@@ -894,7 +871,7 @@ func _open_settings() -> void:
 	# an older download without touching progress, data or signing settings.
 	var build_id := _font(18, 0)
 	build_id.name = "BuildIdentity"
-	build_id.text = "BUILD: REPAIR-5"
+	build_id.text = "BUILD: REPAIR-6"
 	build_id.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	build_id.add_theme_color_override("font_color", Color("c5d3db"))
 	box.add_child(build_id)
@@ -1103,46 +1080,10 @@ func _close_overlay() -> void:
 		_refresh_values()
 		_sync_wheel_badge()
 
-func _toast(msg: String) -> void:
-	# Replace an older notice so messages never overlap or obscure each other.
-	for child in get_children():
-		if child.name == "CenteredToast":
-			remove_child(child)
-			child.queue_free()
-	# Use viewport safe coordinates, not a centre anchor plus a full-width
-	# positive offset. This stays centered and visible above collection screens.
-	var safe := ScreenUtil.safe_rect(get_viewport())
-	var width := minf(620.0, maxf(1.0, safe.size.x - 36.0))
-	var height := minf(102.0, maxf(1.0, safe.size.y - 36.0))
-	var panel := Panel.new()
-	panel.name = "CenteredToast"
-	panel.position = safe.get_center() - Vector2(width, height) * 0.5
-	panel.size = Vector2(width, height)
-	panel.z_index = 200
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_theme_stylebox_override("panel", _box(Color(0.08, 0.10, 0.16, 0.94), Color("ffd252"), 18, 2))
-	add_child(panel)
-	var label := _font(26, 3)
-	label.name = "ToastText"
-	label.text = msg
-	label.add_theme_color_override("font_color", Color("ffe974"))
-	label.position = Vector2(12, 5)
-	label.size = Vector2(maxf(1.0, width - 24.0), maxf(1.0, height - 10.0))
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.clip_text = false
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(label)
-	var font := label.get_theme_font("font")
-	var font_size := 26
-	while font_size > 12 and font.get_multiline_string_size(msg, HORIZONTAL_ALIGNMENT_CENTER, label.size.x, font_size).y > label.size.y - 4.0:
-		font_size -= 1
-	label.add_theme_font_size_override("font_size", font_size)
-	var tw := create_tween()
-	tw.tween_interval(1.6)
-	tw.tween_property(panel, "modulate:a", 0.0, 0.4)
-	tw.tween_callback(panel.queue_free)
+func _toast(_msg: String) -> void:
+	# User preference: no transient notices over the home or collection menu.
+	# Intentional Settings and purchase-confirmation controls remain usable.
+	pass
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:

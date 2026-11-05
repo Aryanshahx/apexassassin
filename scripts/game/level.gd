@@ -316,51 +316,59 @@ func _apply_shake(delta: float) -> void:
 func _layout_hud() -> void:
 	_layout_hud_for_rect(ScreenUtil.safe_rect(get_viewport()))
 
+var _wallet_scale := 1.0
+
 func _layout_hud_for_rect(safe: Rect2) -> void:
-	# Money, diamonds and keys share one horizontal baseline at every safe size.
-	var wallet_left := safe.position.x + maxf(145.0, safe.size.x * 0.275)
-	var wallet_right := safe.end.x - 92.0
-	var slot := maxf(48.0, (wallet_right - wallet_left) / 3.0)
+	# Three equally spaced slots with aligned icon/value centres. Everything
+	# shrinks together on narrow safe areas instead of overlapping the pause.
+	_wallet_scale = minf(1.0, safe.size.x / 720.0)
+	var s := _wallet_scale
+	var wallet_left := safe.position.x + safe.size.x * 0.275
+	var wallet_right := safe.end.x - 92.0 * s
+	var slot := maxf(1.0, (wallet_right - wallet_left) / 3.0)
 	var money_x := wallet_left
 	var diamond_x := wallet_left + slot
 	var key_x := wallet_left + slot * 2.0
 	if money_panel:
-		money_panel.position = Vector2(money_x - 4, safe.position.y + 18)
-		money_panel.size = Vector2(slot - 4, 62)
+		money_panel.position = Vector2(money_x - 4.0 * s, safe.position.y + 18.0 * s)
+		money_panel.size = Vector2(slot - 4.0 * s, 62.0 * s)
 	if gem_panel:
-		gem_panel.position = Vector2(diamond_x - 4, safe.position.y + 18)
-		gem_panel.size = Vector2(slot - 4, 62)
+		gem_panel.position = Vector2(diamond_x - 4.0 * s, safe.position.y + 18.0 * s)
+		gem_panel.size = Vector2(slot - 4.0 * s, 62.0 * s)
 	if target_icon:
-		target_icon.position = safe.position + Vector2(24, 26)
+		target_icon.position = safe.position + Vector2(24, 26) * s
+		target_icon.size = Vector2(64, 64) * s
 	if counter:
-		counter.position = safe.position + Vector2(88, 25)
-	if money_icon:
-		money_icon.position = Vector2(money_x, safe.position.y + 26)
-	if money_caption:
-		money_caption.position = Vector2(money_x + 43, safe.position.y + 20)
-	if money_label:
-		money_label.position = Vector2(money_x + 43, safe.position.y + 29)
-		money_label.size.x = maxf(1.0, slot - 46.0)
-	if gem_icon:
-		gem_icon.position = Vector2(diamond_x, safe.position.y + 26)
-	if gem_caption:
-		gem_caption.position = Vector2(diamond_x + 43, safe.position.y + 20)
-	if gem_label:
-		gem_label.position = Vector2(diamond_x + 43, safe.position.y + 29)
-		gem_label.size.x = maxf(1.0, slot - 46.0)
-	if key_icon:
-		key_icon.position = Vector2(key_x, safe.position.y + 26)
-	if key_label:
-		key_label.position = Vector2(key_x + 43, safe.position.y + 29)
-		key_label.size.x = maxf(1.0, slot - 46.0)
+		counter.position = safe.position + Vector2(88, 25) * s
+		counter.size = Vector2(92, 64) * s
+		counter.clip_text = true
+		counter.add_theme_font_size_override("font_size", maxi(10, roundi(52.0 * s)))
+	var y := safe.position.y + 26.0 * s
+	for pair in [[money_icon,money_label,money_x], [gem_icon,gem_label,diamond_x], [key_icon,key_label,key_x]]:
+		var icon: TextureRect = pair[0]
+		var amount: Label = pair[1]
+		if icon:
+			icon.position = Vector2(float(pair[2]), y)
+			icon.size = Vector2.ONE * 40.0 * s
+		if amount:
+			# Scale a fixed-height label as a whole. Godot otherwise retains the
+			# previous font's minimum height when a phone viewport shrinks.
+			amount.scale = Vector2.ONE * s
+			amount.position = Vector2(float(pair[2]) + 43.0 * s, y - 6.0 * s)
+			amount.size = Vector2(maxf(1.0, (slot - 46.0 * s) / s), 52.0)
+			amount.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			amount.clip_text = true
 	if status_label:
-		status_label.position = safe.position + Vector2(30, 96)
+		status_label.position = safe.position + Vector2(30, 96) * s
 	if bonus_badge:
-		bonus_badge.position = safe.position + Vector2(30, 130)
+		bonus_badge.position = safe.position + Vector2(30, 130) * s
 	if key_guide:
 		key_guide.position = key_icon.position if key_icon else Vector2.ZERO
+		key_guide.size = Vector2.ONE * 40.0 * s
 	if pause_btn:
-		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
+		pause_btn.position = Vector2(safe.end.x - 84.0 * s, safe.position.y + 24.0 * s)
+		pause_btn.size = Vector2.ONE * 60.0 * s
+		pause_btn.add_theme_font_size_override("font_size", maxi(10, roundi(28.0 * s)))
 	if hint:
 		hint.position = Vector2(safe.position.x, safe.end.y - 50)
 		hint.size = Vector2(safe.size.x, 40)
@@ -1154,21 +1162,21 @@ func _label(size: int, outline: int) -> Label:
 func _update_counter() -> void:
 	counter.text = "%d/%d" % [kills, total]
 
-func _fit_wallet_label(label: Label, amount: int) -> void:
-	label.text = str(amount)
+func _fit_wallet_label(label: Label, value: String) -> void:
+	label.text = value
 	var font: Font = label.get_theme_font("font")
-	var font_size := 32
-	while font_size > 9 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > label.size.x - 2.0:
+	var font_size := 29
+	while font_size > 6 and font.get_string_size(label.text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > label.size.x - 2.0:
 		font_size -= 1
 	label.add_theme_font_size_override("font_size", font_size)
 
 func _refresh_wallet() -> void:
 	if money_label:
-		_fit_wallet_label(money_label, GameState.cash)
+		_fit_wallet_label(money_label, str(GameState.cash))
 	if gem_label:
-		_fit_wallet_label(gem_label, GameState.gems)
+		_fit_wallet_label(gem_label, str(GameState.gems))
 	if key_label:
-		key_label.text = "%d/3" % GameState.displayed_key_count()
+		_fit_wallet_label(key_label, "%d/3" % GameState.displayed_key_count())
 	if key_guide:
 		key_guide.visible = key_on_floor
 

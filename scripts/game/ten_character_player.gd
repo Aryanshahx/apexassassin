@@ -1,13 +1,12 @@
 extends Node2D
 ## Ten reference-guided characters; Standard keeps the approved red-scarf rig.
-## Approved red-scarf shoulder/elbow/ankle gait is retained.  The new looks
-## use separately cut upper arm, elbow, hand and free-arm draft layers; all
-## melee assets attach behind the gripping fist and follow its wrist.
-## Equipped weapons stay independent from the selected character.
+## Standard keeps its approved articulated gait. Superior uses the intact
+## supplied portrait with smooth local arm motion, never detached cut layers.
+## Independently selected melee weapons follow the gripping fist.
 
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
-const SuperiorRigMeta := preload("res://scripts/game/superior_rig_meta_v5.gd")
+const SuperiorWholeShader := preload("res://scripts/game/superior_whole_art.gdshader")
 const RepairMeta := preload("res://scripts/game/character_repair_meta.gd")
 const RED_ROOT := "res://assets/characters/red-scarf-preview/"
 const ROOT := "res://assets/characters/ten-character-update/"
@@ -36,6 +35,12 @@ var ankle_b: Node2D
 var leg_art_a: Sprite2D
 var leg_art_b: Sprite2D
 var weapon_art: Sprite2D
+var superior_body: Sprite2D
+var superior_material: ShaderMaterial
+const SUPERIOR_ART_ORIGIN := Vector2(350.0, 0.0)
+const SUPERIOR_ART_SCALE := 3.4
+const SUPERIOR_OTHER_CENTER := Vector2(95.0, 132.0)
+const SUPERIOR_FREE_HAND := Vector2(717.2, 493.0)
 var current_look := "standard"
 var current_weapon := "aurora"
 var centre := Vector2(970.0, 390.0)
@@ -172,30 +177,60 @@ func _setup_repaired_guard() -> void:
 	visual.add_child(head_pivot)
 
 func _setup_superior() -> void:
-	# Six overlapping cuts from the supplied figure form actual visible,
-	# independently pivoted arms and hands. The original portrait remains
-	# untouched; weapons stay separate and are drawn behind the gripping hand.
-	centre = Vector2(970.0,390.0)
-	hip_a = Vector2(1015.0,370.0)
-	hip_b = Vector2(1015.0,410.0)
-	var scale_art: float = SuperiorRigMeta.SCALE
-	var origins: Dictionary = SuperiorRigMeta.ORIGINS[current_look]
-	var shoulder := Vector2(758.0,108.8)
-	var elbow := Vector2(571.0,244.8)
-	wrist_anchor = Vector2(527.0,367.0)
+	# Preserve the user's entire portrait, including both intact hands. Empty
+	# pivots drive the selected weapon and smooth local UV motion on the portrait.
+	# The weapon is drawn first; the original fist covers its grip naturally.
+	centre = Vector2(970.0, 390.0)
+	hip_a = Vector2(1015.0, 370.0)
+	hip_b = Vector2(1015.0, 410.0)
+	var shoulder := Vector2(758.0, 108.8)
+	var elbow := Vector2(571.0, 244.8)
+	wrist_anchor = Vector2(527.0, 367.0)
 	weapon_fist = wrist_anchor
-	var free_anchor := Vector2(979.0,533.8)
-	var free_hand_anchor := Vector2(717.2,493.0)
-	var folder := "res://assets/characters/superior-rig-v5/" + current_look + "/"
-	_body(load(folder + "body.webp"),_v(origins.body),scale_art)
-	knife_shoulder = _shoulder("KnifeShoulder",load(folder + "upper.webp"),shoulder,_v(origins.upper),scale_art)
-	knife_elbow = _elbow_pivot(knife_shoulder,load(folder + "forearm.webp"),elbow,shoulder,_v(origins.forearm),scale_art)
-	wrist = _wrist_pivot(knife_elbow,load(folder + "hand.webp"),wrist_anchor,elbow,_v(origins.hand),scale_art)
-	free_shoulder = _shoulder("FreeShoulder",load(folder + "free_arm.webp"),free_anchor,_v(origins.free_arm),scale_art)
-	free_pivot = _hand_pivot(free_shoulder,"ReferenceFreeHand",load(folder + "free_hand.webp"),free_hand_anchor,free_anchor,_v(origins.free_hand),scale_art)
-	head_pivot = Node2D.new()
-	head_pivot.name = "HeadAnchor"
-	visual.add_child(head_pivot)
+	var free_anchor := Vector2(979.0, 533.8)
+	knife_shoulder = _logical_anchor(visual, "KnifeShoulder", shoulder - centre)
+	knife_elbow = _logical_anchor(knife_shoulder, "KnifeElbow", elbow - shoulder)
+	wrist = _logical_anchor(knife_elbow, "KnifeHandPivot", wrist_anchor - elbow)
+	weapon_art = Sprite2D.new()
+	weapon_art.name = "SelectedMeleeWeapon"
+	weapon_art.centered = false
+	weapon_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	wrist.add_child(weapon_art)
+	free_shoulder = _logical_anchor(visual, "FreeShoulder", free_anchor - centre)
+	free_pivot = _logical_anchor(free_shoulder, "FreeHandAnchor", SUPERIOR_FREE_HAND - free_anchor)
+	head_pivot = _logical_anchor(visual, "HeadAnchor", Vector2.ZERO)
+	_body(Choice.portrait(current_look), SUPERIOR_ART_ORIGIN, SUPERIOR_ART_SCALE)
+	superior_body = visual.get_node("ReferenceBody") as Sprite2D
+	superior_material = ShaderMaterial.new()
+	superior_material.shader = SuperiorWholeShader
+	var size := superior_body.texture.get_size()
+	var grip_px := (wrist_anchor - SUPERIOR_ART_ORIGIN) / SUPERIOR_ART_SCALE
+	superior_material.set_shader_parameter("grip_center", grip_px / size)
+	superior_material.set_shader_parameter("other_center", SUPERIOR_OTHER_CENTER / size)
+	superior_material.set_shader_parameter("grip_radius", Vector2(48.0, 50.0) / size)
+	superior_material.set_shader_parameter("other_radius", Vector2(42.0, 42.0) / size)
+	superior_material.set_shader_parameter("grip_shift", Vector2.ZERO)
+	superior_material.set_shader_parameter("other_shift", Vector2.ZERO)
+	superior_body.material = superior_material
+
+func _logical_anchor(parent: Node2D, anchor_name: String, at: Vector2) -> Node2D:
+	var node := Node2D.new()
+	node.name = anchor_name
+	node.position = at
+	parent.add_child(node)
+	return node
+
+func _update_superior_deformation() -> void:
+	if superior_material == null or not is_inside_tree():
+		return
+	var size := superior_body.texture.get_size()
+	var grip_now := visual.to_local(wrist.to_global(Vector2.ZERO))
+	var grip_delta := grip_now - (wrist_anchor - centre)
+	var other_virtual := SUPERIOR_ART_ORIGIN + SUPERIOR_OTHER_CENTER * SUPERIOR_ART_SCALE
+	var other_now := visual.to_local(free_pivot.to_global(other_virtual - SUPERIOR_FREE_HAND))
+	var other_delta := other_now - (other_virtual - centre)
+	superior_material.set_shader_parameter("grip_shift", grip_delta / SUPERIOR_ART_SCALE / size)
+	superior_material.set_shader_parameter("other_shift", other_delta / SUPERIOR_ART_SCALE / size)
 
 func _body(texture: Texture2D, origin: Vector2, art_scale: float = 1.0) -> void:
 	var torso := Sprite2D.new()
@@ -317,11 +352,11 @@ func set_knife(id: String) -> void:
 	weapon_art.position = weapon_fist - wrist_anchor - _v(grip)
 
 func _update_leg_visibility() -> void:
-	# Legs/feet are real animation layers, so hiding them at rest does not
-	# modify appearance, weapons or saved character selection.
+	# The original Superior portraits contain no legs. Do not graft Standard's
+	# unrelated grey legs and feet onto them as floating pieces while running.
 	for limb in [leg_a, leg_b, ankle_a, ankle_b]:
 		if is_instance_valid(limb):
-			limb.visible = moving and not dead
+			limb.visible = moving and not dead and not Choice.SUPERIOR_LOOKS.has(current_look)
 
 func set_moving(value: bool) -> void:
 	moving = value
@@ -377,6 +412,14 @@ func _process(delta: float) -> void:
 	free_shoulder.rotation = deg_to_rad(2.5 * cycle - 5.0 * shoulder_gait)
 	wrist.rotation = deg_to_rad(-4.5 * wave - 1.0 * shoulder_gait)
 	free_pivot.rotation = deg_to_rad(-3.0 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else deg_to_rad(2.0 * wave)
+	# Mild amplitudes keep the continuous deformation smooth and the real
+	# selected-weapon grip exactly aligned with the moving fist.
+	if superior_material != null:
+		knife_shoulder.rotation *= 0.55
+		knife_elbow.rotation *= 0.55
+		free_shoulder.rotation *= 0.55
+		free_pivot.rotation *= 0.55
+		_update_superior_deformation()
 	head_pivot.rotation = deg_to_rad(2.5 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else 0.0
 	ankle_flex_a = 10.0 * wave
 	ankle_flex_b = -8.0 * wave

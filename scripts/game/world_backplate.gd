@@ -17,6 +17,7 @@ const FLOORS := {
 const WALL_H := preload("res://assets/environment/v71/wall_h.png")
 const WALL_V := preload("res://assets/environment/v71/wall_v.png")
 const GRASS := preload("res://assets/environment/stealth-grass.png")
+const GRASS_SEAM := preload("res://assets/environment/stealth-grass-seamless.png")
 const BLOOD_TEX := preload("res://assets/fx/blood_splatter_game.png")
 const MARK_H := preload("res://assets/environment/v71/hazard_mark_h.png")
 const MARK_V := preload("res://assets/environment/v71/hazard_mark_v.png")
@@ -93,9 +94,35 @@ func _draw_floor() -> void:
                 var source := Rect2((clipped.position-tile.position)*factor,clipped.size*factor)
                 draw_texture_rect_region(tex,clipped,source)
 
+func _grass_prop_underlay(patch: Rect2, prop: Rect2) -> Rect2:
+    # A purely visual band UNDER the contacted prop fills transparent edge
+    # pixels. It never changes grass tiles, stealth, navigation or collision.
+    var depth := minf(16.0, minf(prop.size.x, prop.size.y))
+    var start_y := maxf(patch.position.y, prop.position.y)
+    var end_y := minf(patch.end.y, prop.end.y)
+    var start_x := maxf(patch.position.x, prop.position.x)
+    var end_x := minf(patch.end.x, prop.end.x)
+    if end_y > start_y and is_equal_approx(patch.end.x, prop.position.x):
+        return Rect2(prop.position.x, start_y, depth, end_y - start_y)
+    if end_y > start_y and is_equal_approx(patch.position.x, prop.end.x):
+        return Rect2(prop.end.x - depth, start_y, depth, end_y - start_y)
+    if end_x > start_x and is_equal_approx(patch.end.y, prop.position.y):
+        return Rect2(start_x, prop.position.y, end_x - start_x, depth)
+    if end_x > start_x and is_equal_approx(patch.position.y, prop.end.y):
+        return Rect2(start_x, prop.end.y - depth, end_x - start_x, depth)
+    return Rect2()
+
 func _draw_source_grass() -> void:
-    # All generated rectangles are full 32-unit source tiles. A faint ground
-    # layer plus the translucent canopy above actors shows them moving under it.
+    # Underlay first; the cover node draws the prop over it, so visible grass
+    # reaches its real opaque outline even when the prop image has alpha edges.
+    for group: Dictionary in level.grass_groups:
+        var prop_index := int(group.get("prop_index", -1))
+        if prop_index < 0 or prop_index >= level.crate_rects.size():
+            continue
+        var bridge := _grass_prop_underlay(group.bounds, level.crate_rects[prop_index])
+        if bridge.has_area():
+            draw_texture_rect(GRASS_SEAM, bridge, false, Color(1, 1, 1, 0.95))
+    # The actual concealment remains exactly the complete 2x2/3x3 tiles.
     for tile: Rect2 in level.grass_rects:
         if is_equal_approx(tile.size.x, float(level.GRASS_TILE)) and is_equal_approx(tile.size.y, float(level.GRASS_TILE)):
             draw_texture_rect(GRASS, tile, false, Color(1, 1, 1, 0.54))

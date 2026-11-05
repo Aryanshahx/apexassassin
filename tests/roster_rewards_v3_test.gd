@@ -62,21 +62,20 @@ func _run() -> void:
 		check(tex != null and tex.resource_path == "res://assets/characters/superior-roster-v2/%s.webp" % id, id + " loads the replacement supplied art")
 		var actor := Rig.new(); root.add_child(actor); actor.setup(id, "player"); actor.set_process(false)
 		var body := actor.visual.get_node("ReferenceBody") as Sprite2D
-		var hand := actor.wrist.get_node("HandArt") as Sprite2D
-		check(body.texture != null and hand.texture != null and actor.weapon_art.get_parent() == actor.wrist and actor.weapon_art.get_index() < hand.get_index(), id + " uses supplied art layers drawn over its independent weapon")
+		check(body.texture == tex and body.material == actor.superior_material and actor.weapon_art.get_parent() == actor.wrist and body.get_index() > actor.knife_shoulder.get_index(), id + " uses the intact supplied artwork over its independent weapon")
 		for weapon in Choice.WEAPONS:
 			actor.set_knife(weapon)
 			var data: Array = Meta.WEAPON_GRIP[weapon]
 			var grip := Vector2(float(data[0]), float(data[1]))
-			var local: Vector2 = hand.to_local(actor.weapon_art.to_global(grip))
-			var image := hand.texture.get_image()
+			var local: Vector2 = body.to_local(actor.weapon_art.to_global(grip))
+			var image := body.texture.get_image()
 			var pixel := Vector2i(roundi(local.x), roundi(local.y))
-			check(Rect2i(Vector2i.ZERO,image.get_size()).has_point(pixel) and image.get_pixelv(pixel).a > 0.5, id + "/" + weapon + " grip lands inside an opaque fist pixel")
+			check(Rect2i(Vector2i.ZERO,image.get_size()).has_point(pixel) and image.get_pixelv(pixel).a > 0.5, id + "/" + weapon + " grip lands inside an opaque original fist pixel")
 		actor.set_moving(true); actor._process(1.0 / 12.0)
-		check(actor.leg_a.visible and actor.leg_b.visible and absf(actor.knife_shoulder.rotation) > 0.01, id + " retains running legs and shoulder motion")
+		check(not actor.leg_a.visible and not actor.leg_b.visible and absf(actor.knife_shoulder.rotation) > 0.01 and Vector2(actor.superior_material.get_shader_parameter("grip_shift")).length() > 0.001, id + " animates its original arms without foreign leg fragments")
 		actor.play_anim("attack", true); actor._process(0.075)
 		check(absf(actor.wrist.rotation) > 0.01, id + " independently animates the equipped weapon")
-		actor.set_moving(false); check(not actor.leg_a.visible and not actor.leg_b.visible, id + " hides the moving legs at rest")
+		actor.set_moving(false); check(not actor.leg_a.visible and not actor.leg_b.visible, id + " keeps foreign legs hidden at rest")
 		actor.free()
 	gs.load_game()
 	check(gs.superior_unlocks.size() == 10 and Choice.read_selection() == {"look":"warrior_monk","weapon":"dracula"}, "old slot unlocks, final selection and weapon survive reload")
