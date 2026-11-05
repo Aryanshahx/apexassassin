@@ -459,6 +459,19 @@ func _mission_card(index: int, title: String, progress: String, prize: int, comp
 	btn.disabled = claimed or not complete
 	btn.pressed.connect(_claim_mission.bind(index))
 	p.add_child(btn)
+	if claimable:
+		btn.clip_contents = true
+		var sweep := ColorRect.new()
+		sweep.name = "ClaimButtonShine"
+		sweep.color = Color.WHITE
+		sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var material := ShaderMaterial.new()
+		material.shader = ShineShader
+		material.set_shader_parameter("rounded_button", true)
+		material.set_shader_parameter("shine_color", Color(1.0, 1.0, 0.82, 0.54))
+		sweep.material = material
+		btn.add_child(sweep)
+		sweep.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var label := _font(25, 3)
 	label.name = "MissionClaimLabel"
 	label.text = "CLAIMED" if claimed else ("CLAIM %d" % prize if claimable else "PRIZE %d" % prize)
@@ -502,6 +515,10 @@ func _claim_mission(index: int) -> void:
 			for style_name in ["normal", "disabled", "hover"]:
 				button.add_theme_stylebox_override(style_name, claimed_style)
 			button.disabled = true
+			var sweep := button.get_node_or_null("ClaimButtonShine")
+			if sweep != null:
+				button.remove_child(sweep)
+				sweep.queue_free()
 			var label := button.get_node_or_null("MissionClaimLabel") as Label
 			if label != null: label.text = "CLAIMED"
 		_refresh_values()
@@ -1079,18 +1096,45 @@ func _close_overlay() -> void:
 		_sync_wheel_badge()
 
 func _toast(msg: String) -> void:
-	var l := _font(26, 4)
-	l.text = msg
-	l.add_theme_color_override("font_color", Color("ffe23f"))
-	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	l.position = Vector2(0, -220)
-	l.size = Vector2(720, 50)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_child(l)
+	# Replace an older notice so messages never overlap or obscure each other.
+	for child in get_children():
+		if child.name == "CenteredToast":
+			remove_child(child)
+			child.queue_free()
+	# Use viewport safe coordinates, not a centre anchor plus a full-width
+	# positive offset. This stays centered and visible above collection screens.
+	var safe := ScreenUtil.safe_rect(get_viewport())
+	var width := minf(620.0, maxf(1.0, safe.size.x - 36.0))
+	var height := minf(102.0, maxf(1.0, safe.size.y - 36.0))
+	var panel := Panel.new()
+	panel.name = "CenteredToast"
+	panel.position = safe.get_center() - Vector2(width, height) * 0.5
+	panel.size = Vector2(width, height)
+	panel.z_index = 200
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override("panel", _box(Color(0.08, 0.10, 0.16, 0.94), Color("ffd252"), 18, 2))
+	add_child(panel)
+	var label := _font(26, 3)
+	label.name = "ToastText"
+	label.text = msg
+	label.add_theme_color_override("font_color", Color("ffe974"))
+	label.position = Vector2(12, 5)
+	label.size = Vector2(maxf(1.0, width - 24.0), maxf(1.0, height - 10.0))
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.clip_text = false
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(label)
+	var font := label.get_theme_font("font")
+	var font_size := 26
+	while font_size > 12 and font.get_multiline_string_size(msg, HORIZONTAL_ALIGNMENT_CENTER, label.size.x, font_size).y > label.size.y - 4.0:
+		font_size -= 1
+	label.add_theme_font_size_override("font_size", font_size)
 	var tw := create_tween()
-	tw.tween_interval(1.4)
-	tw.tween_property(l, "modulate:a", 0.0, 0.4)
-	tw.tween_callback(l.queue_free)
+	tw.tween_interval(1.6)
+	tw.tween_property(panel, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(panel.queue_free)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:

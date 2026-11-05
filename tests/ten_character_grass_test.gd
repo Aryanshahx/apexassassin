@@ -88,7 +88,7 @@ func _run() -> void:
 		map.free()
 	check(no_grass.is_empty(), "all 100 levels have grass: " + str(no_grass))
 	check(inaccessible.is_empty(), "all 100 levels have player-reachable grass: " + str(inaccessible))
-	print("GRASS MAP COVERAGE: ", generated_count, " patches in 100 levels")
+	print("GRASS MAP COVERAGE: ", generated_count, " complete tiles in 100 levels")
 
 	# A real level verifies the selected multiplier, health bar, and guard AI.
 	gs.selected_assassin = "nova"  # preserve a pre-existing +10% legacy stat

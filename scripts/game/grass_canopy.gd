@@ -1,6 +1,6 @@
 extends Node2D
 ## A retained, non-colliding canopy above both player and guards. Each complete
-## 40-unit tile uses the whole source texture; local footsteps briefly rustle it.
+## 32-unit tile uses the whole source texture; local footsteps briefly rustle it.
 const GRASS := preload("res://assets/environment/stealth-grass-seamless.png")
 const TILE := 32.0
 const MAX_RIPPLES := 12

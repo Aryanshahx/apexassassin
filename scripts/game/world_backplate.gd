@@ -33,6 +33,22 @@ const PROPS := {
     "sandbags": preload("res://assets/environment/v71/sandbags.png"),
     "barrel_pallet": preload("res://assets/environment/v71/barrel_pallet.png"),
 }
+# Additional previously supplied art is introduced as cover-skin variety at
+# increasing milestones. The physical rectangle and pathing never change.
+const NEW_PROPS := {
+    "ammo_crate": preload("res://assets/environment/v69/crate_ammo.png"),
+    "taped_pallet": preload("res://assets/environment/v69/pallet_boxes.png"),
+    "tool_crate": preload("res://assets/environment/v69/crate_tool.png"),
+    "cargo_stack": preload("res://assets/environment/v69/cargo_stack.png"),
+    "hazard_crate": preload("res://assets/environment/v69/crate_hazard.png"),
+    "supply_rack": preload("res://assets/environment/v69/storage_rack.png"),
+}
+const NEW_PROP_TIERS := [
+    {"level": 11, "keys": ["ammo_crate"]},
+    {"level": 26, "keys": ["taped_pallet", "tool_crate"]},
+    {"level": 51, "keys": ["cargo_stack", "hazard_crate"]},
+    {"level": 76, "keys": ["supply_rack"]},
+]
 var level: Node2D
 var cover_only := false
 var theme := "warehouse"
@@ -78,7 +94,7 @@ func _draw_floor() -> void:
                 draw_texture_rect_region(tex,clipped,source)
 
 func _draw_source_grass() -> void:
-    # All generated rectangles are full 40-unit source tiles. A faint ground
+    # All generated rectangles are full 32-unit source tiles. A faint ground
     # layer plus the translucent canopy above actors shows them moving under it.
     for tile: Rect2 in level.grass_rects:
         if is_equal_approx(tile.size.x, float(level.GRASS_TILE)) and is_equal_approx(tile.size.y, float(level.GRASS_TILE)):
@@ -113,34 +129,61 @@ func _draw_ambient_light() -> void:
         var color := Color(1.0,0.92,0.78,0.75) if theme != "night" else Color(0.68,0.80,1.0,0.55)
         draw_texture_rect(GLOW,Rect2(point-Vector2.ONE*86.0,Vector2.ONE*172.0),false,color)
 
+func _progressive_prop_name(number: int, index: int) -> String:
+    # Keep most authored prop skins, progressively adding visual types without
+    # adding solid objects or changing mission/progression or the random seed.
+    var available: Array[String] = []
+    for tier in NEW_PROP_TIERS:
+        if number >= int(tier.level):
+            for key in tier.keys: available.append(String(key))
+    if available.is_empty() or index % 3 != 0:
+        return ""
+    return available[int(index / 3) % available.size()]
+
+func _cover_depth_offset(r: Rect2) -> Vector2:
+    # Bounded fake height/parallax as the camera follows the moving character.
+    # Offset never exceeds the existing four-unit blocker clearance.
+    var radial: Vector2 = (r.get_center() - level.player_pos) * 0.012
+    var motion: Vector2 = -level.player_velocity.limit_length(200.0) * 0.004
+    var shift := radial + motion
+    return Vector2(clampf(shift.x, -3.5, 3.5), clampf(shift.y, -3.5, 3.5))
+
+func _cover_base(r: Rect2) -> Rect2:
+    # Fill the fixed collision footprint so prop edges still meet adjacent
+    # grass; lift the textured top by only a few units for subtle 2.5D depth.
+    _draw_shadow(r)
+    draw_rect(r, Color(0.12, 0.13, 0.14, 0.95))
+    return Rect2(r.position + _cover_depth_offset(r), r.size)
+
 func _draw_cover() -> void:
     var kinds: Dictionary = level.data.get("wall_kinds",{})
     for i in range(level.wall_rects.size()):
         var r: Rect2 = level.wall_rects[i]
-        _draw_shadow(r)
+        var top := _cover_base(r)
         var horizontal := r.size.x >= r.size.y
         var tex: Texture2D = WALL_H if horizontal else WALL_V
-        draw_texture_rect(tex,r,false)
+        draw_texture_rect(tex,top,false)
         if str(kinds.get(str(i),"wall")) == "gate":
             var mark: Texture2D = MARK_H if horizontal else MARK_V
-            draw_texture_rect(mark,r.grow(-4.0),false,Color(1,1,1,0.9))
+            draw_texture_rect(mark,top.grow(-4.0),false,Color(1,1,1,0.9))
         var lamp_point := _lamp_outside(r,i)
         if not is_inf(lamp_point.x):
-            draw_texture_rect(LAMP,Rect2(Vector2(lamp_point.x-14.0,r.position.y+2.0),Vector2(28.0,10.0)),false)
+            draw_texture_rect(LAMP,Rect2(Vector2(lamp_point.x-14.0,top.position.y+2.0),Vector2(28.0,10.0)),false)
     for i in range(level.crate_rects.size()):
         var r: Rect2 = level.crate_rects[i]
         var item: Array = level.data.crates[i]
         var kind := str(item[4]) if item.size() > 4 else "crate_wood"
-        var tex: Texture2D = PROPS.get(kind,PROPS["crate_wood"])
-        _draw_shadow(r)
-        # Wide crate groups represent two adjacent source BB cells: draw a
-        # matching crate per cell instead of stretching a square sprite.
-        if kind.begins_with("crate_") and r.size.x > r.size.y * 1.4:
+        var new_kind := _progressive_prop_name(int(level.data.id), i)
+        var tex: Texture2D = NEW_PROPS[new_kind] if not new_kind.is_empty() else PROPS.get(kind,PROPS["crate_wood"])
+        var top := _cover_base(r)
+        # Existing wide wooden-crate pairs keep their authored division; a
+        # progressive prop is a single illustration across the same footprint.
+        if new_kind.is_empty() and kind.begins_with("crate_") and r.size.x > r.size.y * 1.4:
             var half := r.size.x * 0.5
-            draw_texture_rect(tex,Rect2(r.position,Vector2(half,r.size.y)),false)
-            draw_texture_rect(tex,Rect2(r.position+Vector2(half,0),Vector2(r.size.x-half,r.size.y)),false)
+            draw_texture_rect(tex,Rect2(top.position,Vector2(half,r.size.y)),false)
+            draw_texture_rect(tex,Rect2(top.position+Vector2(half,0),Vector2(r.size.x-half,r.size.y)),false)
         else:
-            draw_texture_rect(tex,r,false)
+            draw_texture_rect(tex,top,false)
     _draw_prop_blood()
 
 func _draw_prop_blood() -> void:

@@ -8,6 +8,7 @@ extends Node2D
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
 const SuperiorMeta := preload("res://scripts/game/superior_art_meta.gd")
+const RepairMeta := preload("res://scripts/game/character_repair_meta.gd")
 const RED_ROOT := "res://assets/characters/red-scarf-preview/"
 const ROOT := "res://assets/characters/ten-character-update/"
 const WEAPON_ROOT := "res://assets/characters/five-look-draft/weapons/"
@@ -76,11 +77,14 @@ func setup(kind: String, _role: String = "player") -> void:
 		_setup_red_scarf()
 	elif Choice.SUPERIOR_LOOKS.has(current_look):
 		_setup_superior()
+	elif current_look in ["health_10", "health_30"]:
+		_setup_repaired_guard()
 	else:
 		_setup_new_look()
 	_set_leg(leg_a, leg_art_a, ankle_a, hip_a, Vector2(730.0, 355.0), 0.0)
 	_set_leg(leg_b, leg_art_b, ankle_b, hip_b, Vector2(1270.0, 425.0), 0.0)
 	set_knife(current_weapon)
+	_update_leg_visibility()
 
 func _setup_red_scarf() -> void:
 	centre = Vector2(970.0,390.0)
@@ -115,6 +119,51 @@ func _setup_new_look() -> void:
 	free_shoulder = _shoulder("FreeShoulder",load(folder + "free_arm.png"),free_anchor,_v(origins.free_arm))
 	# New references do not provide a separate face or free-hand frame.  They
 	# stay within their parent layer rather than inventing hidden pixels.
+	free_pivot = Node2D.new()
+	free_pivot.name = "FreeHandAnchor"
+	free_shoulder.add_child(free_pivot)
+	head_pivot = Node2D.new()
+	head_pivot.name = "HeadAnchor"
+	visual.add_child(head_pivot)
+
+func _setup_repaired_guard() -> void:
+	# One coherent upper arm+hand and one coherent free arm avoid the old
+	# dangling cut fragments. Both shoulders still swing; the chosen weapon
+	# remains a separate wrist child and no art is changed for other looks.
+	var data: Dictionary = Meta.LOOK_DATA[current_look]
+	var origins: Dictionary = RepairMeta.ORIGINS[current_look]
+	centre = _v(data.centre)
+	hip_a = _v(data.hip_a)
+	hip_b = _v(data.hip_b)
+	var shoulder := _v(data.shoulder)
+	wrist_anchor = _v(data.wrist)
+	weapon_fist = _v(Meta.HAND_GRIP_CENTRES[current_look])
+	var folder := "res://assets/characters/character-repair/" + current_look + "/"
+	_body(load(folder + "body.png"), _v(origins.body))
+	knife_shoulder = Node2D.new()
+	knife_shoulder.name = "KnifeShoulder"
+	knife_shoulder.position = shoulder - centre
+	visual.add_child(knife_shoulder)
+	knife_elbow = Node2D.new()
+	knife_elbow.name = "KnifeElbow"
+	knife_shoulder.add_child(knife_elbow)
+	wrist = Node2D.new()
+	wrist.name = "KnifeHandPivot"
+	wrist.position = wrist_anchor - shoulder
+	knife_elbow.add_child(wrist)
+	weapon_art = Sprite2D.new()
+	weapon_art.name = "SelectedMeleeWeapon"
+	weapon_art.centered = false
+	weapon_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	wrist.add_child(weapon_art)
+	var arm := Sprite2D.new()
+	arm.name = "RepairedUpperAndHand"
+	arm.centered = false
+	arm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	arm.texture = load(folder + "upper.png")
+	arm.position = _v(origins.upper) - shoulder
+	knife_shoulder.add_child(arm)
+	free_shoulder = _shoulder("FreeShoulder", load(folder + "free_arm.png"), _v(data.free_shoulder), _v(origins.free_arm))
 	free_pivot = Node2D.new()
 	free_pivot.name = "FreeHandAnchor"
 	free_shoulder.add_child(free_pivot)
@@ -283,8 +332,16 @@ func set_knife(id: String) -> void:
 	var grip: Array = Meta.WEAPON_GRIP[current_weapon]
 	weapon_art.position = weapon_fist - wrist_anchor - _v(grip)
 
+func _update_leg_visibility() -> void:
+	# Legs/feet are real animation layers, so hiding them at rest does not
+	# modify appearance, weapons or saved character selection.
+	for limb in [leg_a, leg_b, ankle_a, ankle_b]:
+		if is_instance_valid(limb):
+			limb.visible = moving and not dead
+
 func set_moving(value: bool) -> void:
 	moving = value
+	_update_leg_visibility()
 	if not dead and state in ["idle", "run"]:
 		state = "run" if moving else "idle"
 
@@ -301,6 +358,7 @@ func play_anim(next: String, force: bool = false) -> bool:
 
 func die() -> void:
 	dead = true
+	_update_leg_visibility()
 	state = "death"
 	elapsed = 0.0
 
@@ -331,7 +389,7 @@ func _process(delta: float) -> void:
 	# elbow, hand and weapon stay parented to their original shoulder pivots.
 	var shoulder_gait := sin(walk_time * TAU * 1.5) if moving and not attack_active and not dead else 0.0
 	knife_shoulder.rotation = deg_to_rad(-3.0 * cycle + 4.8 * shoulder_gait)
-	knife_elbow.rotation = deg_to_rad(-15.0 * cycle + 7.0 * wave + 2.0 * shoulder_gait)
+	knife_elbow.rotation = 0.0 if current_look in ["health_10", "health_30"] or Choice.SUPERIOR_LOOKS.has(current_look) else deg_to_rad(-15.0 * cycle + 7.0 * wave + 2.0 * shoulder_gait)
 	free_shoulder.rotation = deg_to_rad(2.5 * cycle - 5.0 * shoulder_gait)
 	wrist.rotation = deg_to_rad(-4.5 * wave - 1.0 * shoulder_gait)
 	free_pivot.rotation = deg_to_rad(-3.0 * sin(walk_time * TAU * 1.5)) if moving and not attack_active and not dead else deg_to_rad(2.0 * wave)

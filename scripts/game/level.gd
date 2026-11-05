@@ -56,18 +56,9 @@ const BLOOD_PRINT_LIMIT := 180
 const GRASS_TILE := 32.0
 # Four full 32-unit tiles make a 64-unit block, matching a wooden box.
 # Larger patches are connected mixes of those seamless four-tile blocks.
-const GRASS_LAYOUTS := [
-	{"name": "large-square", "rows": ["######", "######", "######", "######", "######", "######"]},
-	{"name": "wide", "rows": ["########", "########", "########", "########"]},
-	{"name": "tall", "rows": ["####", "####", "####", "####", "####", "####", "####", "####"]},
-	{"name": "block-square", "rows": ["######", "######", "######", "######"]},
-	{"name": "block-corner", "rows": ["####..", "####..", "######", "######", "..####", "..####"]},
-	{"name": "square", "rows": ["####", "####", "####", "####"]},
-	{"name": "strip-wide", "rows": ["######", "######"]},
-	{"name": "strip-tall", "rows": ["##", "##", "##", "##", "##", "##"]},
-	{"name": "double", "rows": ["####", "####"]},
-	{"name": "single-box", "rows": ["##", "##"]},
-]
+# Each patch is a filled, compact rectangle; four 32-unit tiles are one
+# wooden-box-sized area. No one-tile-wide strips are generated.
+const GRASS_SHAPES := [Vector2i(4, 2), Vector2i(2, 4), Vector2i(2, 2)]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Ten selectable characters. Guards keep their approved gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
@@ -132,10 +123,16 @@ var blocking_rects: Array[Rect2] = []
 # Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
 var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
-# Complete 40-unit grass tiles, grouped into connected layouts. They never
+# Complete 32-unit grass tiles, grouped into connected, prop-attached layouts. They never
 # add collision or modify either navigation grid.
 var grass_rects: Array[Rect2] = []
 var grass_groups: Array[Dictionary] = []
+var grass_entry_serial := 0
+var grass_entry_point := Vector2(INF, INF)
+var grass_entry_direction := Vector2.ZERO
+var _depth_last_position := Vector2(INF, INF)
+var _depth_last_velocity := Vector2.ZERO
+var _depth_redraw_left := 0.0
 var active_look := "standard"
 var player_pos := Vector2.ZERO
 var player_velocity := Vector2.ZERO
@@ -246,7 +243,7 @@ func _ready() -> void:
 	_build_shadows()
 	_build_floor_details()
 	_build_grass()
-	# Static floor and cover are recorded once instead of rebuilt every frame.
+	# The floor is retained; cover redraws at a bounded rate as perspective shifts.
 	map_backplate = WorldBackplate.new()
 	map_backplate.setup(self)
 	map_backplate.show_behind_parent = true
@@ -312,6 +309,18 @@ func _update_camera(delta: float) -> void:
 	base_position = base_position.lerp(target, minf(1.0, delta * 9.0))
 	position = base_position
 
+func _refresh_prop_depth(delta: float) -> void:
+	# The floor/collision coordinates remain fixed. Only the retained cover art
+	# is re-recorded at a bounded rate while its tiny perspective offset changes.
+	_depth_redraw_left = maxf(0.0, _depth_redraw_left - maxf(delta, 0.0))
+	if not is_instance_valid(map_cover) or _depth_redraw_left > 0.0:
+		return
+	if _depth_last_position.distance_squared_to(player_pos) > 0.25 or _depth_last_velocity.distance_squared_to(player_velocity) > 16.0:
+		map_cover.queue_redraw()
+		_depth_last_position = player_pos
+		_depth_last_velocity = player_velocity
+		_depth_redraw_left = 0.08
+
 func _apply_shake(delta: float) -> void:
 	if shake > 0.0:
 		shake = maxf(0.0, shake - delta * 26.0)
@@ -364,7 +373,7 @@ func _layout_hud_for_rect(safe: Rect2) -> void:
 	if bonus_badge:
 		bonus_badge.position = safe.position + Vector2(30, 130)
 	if key_guide:
-		key_guide.position = Vector2(safe.end.x - 198, safe.position.y + 92)
+		key_guide.position = key_icon.position if key_icon else Vector2.ZERO
 	if pause_btn:
 		pause_btn.position = Vector2(safe.end.x - 84, safe.position.y + 24)
 	if hint:
@@ -542,87 +551,99 @@ func _build_floor_details() -> void:
 			floor_details.append({"kind": "arrow", "pos": p, "rot": float(rng.randi_range(0, 3)) * PI / 2.0})
 		placed += 1
 
-func _try_grass_group(center: Vector2, bounds: Rect2, region_id: int, min_tiles: int = 6) -> bool:
-	var anchor := Vector2i(floori((center.x - ORIGIN.x) / GRASS_TILE), floori((center.y - ORIGIN.y) / GRASS_TILE))
-	var first := (int(data.id) + grass_groups.size() * 2) % GRASS_LAYOUTS.size()
-	for layout_index in range(GRASS_LAYOUTS.size()):
-		var layout: Dictionary = GRASS_LAYOUTS[(first + layout_index) % GRASS_LAYOUTS.size()]
-		var rows: Array = layout.rows
-		var tile_count := 0
-		for row in rows:
-			tile_count += String(row).count("#")
-		if tile_count < min_tiles:
-			continue
-		var width := String(rows[0]).length()
-		var start := anchor - Vector2i(int(width / 2), int(rows.size() / 2))
-		var tiles: Array[Rect2] = []
-		var cells: Array[Vector2i] = []
-		var valid := true
-		for y in range(rows.size()):
-			var row := String(rows[y])
-			for x in range(width):
-				if row.substr(x, 1) != "#":
-					continue
-				var cell := start + Vector2i(x, y)
-				var tile := Rect2(ORIGIN + Vector2(cell) * GRASS_TILE, Vector2.ONE * GRASS_TILE)
-				if not bounds.encloses(tile) or tile.grow(20.0).has_point(player_pos) or int(region_by_cell.get(_to_cell(tile.get_center()), -2)) != region_id:
-					valid = false
-					break
-				# No partial artwork behind a prop or wall: do not alter the prop,
-				# crop a tile, or move any existing level obstacle to make it fit.
-				for obstacle in blocking_rects:
-					if obstacle.intersects(tile, true):
-						valid = false
-						break
-				if not valid:
-					break
-				for existing in grass_rects:
-					if tile.grow(8.0).intersects(existing, true):
-						valid = false
-						break
-				if not valid:
-					break
-				tiles.append(tile)
-				cells.append(cell)
-			if not valid:
-				break
-		if valid and tiles.size() >= 3:
-			grass_rects.append_array(tiles)
-			grass_groups.append({"layout": String(layout.name), "tiles": tiles, "cells": cells})
-			return true
-	return false
+func _try_attached_grass(prop_index: int, side: int, shape: Vector2i, player_region: int, bounds: Rect2) -> bool:
+	# Use the real visible prop edge, not the enlarged physics margin. The
+	# grass touches that edge but never changes a prop or either movement grid.
+	var prop: Rect2 = crate_rects[prop_index]
+	var size := Vector2(float(shape.x), float(shape.y)) * GRASS_TILE
+	var position := Vector2.ZERO
+	match side:
+		0: position = Vector2(prop.get_center().x - size.x * 0.5, prop.end.y)
+		1: position = Vector2(prop.get_center().x - size.x * 0.5, prop.position.y - size.y)
+		2: position = Vector2(prop.end.x, prop.get_center().y - size.y * 0.5)
+		_: position = Vector2(prop.position.x - size.x, prop.get_center().y - size.y * 0.5)
+	var patch := Rect2(position, size)
+	if not bounds.encloses(patch) or patch.grow(20.0).has_point(player_pos):
+		return false
+	for cover: Rect2 in wall_rects + crate_rects:
+		# Border contact is intentional; actual visual overlap is not.
+		if patch.intersects(cover, false):
+			return false
+	for group in grass_groups:
+		if int(group.prop_index) == prop_index or patch.grow(8.0).intersects(group.bounds, true):
+			return false
+	var tiles: Array[Rect2] = []
+	var cells: Array[Vector2i] = []
+	var guard_accessible := false
+	for y in range(shape.y):
+		for x in range(shape.x):
+			var tile := Rect2(position + Vector2(float(x), float(y)) * GRASS_TILE, Vector2.ONE * GRASS_TILE)
+			var center := tile.get_center()
+			var cell := _to_cell(center)
+			if int(region_by_cell.get(cell, -2)) != player_region:
+				return false
+			if guard_grid.is_in_boundsv(cell) and not guard_grid.is_point_solid(cell) and not _guard_solid(center):
+				guard_accessible = true
+			tiles.append(tile)
+			cells.append(cell)
+	if not guard_accessible:
+		return false
+	grass_rects.append_array(tiles)
+	grass_groups.append({"layout": "prop-%dx%d" % [shape.x, shape.y], "tiles": tiles, "cells": cells,
+		"bounds": patch, "prop_index": prop_index, "side": side})
+	return true
 
 func _build_grass() -> void:
 	grass_rects.clear()
 	grass_groups.clear()
 	var bounds := Rect2(ORIGIN, Vector2(float(data.width), float(data.height)) * CELL)
-	var region_id := int(region_by_cell.get(_to_cell(player_pos), -1))
-	if region_id < 0 or region_id >= walkable_regions.size():
+	var region := int(region_by_cell.get(_to_cell(player_pos), -1))
+	if region < 0 or region >= walkable_regions.size() or crate_rects.is_empty():
 		return
-	var cells: Array = walkable_regions[region_id]
-	if cells.is_empty():
-		return
-	# First search the entire accessible floor for genuinely larger patches,
-	# then use compact layouts only where the original geometry requires them.
-	# A local RNG does not perturb patrols, loot, or combat.
-	var offset := float(data.get("source_tile_offset", 0.5))
-	for minimum in [24, 16, 12, 8, 4]:
-		for c in data.get("source_grass", []):
-			var center := ORIGIN + (Vector2.ONE * (offset + 1.0) + Vector2(float(c[0]), float(c[1])) * 2.0) * CELL
-			_try_grass_group(center, bounds, region_id, minimum)
-			if grass_groups.size() >= 3:
-				return
-		var grass_rng := RandomNumberGenerator.new()
-		grass_rng.seed = 710931 + int(data.id) * 881 + minimum * 37
-		for attempt in range(mini(650, cells.size() * 3)):
-			var cell: Vector2i = cells[grass_rng.randi_range(0, cells.size() - 1)]
-			_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id, minimum)
-			if grass_groups.size() >= 3:
-				return
-		for cell in cells:
-			_try_grass_group(_cell_center(cell.x, cell.y), bounds, region_id, minimum)
-			if grass_groups.size() >= 3:
-				return
+	# Deterministic, independent of the combat/patrol random stream. A level
+	# gets either two or three separate prop-connected spots, never loose rows.
+	var desired := 2 + (int(data.id) % 2)
+	var order: Array[int] = []
+	for i in range(crate_rects.size()): order.append(i)
+	var local_rng := RandomNumberGenerator.new()
+	local_rng.seed = 782031 + int(data.id) * 1871
+	for i in range(order.size() - 1, 0, -1):
+		var j := local_rng.randi_range(0, i)
+		var temp := order[i]; order[i] = order[j]; order[j] = temp
+	for shape_index in range(GRASS_SHAPES.size()):
+		var shape: Vector2i = GRASS_SHAPES[(shape_index + int(data.id)) % GRASS_SHAPES.size()]
+		for prop_index in order:
+			var offset := (int(data.id) + prop_index) % 4
+			for j in range(4):
+				_try_attached_grass(prop_index, (j + offset) % 4, shape, region, bounds)
+				if grass_groups.size() >= desired:
+					return
+
+func _grass_probe_for_guard(g: Dictionary, point: Vector2, direction: Vector2) -> Vector2:
+	# Search a reachable tile inside the entered patch. Guards remember the
+	# observed entry, not the hidden player's live location or future movement.
+	var region := int(guard_region_by_cell.get(_to_cell(g.pos), -1))
+	if region < 0:
+		return Vector2(INF, INF)
+	var best := Vector2(INF, INF)
+	var best_score := INF
+	for group in grass_groups:
+		if not (group.bounds as Rect2).grow(0.1).has_point(point):
+			continue
+		for tile: Rect2 in group.tiles:
+			var candidate := tile.get_center()
+			var cell := _to_cell(candidate)
+			if int(guard_region_by_cell.get(cell, -2)) != region or _guard_solid(candidate):
+				continue
+			var along := (candidate - point).dot(direction)
+			if along < -2.0:
+				continue
+			# Reach a real interior tile without clairvoyantly following the player.
+			var score := candidate.distance_squared_to(point + direction * GRASS_TILE * 1.4)
+			if score < best_score:
+				best = candidate
+				best_score = score
+	return best
 
 func in_grass(p: Vector2) -> bool:
 	# Adjacent complete tiles have no artificial stealth gaps at their seams.
@@ -978,9 +999,11 @@ func _build_hud() -> void:
 	hud.add_child(key_label)
 	key_guide = Button.new()
 	key_guide.name = "FindKeyButton"
-	key_guide.text = "FIND KEY"
+	# The existing key icon is the optional guide button; no FIND KEY message.
+	key_guide.text = ""
 	key_guide.flat = true
-	key_guide.size = Vector2(140, 36)
+	key_guide.size = Vector2(40, 40)
+	key_guide.focus_mode = Control.FOCUS_NONE
 	key_guide.add_theme_font_override("font", FONT)
 	key_guide.add_theme_font_size_override("font_size", 20)
 	key_guide.add_theme_color_override("font_color", Color("ffda78"))
@@ -1126,6 +1149,7 @@ func _physics_process(delta: float) -> void:
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
+	_refresh_prop_depth(delta)
 	_magnetize_key(delta)
 	if locker_ui != null:
 		return
@@ -1210,6 +1234,10 @@ func _grass_boundary_events(from: Vector2, to: Vector2) -> void:
 		var point := from.lerp(to, float(i) / float(samples))
 		var inside := in_grass(point)
 		if inside != previous:
+			if inside:
+				grass_entry_serial += 1
+				grass_entry_point = point
+				grass_entry_direction = (to - from).normalized()
 			Sfx.play("grass", -3.0)
 			if is_instance_valid(map_grass):
 				map_grass.disturb(point if inside else last, to - from)
@@ -1529,7 +1557,7 @@ func _spawn_loot_effect(point: Vector2, money: int, diamonds: int) -> void:
 	if diamonds > 0:
 		loot_particles.append({"kind": "diamond", "pos": point, "vel": Vector2(65, -135), "t": 0.0})
 		effects.append({"pos": point + Vector2(20, -46), "t": 0.95, "max": 0.95, "kind": "diamondtext", "amount": diamonds})
-	Sfx.play("coin", -5.0)
+	# The pickup animation is cosmetic and deliberately silent on kills.
 
 func _add_blood_splatter(point: Vector2) -> void:
 	var drops := []
@@ -1792,6 +1820,7 @@ func _update_guards(delta: float) -> void:
 		var sees: bool = cone_sees or informed_sees or body_touch
 		var first_contact: bool = sees and not g.sees_player
 		if sees:
+			g["grass_search"] = false
 			if first_contact:
 				var already_in_alarm := _any_guard_alerted()
 				var newly_spotted: bool = g.state != GState.ALERT
@@ -1817,6 +1846,20 @@ func _update_guards(delta: float) -> void:
 			# Touch overrules the sight reaction delay, but not a real gun's
 			# cooldown; repeated separation/recontact cannot spam extra shots.
 			g.shoot = minf(float(g.shoot), float(g.shot_lock))
+		# An alert guard can investigate the patch the player was seen entering.
+		# This fixes stopping just outside its border without revealing a hidden
+		# player's live position, or making grass a movement blocker.
+		if player_concealed and not sees and g.state == GState.ALERT and grass_entry_serial > 0 and int(g.get("grass_entry_serial", 0)) != grass_entry_serial:
+			g["grass_entry_serial"] = grass_entry_serial
+			if g.last_seen.distance_to(grass_entry_point) <= GRASS_TILE * 2.5 and _los(g.last_seen, grass_entry_point):
+				var probe := _grass_probe_for_guard(g, grass_entry_point, grass_entry_direction)
+				if is_finite(probe.x):
+					g.last_seen = probe
+					g["grass_search"] = true
+					g.path.clear()
+					g.pi = 0
+					g.alert_repath = 0.0
+					g.route_goal = Vector2(INF, INF)
 		g.sees_player = sees
 		match g.state:
 			GState.PATROL:
@@ -1863,7 +1906,8 @@ func _update_guards(delta: float) -> void:
 				if g.state == GState.ALERT:
 					# Keep a committed path until its goal has moved materially. The
 					# old unconditional 0.2-second reset caused doorway jitter/stalls.
-					var goal: Vector2 = _pursuit_goal(g, g.last_seen)
+					var entering_grass := player_concealed and (bool(g.get("grass_search", false)) or in_grass(g.last_seen))
+					var goal: Vector2 = g.last_seen if entering_grass else _pursuit_goal(g, g.last_seen)
 					g.alert_repath -= delta
 					if g.alert_repath <= 0.0:
 						if g.route_goal.distance_squared_to(goal) > CELL * CELL * 2.25:
@@ -1879,7 +1923,7 @@ func _update_guards(delta: float) -> void:
 							g.recover_left = maxf(0.0, float(g.recover_left) - delta)
 						elif int(g.recover_turns) >= 2 or not _redirect_traffic_recovery(g, g.last_seen):
 							g.recover_left = 0.0
-					elif g.pos.distance_to(g.last_seen) > ALERT_STOP_DISTANCE:
+					elif (g.pos.distance_to(goal) > 5.0 if entering_grass else g.pos.distance_to(g.last_seen) > ALERT_STOP_DISTANCE):
 						_seek(g, goal, delta, g.speed * ALERT_SPEED_MULTIPLIER)
 						if sees:
 							var aim_after_move: float = (player_pos - g.pos).angle()

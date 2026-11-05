@@ -75,11 +75,18 @@ func run_checks() -> void:
 			check(loaded.look == look and loaded.weapon == weapon, "reload selection " + look + "/" + weapon)
 			rig.set_knife(weapon)
 			check(rig.weapon_art.texture != null and rig.weapon_art.texture.resource_path.ends_with("/" + weapon + "-grip.png"), "real selected weapon appears " + look + "/" + weapon)
-			check(rig.weapon_art.get_parent() == rig.wrist and rig.weapon_art.get_index() < rig.wrist.get_node("HandArt").get_index(), "weapon behind gripping hand " + look + "/" + weapon)
+			if look in ["health_10", "health_30"]:
+				var unified_arm := rig.knife_shoulder.get_node_or_null("RepairedUpperAndHand")
+				check(rig.weapon_art.get_parent() == rig.wrist and unified_arm != null and unified_arm.get_index() > rig.knife_elbow.get_index(), "weapon remains behind the coherent gripping hand " + look + "/" + weapon)
+			else:
+				check(rig.weapon_art.get_parent() == rig.wrist and rig.weapon_art.get_index() < rig.wrist.get_node("HandArt").get_index(), "weapon behind gripping hand " + look + "/" + weapon)
 		rig.set_moving(true)
 		rig.play_anim("attack", true)
 		rig._process(0.075)
-		check(absf(rig.knife_elbow.rotation) > 0.15 and absf(rig.knife_shoulder.rotation) > 0.04, "elbow and shoulder swing " + look)
+		if look in ["health_10", "health_30"]:
+			check(is_zero_approx(rig.knife_elbow.rotation) and absf(rig.knife_shoulder.rotation) > 0.04, "coherent hand and shoulder swing together " + look)
+		else:
+			check(absf(rig.knife_elbow.rotation) > 0.15 and absf(rig.knife_shoulder.rotation) > 0.04, "elbow and shoulder swing " + look)
 		check(absf(rig.ankle_flex_a) > 7.0 and absf(rig.ankle_flex_b) > 5.0, "ankles flex in attack " + look)
 		rig.queue_free()
 	check(FileAccess.get_file_as_string(gs.SAVE_PATH) == before, "all 50 selections leave original save bytes unchanged")

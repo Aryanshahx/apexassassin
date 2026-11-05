@@ -3,6 +3,7 @@ extends SceneTree
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Player := preload("res://scripts/game/ten_character_player.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
+const RepairMeta := preload("res://scripts/game/character_repair_meta.gd")
 var checks := 0
 var failures := 0
 
@@ -15,7 +16,7 @@ func check(ok: bool, message: String) -> void:
 
 func _as_v(a: Array) -> Vector2: return Vector2(float(a[0]), float(a[1]))
 
-func _sprite_bounds(view: Control, sprite: Sprite2D) -> Rect2:
+func _sprite_bounds(view: CanvasItem, sprite: Sprite2D) -> Rect2:
 	var used: Rect2i = sprite.texture.get_image().get_used_rect()
 	var start := Vector2(used.position) + sprite.offset
 	if sprite.centered: start -= sprite.texture.get_size() * 0.5
@@ -112,20 +113,30 @@ func _run() -> void:
 		var body: Sprite2D = player.visual.get_node("ReferenceBody")
 		var used: Rect2i = body.texture.get_image().get_used_rect()
 		var body_size: float = float(maxi(used.size.x, used.size.y)) * (55.0 / 1514.0) * lv.PLAYER_SCALE
-		check(body_size >= Enemy.BODY_WIDTH * 0.88, look + " body is within 12% of a guard body")
+		if look in ["health_10", "health_30"]:
+			# Their gripping/free arms are coherent animated layers rather than
+			# duplicated on the torso. Measure the actual rendered figure.
+			var overall := _sprite_bounds(player, body)
+			overall = overall.merge(_sprite_bounds(player, player.knife_shoulder.get_node("RepairedUpperAndHand")))
+			overall = overall.merge(_sprite_bounds(player, player.free_shoulder.get_node("Art")))
+			body_size = maxf(overall.size.x, overall.size.y) * lv.PLAYER_SCALE
+		check(body_size >= Enemy.BODY_WIDTH * 0.88, look + " rendered figure remains within 12% of a guard body")
 		for weapon in Choice.WEAPONS:
 			player.set_knife(weapon)
 			var handle: Vector2 = _as_v(Meta.WEAPON_GRIP[weapon])
 			var handle_pixel: Color = player.weapon_art.texture.get_image().get_pixelv(Vector2i(handle))
 			check(handle_pixel.a > 0.9, look + "/" + weapon + " uses a visible handle point")
-			var hand: Sprite2D = player.wrist.get_node("HandArt")
-			var hand_center: Vector2 = _as_v(Meta.HAND_GRIP_CENTRES["red_scarf" if look == "standard" else look]) - (player.wrist_anchor + hand.position)
+			var repaired: bool = look in ["health_10", "health_30"]
+			var hand: Sprite2D = player.knife_shoulder.get_node("RepairedUpperAndHand") if repaired else player.wrist.get_node("HandArt")
+			var hand_origin: Vector2 = _as_v(RepairMeta.ORIGINS[look].upper) if repaired else player.wrist_anchor + hand.position
+			var hand_center: Vector2 = _as_v(Meta.HAND_GRIP_CENTRES["red_scarf" if look == "standard" else look]) - hand_origin
 			var grip_global: Vector2 = player.weapon_art.to_global(handle)
 			var hand_global: Vector2 = hand.to_global(hand_center)
 			var local_pixel := Vector2i(hand_center)
 			var hand_image := hand.texture.get_image()
 			check(Rect2i(Vector2i.ZERO, hand_image.get_size()).has_point(local_pixel) and hand_image.get_pixelv(local_pixel).a > 0.5, look + "/" + weapon + " grip is actually on opaque hand pixels")
-			check(grip_global.distance_to(hand_global) < 0.01 and player.weapon_art.get_index() < hand.get_index(), look + "/" + weapon + " handle is inside fist and behind it")
+			var drawn_behind: bool = player.knife_elbow.get_index() < hand.get_index() if repaired else player.weapon_art.get_index() < hand.get_index()
+			check(grip_global.distance_to(hand_global) < 0.01 and drawn_behind, look + "/" + weapon + " handle is inside fist and behind it")
 		player.queue_free()
 	# Real home and each character selection card continuously use the equipped rig.
 	check(Choice.save_selection("speed_30", "thor"), "saved synthetic character selection")

@@ -31,7 +31,7 @@ func _run() -> void:
 		var blockers: Array = map.blocking_rects.duplicate()
 		map._build_grass()
 		var region: int = int(map.region_by_cell.get(map._to_cell(map.player_pos), -1))
-		check(map.grass_groups.size() == 3, "level %d has three connected grass groups" % n)
+		check(map.grass_groups.size() >= 2 and map.grass_groups.size() <= 3, "level %d has two or three connected grass spots" % n)
 		check(not map.in_grass(map.player_pos), "level %d spawn is not suddenly concealed" % n)
 		var group_tile_total := 0
 		for group: Dictionary in map.grass_groups:
@@ -49,8 +49,8 @@ func _run() -> void:
 				full_tiles += 1
 				if tile.size != Vector2.ONE * map.GRASS_TILE or not map.in_grass(tile.get_center()) or int(map.region_by_cell.get(map._to_cell(tile.get_center()), -2)) != region:
 					tile_ok = false
-				for obstacle: Rect2 in blockers:
-					if obstacle.intersects(tile, true): tile_ok = false
+				for obstacle: Rect2 in map.wall_rects + map.crate_rects:
+					if obstacle.intersects(tile, false): tile_ok = false
 				var nav_cell: Vector2i = map._to_cell(tile.get_center())
 				if map.guard_grid.is_in_boundsv(nav_cell) and not map.guard_grid.is_point_solid(nav_cell):
 					navigable_guard_tile = true
@@ -75,7 +75,7 @@ func _run() -> void:
 		map.free()
 	check(layouts.size() >= 3, "connected grass uses a variety of complete-tile layouts")
 	check(is_equal_approx(Level.GRASS_TILE * 2.0, 64.0), "four complete grass tiles form a 64-unit crate-sized block")
-	check(float(full_tiles) * Level.GRASS_TILE * Level.GRASS_TILE > 3000.0 * 32.0 * 32.0 * 1.35, "connected grass keeps substantial coverage across all levels")
+	check(full_tiles >= 1000, "two or three compact grass spots remain in every level")
 	print("GROUPED GRASS: ", grouped_patches, " groups, ", full_tiles, " complete tiles in 100 levels; layouts ", layouts)
 
 	gs.selected_assassin = "ronin"
