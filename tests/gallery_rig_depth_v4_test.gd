@@ -19,6 +19,34 @@ func same_pose(a: Array, b: Array) -> bool:
 	for i in range(a.size()):
 		if not is_equal_approx(float(a[i]),float(b[i])): return false
 	return true
+func detached_alpha_pixels(texture: Texture2D) -> int:
+	# Inspect EACH independently moving layer, not just their composite. A
+	# hidden orphan on the static torso becomes a floating hand as limbs move.
+	var image := texture.get_image()
+	if image == null: return -1
+	if image.is_compressed(): image.decompress()
+	var w := image.get_width(); var h := image.get_height()
+	var seen := PackedByteArray(); seen.resize(w*h)
+	var total := 0; var largest := 0
+	for y in range(h):
+		for x in range(w):
+			if image.get_pixel(x,y).a > 0.0:
+				seen[y*w+x] = 1; total += 1
+	for index in range(w*h):
+		if seen[index] != 1: continue
+		var queue := PackedInt32Array([index]); seen[index] = 2; var cursor := 0
+		while cursor < queue.size():
+			var current := queue[cursor]; cursor += 1
+			var x := int(current % w); var y := int(current / w)
+			for dy in range(-1,2):
+				for dx in range(-1,2):
+					var nx := x+dx; var ny := y+dy
+					if nx < 0 or ny < 0 or nx >= w or ny >= h: continue
+					var next := ny*w+nx
+					if seen[next] == 1: seen[next] = 2; queue.append(next)
+		largest = maxi(largest,queue.size())
+	return total-largest
+
 func _run() -> void:
 	var sandbox := OS.get_environment("APEX_REDSCARF_TEST_ROOT").simplify_path()
 	if sandbox in ["","/"] or not OS.get_user_data_dir().simplify_path().begins_with(sandbox + "/"):
@@ -42,6 +70,8 @@ func _run() -> void:
 		var other_hand := actor.free_pivot.get_node("HandArt") as Sprite2D
 		for sprite in [body,upper,forearm,hand,other_arm,other_hand]:
 			check(sprite.texture != null and sprite.texture.get_image().get_used_rect().has_area(), id + " has a nonempty visible " + sprite.name + " layer")
+			if sprite.texture != null:
+				check(detached_alpha_pixels(sprite.texture) == 0, id + " has no disconnected pixels in " + sprite.name)
 		check(actor.knife_elbow.get_parent() == actor.knife_shoulder and actor.wrist.get_parent() == actor.knife_elbow and actor.free_pivot.get_parent() == actor.free_shoulder, id + " has articulated connected shoulders, elbow and both hands")
 		var hand_before := hand.to_global(Vector2.ZERO); var other_before := other_hand.to_global(Vector2.ZERO)
 		actor.set_moving(true); actor._process(0.11)
@@ -62,49 +92,49 @@ func _run() -> void:
 	standard.free()
 
 	var Level = load("res://scripts/game/level.gd")
-	var group_count := 0; var square_levels := 0; var extrusions := 0
+	var group_count := 0; var prop_levels := 0; var open_levels := 0; var covers := 0
 	for n in range(1,101):
 		var map = Level.new(); map._load_level(n); map._build_grid(); map._build_walkable_regions()
 		var blockers: Array = map.blocking_rects.duplicate(); var guard_blockers: Array = map.guard_blocking_rects.duplicate()
 		map._build_grass()
-		check(map.grass_groups.size() in [2,3], "level %d has two or three connected patches" % n)
-		check(map._has_free_gallery(), "level %d has a genuinely open-path patch away from props" % n)
-		var has_square := false
+		check(map.grass_groups.size() in [2,3], "level %d has two or three compact patches" % n)
+		check(map._has_free_gallery(), "level %d has an open-path patch away from props" % n)
+		var has_prop := false; var has_open := false
 		for group: Dictionary in map.grass_groups:
 			group_count += 1
 			var box: Rect2 = group.bounds
-			if is_equal_approx(box.size.x,box.size.y): has_square = true
-			check(bool(group.get("gallery",false)) and map._gallery_is_corridor(box.get_center()), "level %d patch is in a reachable gallery rather than generated from a prop" % n)
+			check(is_equal_approx(box.size.x,box.size.y) and box.size.x in [64.0,96.0] and group.tiles.size() in [4,9], "level %d patch is exactly a complete 2x2 or 3x3 tile square" % n)
 			var clear := true
 			for cover: Rect2 in map.wall_rects + map.crate_rects:
 				if box.intersects(cover,false): clear = false
 			check(clear and not box.has_point(map.player_pos), "level %d patch stays on floor and off the spawn" % n)
-		if has_square: square_levels += 1
-		if n == 8:
-			var expected := [Rect2(map.ORIGIN+Vector2(16.5,35.5)*32.0,Vector2(128,64)),Rect2(map.ORIGIN+Vector2(15.5,45.5)*32.0,Vector2(192,64)),Rect2(map.ORIGIN+Vector2(8.5,50.5)*32.0,Vector2(96,96))]
-			for rect: Rect2 in expected:
-				var found := false
-				for group: Dictionary in map.grass_groups:
-					if group.bounds == rect: found = true
-				check(found,"level 8 matches a screenshot-marked corridor or square")
+			if int(group.prop_index) >= 0:
+				has_prop = true
+				var prop: Rect2 = map.crate_rects[int(group.prop_index)]
+				var vertical := (absf(box.end.x-prop.position.x)<0.01 or absf(prop.end.x-box.position.x)<0.01) and absf(box.get_center().y-prop.get_center().y)<0.01
+				var horizontal := (absf(box.end.y-prop.position.y)<0.01 or absf(prop.end.y-box.position.y)<0.01) and absf(box.get_center().x-prop.get_center().x)<0.01
+				check(vertical or horizontal, "level %d prop square is centered and flush" % n)
+			else:
+				has_open = true
+				check(map._gallery_clear_of_props(box), "level %d open square is separate from props" % n)
+		if has_prop: prop_levels += 1
+		if has_open: open_levels += 1
 		check(map.blocking_rects == blockers and map.guard_blocking_rects == guard_blockers, "level %d leaves player and guard physics untouched" % n)
 		var world := World.new(); world.setup(map,true)
-		var all_inside := true; var all_have_faces := true
+		var same := true
 		for cover: Rect2 in map.wall_rects + map.crate_rects:
-			var top := world._cover_top_rect(cover); extrusions += 1
-			if not cover.encloses(top): all_inside = false
-			if cover.end.y - top.end.y < 7.9: all_have_faces = false
-		check(all_inside and all_have_faces, "level %d cover has a visible 2.5D face wholly inside every existing footprint" % n)
+			covers += 1
+			if world._cover_top_rect(cover) != cover: same = false
+		check(same, "level %d cover displays at unchanged collision footprints" % n)
 		world.free(); map.free()
-	check(square_levels >= 20, "square grass patches appear in many levels")
+	check(prop_levels == 100 and open_levels == 100, "every level has both a prop-edge and an open square")
 	var probe = Level.new(); probe._load_level(8); probe._build_grid(); probe._build_walkable_regions()
 	var world := World.new(); world.setup(probe,true)
 	var sample := Rect2(probe.player_pos + Vector2(30,20),Vector2(64,64))
 	probe.player_velocity = Vector2.ZERO; var top_before := world._cover_top_rect(sample)
 	probe.player_pos += Vector2(40,20); probe.player_velocity = Vector2(180,50)
 	var top_after := world._cover_top_rect(sample)
-	check(top_before.position.distance_to(top_after.position) > 1.0 and absf(top_before.size.y-top_after.size.y) > 0.25, "visible top and front height react to player/camera motion")
-	check(sample.encloses(top_before) and sample.encloses(top_after), "moving perspective never changes or exceeds physical cover")
+	check(top_before == sample and top_after == sample and not probe.has_method("_refresh_prop_depth"), "cover geometry is independent of player position and velocity")
 	world.free(); probe.free()
-	print("GALLERY / ARTICULATED RIG / DEPTH: ",checks," checks, ",failures," failures; ",group_count," patches, ",square_levels," square levels, ",extrusions," cover faces, ",weapon_combinations," Superior/weapon combinations")
+	print("REPAIRED RIG / SQUARE GRASS / STABLE COVER: ",checks," checks, ",failures," failures; ",group_count," patches, ",prop_levels," prop levels, ",covers," unchanged cover footprints, ",weapon_combinations," Superior/weapon combinations")
 	quit(1 if failures else 0)

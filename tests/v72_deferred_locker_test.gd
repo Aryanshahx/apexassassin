@@ -107,17 +107,18 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	var recovered = current_scene.find_child("LockerRewards",true,false)
+	var superior_target: String = str(gs.locker_board.character_id)
 	check(recovered != null and recovered.buttons[diamond].disabled, "home resumes an eligible partially revealed board")
 	if recovered != null:
 		recovered._pick(secret)
-		check(gs.is_unlocked(gs.VAULT_CHARACTER) and gs.selected_assassin == "ronin", "Elite unlocks without silently changing the current selection")
+		check(gs.is_superior_unlocked(superior_target) and gs.selected_assassin == "ronin", "the actual Superior unlocks without silently changing the current selection")
 		recovered._pick((secret + 2) % 9)
 		check(gs.locker_board.opened.size() == 3 and recovered.done.visible, "third unique reward enables continue")
 		check(gs.open_locker((secret + 3) % 9).is_empty(), "a fourth pick is rejected")
 		recovered._finish()
 		check(not gs.locker_pending() and gs.keys_collected == 0 and gs.key_levels_claimed.is_empty(), "finishing starts a clean next-key cycle")
 		gs.load_game()
-		check(gs.is_unlocked(gs.VAULT_CHARACTER) and not gs.locker_pending(), "finished board and Elite entitlement persist")
+		check(gs.is_superior_unlocked(superior_target) and not gs.locker_pending(), "finished board and Superior entitlement persist")
 
 	# Existing v0.7.1 boards lack 'eligible': recover them instead of trapping or
 	# resetting a previously revealed reward, including the old unique prize.

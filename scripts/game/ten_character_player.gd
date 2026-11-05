@@ -7,7 +7,7 @@ extends Node2D
 
 const Choice := preload("res://scripts/game/ten_character_selection.gd")
 const Meta := preload("res://scripts/game/ten_character_art_meta.gd")
-const SuperiorRigMeta := preload("res://scripts/game/superior_rig_meta_v3.gd")
+const SuperiorRigMeta := preload("res://scripts/game/superior_rig_meta_v5.gd")
 const RepairMeta := preload("res://scripts/game/character_repair_meta.gd")
 const RED_ROOT := "res://assets/characters/red-scarf-preview/"
 const ROOT := "res://assets/characters/ten-character-update/"
@@ -186,7 +186,7 @@ func _setup_superior() -> void:
 	weapon_fist = wrist_anchor
 	var free_anchor := Vector2(979.0,533.8)
 	var free_hand_anchor := Vector2(717.2,493.0)
-	var folder := "res://assets/characters/superior-rig-v3/" + current_look + "/"
+	var folder := "res://assets/characters/superior-rig-v5/" + current_look + "/"
 	_body(load(folder + "body.webp"),_v(origins.body),scale_art)
 	knife_shoulder = _shoulder("KnifeShoulder",load(folder + "upper.webp"),shoulder,_v(origins.upper),scale_art)
 	knife_elbow = _elbow_pivot(knife_shoulder,load(folder + "forearm.webp"),elbow,shoulder,_v(origins.forearm),scale_art)

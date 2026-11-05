@@ -1,6 +1,7 @@
 extends SceneTree
 ## v0.6.3 save migration, key routes, persistent nine-locker rewards and recovery.
 ## Run with an isolated XDG_DATA_HOME: this writes several test saves.
+const Choice := preload("res://scripts/game/ten_character_selection.gd")
 var checks := 0
 var failures := 0
 
@@ -150,8 +151,9 @@ func _run() -> void:
 	check(gs.locker_board.opened.size() == 1 and not recovered.done.visible, "recovered board retains first choice and requires two more")
 	var original_selected: String = gs.selected_assassin
 	var secret: int = int(gs.locker_board.character_slot)
+	var target: String = str(gs.locker_board.character_id)
 	recovered._pick(secret)
-	check(gs.is_unlocked(gs.VAULT_CHARACTER) and gs.selected_assassin == original_selected, "winning the secret unlocks it without changing the selected assassin")
+	check(gs.is_superior_unlocked(target) and gs.selected_assassin == original_selected, "winning the saved Superior unlocks it without changing the legacy selection")
 	var third := (secret + 2) % 9
 	var before: int = gs.gems
 	var expected: int = int(gs.locker_board.amounts[third])
@@ -163,22 +165,22 @@ func _run() -> void:
 	check(recovered.buttons[unopened].get_node("Caption").text == "LOCKED", "unopened lockers no longer invite a fourth pick")
 	check(gs.open_locker((secret + 3) % 9).is_empty(), "a fourth opening is rejected")
 	gs.load_game()
-	check(gs.is_unlocked(gs.VAULT_CHARACTER) and gs.locker_board.opened.size() == 3 and gs.gems == before + expected, "three picks and secret unlock persist before continue")
+	check(gs.is_superior_unlocked(target) and gs.locker_board.opened.size() == 3 and gs.gems == before + expected, "three picks and secret unlock persist before continue")
 	recovered._finish()
 	check(not gs.locker_pending() and gs.key_levels_claimed.is_empty(), "continue completes the board and permits another key cycle")
 	check(gs.key_available(key_levels[0]), "previous key levels can be replayed for a new board")
 	gs.load_game()
-	check(not gs.locker_pending() and gs.is_unlocked(gs.VAULT_CHARACTER) and gs.selected_assassin == original_selected and gs.gems == before + expected, "finished board and all rewards remain saved")
-	check(gs.select_character(gs.VAULT_CHARACTER), "secret assassin can be selected once won")
-	gs.selected_assassin = "ronin"
+	check(not gs.locker_pending() and gs.is_superior_unlocked(target) and gs.selected_assassin == original_selected and gs.gems == before + expected, "finished board and all rewards remain saved")
+	check(Choice.save_selection(target, "aurora"), "won Superior can be equipped through the actual active selector")
 	gs.load_game()
-	check(gs.selected_assassin == gs.VAULT_CHARACTER and gs.is_unlocked(gs.VAULT_CHARACTER), "secret character selection survives restart")
+	check(Choice.read_selection().look == target and gs.is_superior_unlocked(target) and gs.selected_assassin == original_selected, "Superior selection survives restart without overwriting the legacy selection")
 	home._refresh_card()
-	check(home.card_art.rig.current_look == "standard" and home.card_art.rig.moving, "Standard remains visible after the Elite entitlement is earned")
+	check(home.card_art.rig.current_look == target and home.card_art.rig.moving, "home displays the actually equipped Superior")
 
-	# Once unlocked, a new board is still possible and awards diamonds everywhere.
+	# With every Superior owned, new boards still award diamonds everywhere.
+	for id in Choice.SUPERIOR_LOOKS: gs.superior_unlocks[id] = true
 	gs._make_locker_board(64001)
-	check(int(gs.locker_board.character_slot) == -1, "later boards cannot duplicate the unique assassin")
+	check(int(gs.locker_board.character_slot) == -1 and str(gs.locker_board.character_id).is_empty(), "all-owned boards do not duplicate a character")
 	check(not gs.locker_ready() and gs.open_locker(0).is_empty(), "another new board is also gated until a win")
 	gs.complete_level(0, false, 1)
 	var later: Dictionary = gs.open_locker(0)

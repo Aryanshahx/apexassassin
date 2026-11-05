@@ -83,12 +83,17 @@ func _run() -> void:
 		for g: Dictionary in m.grass_groups:
 			group_count += 1; tile_count += g.tiles.size(); shape_counts[g.layout] = true
 			var patch: Rect2 = g.bounds
-			check(bool(g.get("gallery",false)) and int(g.prop_index) == -1, "level %d places grass independently on gallery floor" % number)
+			if int(g.prop_index) >= 0:
+				var prop: Rect2 = m.crate_rects[int(g.prop_index)]
+				var centered := (absf(patch.get_center().x-prop.get_center().x)<0.01 or absf(patch.get_center().y-prop.get_center().y)<0.01)
+				check(not bool(g.gallery) and touching(patch,prop) and centered, "level %d prop patch is centered and touches without a gap" % number)
+			else:
+				check(bool(g.gallery) and m._gallery_clear_of_props(patch), "level %d open patch stays away from props" % number)
 			var clear := true
 			for cover: Rect2 in m.wall_rects + m.crate_rects:
 				if patch.intersects(cover,false): clear = false
 			check(clear, "level %d grass does not cover any wall or prop" % number)
-			check(patch.size.x >= 64.0 and patch.size.y >= 64.0 and g.tiles.size() in [8, 9, 12], "level %d has a connected strip or square of two to three box areas" % number)
+			check(is_equal_approx(patch.size.x,patch.size.y) and patch.size.x in [64.0,96.0] and g.tiles.size() in [4,9], "level %d uses a compact 2x2 or 3x3 tile square" % number)
 			var guard_tile := false
 			for tile: Rect2 in g.tiles:
 				var cell: Vector2i = m._to_cell(tile.get_center())
@@ -97,7 +102,7 @@ func _run() -> void:
 			check(guard_can_approach(m,g), "level %d grass has a guard-clear entry and reachable search tile" % number)
 		check(m.blocking_rects == before and m.guard_blocking_rects == guard_before, "level %d adds no collision or blockers" % number)
 		m.free()
-	check(shape_counts.size() == 5 and group_count >= 200 and group_count <= 300, "square and both orientations of two/three-box strips appear across the catalogue")
+	check(shape_counts.size() == 4 and group_count >= 200 and group_count <= 300, "both square sizes occur in open and prop-edge locations")
 	print("WALKABLE GALLERY GRASS: ", group_count, " spots and ",tile_count," tiles across 100 levels")
 
 	var world := World.new()
@@ -170,11 +175,13 @@ func _run() -> void:
 	check(lv.key_guide.visible and lv.key_guide.position == lv.key_icon.position, "existing key icon still offers the optional guide")
 	var map_before: Array = lv.blocking_rects.duplicate(); var existing = lv.map_cover
 	var probe_rect := Rect2(lv.player_pos + Vector2(30,20), Vector2(64,64))
-	lv.player_velocity = Vector2.ZERO; var offset_a: Vector2 = existing._cover_depth_offset(probe_rect)
+	lv.player_velocity = Vector2.ZERO; var top_a: Rect2 = existing._cover_top_rect(probe_rect)
+	var draws_before: int = existing.draw_count
 	lv.player_pos += Vector2(40,20); lv.player_velocity = Vector2(180,50)
-	var offset_b: Vector2 = existing._cover_depth_offset(probe_rect)
-	check(offset_a.distance_to(offset_b) > 0.1 and absf(offset_b.x) <= 8.0 and absf(offset_b.y) <= 4.0, "stronger prop perspective changes with player motion and stays bounded")
-	check(lv.blocking_rects == map_before, "2.5D effect does not alter physics, map geometry or paths")
+	var top_b: Rect2 = existing._cover_top_rect(probe_rect)
+	await process_frame
+	check(top_a == probe_rect and top_b == top_a and existing.draw_count == draws_before, "cover artwork is static and no longer redraws or shifts with player motion")
+	check(lv.blocking_rects == map_before, "fixed shading leaves physics, map geometry and paths untouched")
 
 	# A real authored gallery patch must also be enterable; choose an
 	# unobstructed outer approach without moving or removing any cover.

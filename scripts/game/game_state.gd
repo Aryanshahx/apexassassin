@@ -243,7 +243,7 @@ func load_game() -> void:
 				key_levels_claimed[str(number)] = true
 	locker_board = _validated_locker_board(p.get("locker_board", {}))
 
-func save_game() -> void:
+func save_game() -> bool:
 	var data := {
 		"schema": 4, "gems": gems, "cash": cash, "current_level": current_level,
 		"unlocked_level": unlocked_level, "total_kills": total_kills,
@@ -262,10 +262,18 @@ func save_game() -> void:
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		push_error("Could not write save file")
-		return
+		return false
 	f.store_string(JSON.stringify(data))
+	f.flush()
+	var error := f.get_error()
 	f.close()
-	DirAccess.rename_absolute(tmp, SAVE_PATH)
+	if error != OK:
+		push_error("Could not flush save file")
+		return false
+	if DirAccess.rename_absolute(tmp, SAVE_PATH) != OK:
+		push_error("Could not commit save file")
+		return false
+	return true
 
 func mission_progress(stat: String) -> int:
 	match stat:
@@ -504,12 +512,20 @@ func key_available(number: int) -> bool:
 func collect_level_key(number: int) -> bool:
 	if not key_available(number):
 		return false
+	var previous_count := keys_collected
+	var previous_claimed := key_levels_claimed.duplicate(true)
+	var previous_board := locker_board.duplicate(true)
 	key_levels_claimed[str(number)] = true
 	keys_collected += 1
 	if keys_collected >= 3:
 		keys_collected -= 3
 		_make_locker_board()
-	save_game()
+	# The fixed slot, target and amounts reach disk before the key disappears.
+	if not save_game():
+		keys_collected = previous_count
+		key_levels_claimed = previous_claimed
+		locker_board = previous_board
+		return false
 	return true
 
 func _make_locker_board(seed_value: int = -1) -> void:
@@ -521,7 +537,14 @@ func _make_locker_board(seed_value: int = -1) -> void:
 	var amounts := []
 	for i in range(9):
 		amounts.append(roll.randi_range(5, 15))
-	locker_board = {"character_slot": roll.randi_range(0, 8) if not is_unlocked(VAULT_CHARACTER) else -1,
+	var catalogue = load("res://scripts/game/ten_character_selection.gd")
+	var locked: Array[String] = []
+	for id in catalogue.SUPERIOR_LOOKS:
+		if not is_superior_unlocked(id): locked.append(String(id))
+	var target := locked[roll.randi_range(0, locked.size() - 1)] if not locked.is_empty() else ""
+	var slot := roll.randi_range(0, 8) if not target.is_empty() else -1
+	# Existing boards lack reward_version and always retain their Elite rules.
+	locker_board = {"reward_version": 2, "character_id": target, "character_slot": slot,
 		"amounts": amounts, "opened": [], "eligible": false}
 
 func _validated_locker_board(value: Variant) -> Dictionary:
@@ -532,6 +555,8 @@ func _validated_locker_board(value: Variant) -> Dictionary:
 	var character_slot := int(value.get("character_slot", -1))
 	if not amounts is Array or amounts.size() != 9 or not opened is Array or opened.size() > 3 or character_slot < -1 or character_slot > 8:
 		return {}
+	var newer: bool = int(value.get("reward_version", 1)) >= 2 or value.has("character_id")
+	var target := String(value.get("character_id", "")) if newer else ""
 	var safe_amounts := []
 	for amount in amounts:
 		safe_amounts.append(clampi(int(amount), 1, 50))
@@ -545,11 +570,18 @@ func _validated_locker_board(value: Variant) -> Dictionary:
 		if index < 0 or index > 8 or seen.has(index) or kind not in ["diamonds", "character"]:
 			return {}
 		seen[index] = true
-		safe_opened.append({"index": index, "kind": kind, "amount": maxi(0, int(prize.get("amount", 0)))})
-	# Earlier versions already displayed boards immediately; treat their pending
-	# and partially revealed boards as eligible, preserving recovery semantics.
-	return {"character_slot": character_slot, "amounts": safe_amounts, "opened": safe_opened,
+		var saved := {"index": index, "kind": kind, "amount": maxi(0, int(prize.get("amount", 0)))}
+		if newer and kind == "character": saved["character_id"] = String(prize.get("character_id", target))
+		if newer and prize.has("replacement_for"): saved["replacement_for"] = String(prize.replacement_for)
+		safe_opened.append(saved)
+	# Earlier versions already displayed boards immediately; keep their secret
+	# slot, already-paid prizes, Elite entitlement and original recovery rules.
+	var board := {"character_slot": character_slot, "amounts": safe_amounts, "opened": safe_opened,
 		"eligible": bool(value.get("eligible", true))}
+	if newer:
+		board["reward_version"] = 2
+		board["character_id"] = target
+	return board
 
 func locker_pending() -> bool:
 	return not locker_board.is_empty()
@@ -566,23 +598,52 @@ func open_locker(index: int) -> Dictionary:
 	for previous in locker_board.opened:
 		if int(previous.index) == index:
 			return {}
+	var old_gems := gems
+	var old_superior := superior_unlocks.duplicate(true)
+	var old_assassins := unlocked_assassins.duplicate(true)
 	var prize := {"index": index, "kind": "diamonds", "amount": int(locker_board.amounts[index])}
-	if index == int(locker_board.character_slot) and not is_unlocked(VAULT_CHARACTER):
-		unlocked_assassins[VAULT_CHARACTER] = true
-		prize = {"index": index, "kind": "character", "amount": 1}
-	else:
+	if index == int(locker_board.character_slot):
+		if int(locker_board.get("reward_version", 1)) >= 2:
+			var target := String(locker_board.get("character_id", ""))
+			var catalogue = load("res://scripts/game/ten_character_selection.gd")
+			if catalogue.SUPERIOR_LOOKS.has(target):
+				if not is_superior_unlocked(target):
+					superior_unlocks[target] = true
+					prize = {"index": index, "kind": "character", "amount": 1, "character_id": target}
+				else:
+					# A player can buy the preselected character while the board is
+					# queued. Never duplicate it or silently discard the reward: pay
+					# at least its full published price in diamonds instead.
+					prize = {"index": index, "kind": "diamonds", "amount": maxi(int(prize.amount), int(catalogue.SUPERIOR_COSTS[target])), "replacement_for": target}
+		elif not is_unlocked(VAULT_CHARACTER):
+			# Unfinished pre-update boards must still award their original Elite.
+			unlocked_assassins[VAULT_CHARACTER] = true
+			prize = {"index": index, "kind": "character", "amount": 1}
+	if String(prize.kind) == "diamonds":
 		gems += int(prize.amount)
 	locker_board.opened.append(prize)
-	save_game()
+	# A reveal is never shown until the entitlement/diamonds and board agree on
+	# disk. If writing fails, leave the card available and restore the balances.
+	if not save_game():
+		locker_board.opened.pop_back()
+		gems = old_gems
+		superior_unlocks = old_superior
+		unlocked_assassins = old_assassins
+		return {}
 	return prize
 
 func finish_locker_board() -> bool:
 	if not locker_ready() or locker_board.opened.size() < 3:
 		return false
+	var previous_board := locker_board.duplicate(true)
+	var previous_claimed := key_levels_claimed.duplicate(true)
 	locker_board = {}
 	# A completed board starts a fresh key cycle, including replayed key levels.
 	key_levels_claimed = {}
-	save_game()
+	if not save_game():
+		locker_board = previous_board
+		key_levels_claimed = previous_claimed
+		return false
 	return true
 
 func can_spin_wheel() -> bool:

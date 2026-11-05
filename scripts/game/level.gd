@@ -54,9 +54,8 @@ const BLOOD_PICKUP_RADIUS := 28.0
 const BLOOD_PRINT_SPACING := 24.0
 const BLOOD_PRINT_LIMIT := 180
 const GRASS_TILE := 32.0
-# Path patches remain connected, filled 32-unit tiles. A 3x3 square covers
-# nine tiles (roughly two box areas); longer strips contain 8 or 12 tiles.
-const GRASS_SHAPES := [Vector2i(3, 3), Vector2i(6, 2), Vector2i(2, 6), Vector2i(4, 2), Vector2i(2, 4)]
+# Full 32-unit tiles in individual compact squares only.
+const GRASS_SHAPES := [Vector2i(2, 2), Vector2i(3, 3)]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Ten selectable characters. Guards keep their approved gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
@@ -121,16 +120,13 @@ var blocking_rects: Array[Rect2] = []
 # Separate wider guard-clearance geometry; player, bullet and light collision stay unchanged.
 var guard_blocking_rects: Array[Rect2] = []
 var shadow_rects: Array[Rect2] = []
-# Complete 32-unit grass tiles, grouped into connected, prop-attached layouts. They never
-# add collision or modify either navigation grid.
+# Complete 32-unit grass tiles, grouped into compact open or prop-edge squares.
+# They never add collision or modify either navigation grid.
 var grass_rects: Array[Rect2] = []
 var grass_groups: Array[Dictionary] = []
 var grass_entry_serial := 0
 var grass_entry_point := Vector2(INF, INF)
 var grass_entry_direction := Vector2.ZERO
-var _depth_last_position := Vector2(INF, INF)
-var _depth_last_velocity := Vector2.ZERO
-var _depth_redraw_left := 0.0
 var active_look := "standard"
 var player_pos := Vector2.ZERO
 var player_velocity := Vector2.ZERO
@@ -244,7 +240,7 @@ func _ready() -> void:
 	_build_shadows()
 	_build_floor_details()
 	_build_grass()
-	# The floor is retained; cover redraws at a bounded rate as perspective shifts.
+	# The floor and cover remain fixed; artwork never shifts with player motion.
 	map_backplate = WorldBackplate.new()
 	map_backplate.setup(self)
 	map_backplate.show_behind_parent = true
@@ -309,18 +305,6 @@ func _update_camera(delta: float) -> void:
 	target.y = (min_y + max_y) * 0.5 if min_y > max_y else clampf(target.y, min_y, max_y)
 	base_position = base_position.lerp(target, minf(1.0, delta * 9.0))
 	position = base_position
-
-func _refresh_prop_depth(delta: float) -> void:
-	# The floor/collision coordinates remain fixed. Only the retained cover art
-	# is re-recorded at a bounded rate while its perspective offset changes.
-	_depth_redraw_left = maxf(0.0, _depth_redraw_left - maxf(delta, 0.0))
-	if not is_instance_valid(map_cover) or _depth_redraw_left > 0.0:
-		return
-	if _depth_last_position.distance_squared_to(player_pos) > 0.25 or _depth_last_velocity.distance_squared_to(player_velocity) > 16.0:
-		map_cover.queue_redraw()
-		_depth_last_position = player_pos
-		_depth_last_velocity = player_velocity
-		_depth_redraw_left = 0.08
 
 func _apply_shake(delta: float) -> void:
 	if shake > 0.0:
@@ -575,7 +559,8 @@ func _has_free_gallery() -> bool:
 		if _gallery_clear_of_props(group.bounds): return true
 	return false
 
-func _try_gallery_grass(position: Vector2, shape: Vector2i, player_region: int, bounds: Rect2, require_free: bool = false) -> bool:
+func _try_gallery_grass(position: Vector2, shape: Vector2i, player_region: int, bounds: Rect2, require_free: bool = false, prop_index: int = -1) -> bool:
+	if not GRASS_SHAPES.has(shape): return false
 	var patch := Rect2(position, Vector2(shape) * GRASS_TILE)
 	if not bounds.encloses(patch) or patch.grow(24.0).has_point(player_pos): return false
 	if require_free and not _gallery_clear_of_props(patch): return false
@@ -624,8 +609,8 @@ func _try_gallery_grass(position: Vector2, shape: Vector2i, player_region: int, 
 					long_side = side
 	if chosen_side < 0: return false
 	grass_rects.append_array(tiles)
-	grass_groups.append({"layout":"gallery-%dx%d" % [shape.x,shape.y], "tiles":tiles, "cells":cells,
-		"bounds":patch, "prop_index":-1, "side":long_side if long_side >= 0 else chosen_side, "gallery":true})
+	grass_groups.append({"layout":"%s-%dx%d" % ["prop" if prop_index >= 0 else "gallery", shape.x,shape.y], "tiles":tiles, "cells":cells,
+		"bounds":patch, "prop_index":prop_index, "side":long_side if long_side >= 0 else chosen_side, "gallery":prop_index < 0})
 	return true
 
 func _build_grass() -> void:
@@ -635,32 +620,55 @@ func _build_grass() -> void:
 	var region := int(region_by_cell.get(_to_cell(player_pos),-1))
 	if region < 0 or region >= walkable_regions.size(): return
 	var desired := 3 if int(data.id) == 8 else 2 + (int(data.id) % 2)
-	# Both user screenshots show level 8. These map-aligned locations target the
-	# marked open path north and south of its central wall, and the lower square.
-	# They still pass every normal collision, reachability and guard-entry check.
-	if int(data.id) == 8:
-		for spec in [[Vector2(16.5,35.5),Vector2i(4,2)], [Vector2(15.5,45.5),Vector2i(6,2)], [Vector2(8.5,50.5),Vector2i(3,3)]]:
-			_try_gallery_grass(ORIGIN + Vector2(spec[0]) * GRASS_TILE, spec[1], region, bounds)
-		if grass_groups.size() >= desired: return
-	var order: Array = walkable_regions[region].duplicate()
 	var local_rng := RandomNumberGenerator.new()
 	local_rng.seed = 782031 + int(data.id) * 1871
+
+	# First try one actual prop-side square. It is centred along the chosen
+	# edge and touches the visible prop exactly, without covering its art.
+	# The common candidate validator still requires reachable player tiles,
+	# guard-clear entry, unchanged collision and separation from other patches.
+	var prop_order: Array[int] = []
+	for i in range(crate_rects.size()): prop_order.append(i)
+	for i in range(prop_order.size() - 1, 0, -1):
+		var j := local_rng.randi_range(0,i)
+		var temp := prop_order[i]; prop_order[i] = prop_order[j]; prop_order[j] = temp
+	for prop_index in prop_order:
+		var prop: Rect2 = crate_rects[prop_index]
+		for n in range(GRASS_SHAPES.size()):
+			var shape: Vector2i = GRASS_SHAPES[(n + int(data.id)) % GRASS_SHAPES.size()]
+			var size := Vector2(shape) * GRASS_TILE
+			for offset in range(4):
+				var side := (offset + int(data.id) + prop_index) % 4
+				var position := Vector2.ZERO
+				match side:
+					0: position = Vector2(prop.get_center().x - size.x * 0.5, prop.end.y)
+					1: position = Vector2(prop.get_center().x - size.x * 0.5, prop.position.y - size.y)
+					2: position = Vector2(prop.end.x, prop.get_center().y - size.y * 0.5)
+					_: position = Vector2(prop.position.x - size.x, prop.get_center().y - size.y * 0.5)
+				if _try_gallery_grass(position,shape,region,bounds,false,prop_index): break
+			if not grass_groups.is_empty(): break
+		if not grass_groups.is_empty(): break
+
+	# Preserve an open-gallery square on level 8 at a location from the user's
+	# marked screenshot if it passes the same physics and guard-access checks.
+	if int(data.id) == 8:
+		for spec in [[Vector2(8.5,50.5),Vector2i(3,3)], [Vector2(16.5,35.5),Vector2i(2,2)]]:
+			_try_gallery_grass(ORIGIN + Vector2(spec[0]) * GRASS_TILE, spec[1], region, bounds, true)
+			if grass_groups.size() >= desired: return
+
+	# Fill remaining spots in walkable galleries. Require a gap from all props,
+	# so open squares remain genuinely open even if no safe prop candidate fits.
+	var order: Array = walkable_regions[region].duplicate()
 	for i in range(order.size()-1,0,-1):
 		var j := local_rng.randi_range(0,i)
 		var temp = order[i]; order[i] = order[j]; order[j] = temp
-	# Square patches appear throughout the maps, and both orientations of the
-	# longer connected patches fit the horizontal/vertical gallery passages.
 	for pass_no in range(2):
-		for i in range(order.size()):
-			var anchor: Vector2i = order[i]
+		for anchor: Vector2i in order:
 			var start := ORIGIN + (Vector2(anchor) + Vector2.ONE * 0.5) * GRASS_TILE
 			for offset in range(GRASS_SHAPES.size()):
 				var shape: Vector2i = GRASS_SHAPES[(offset + int(data.id) + grass_groups.size()) % GRASS_SHAPES.size()]
 				if pass_no == 0 and not _gallery_is_corridor(start + Vector2(shape) * GRASS_TILE * 0.5): continue
-				# The final patch must be genuinely in the open path if the earlier
-				# candidates happened to touch props. No level relies only on crates.
-				var require_free := grass_groups.size() == desired - 1 and not _has_free_gallery()
-				if _try_gallery_grass(start,shape,region,bounds,require_free): break
+				if _try_gallery_grass(start,shape,region,bounds,true): break
 			if grass_groups.size() >= desired: return
 
 func _grass_probe_for_guard(g: Dictionary, point: Vector2, direction: Vector2) -> Vector2:
@@ -1193,7 +1201,6 @@ func _physics_process(delta: float) -> void:
 			_path_to(drag_target)
 	_update_hunt()
 	_move_player(delta)
-	_refresh_prop_depth(delta)
 	_magnetize_key(delta)
 	if locker_ui != null:
 		return

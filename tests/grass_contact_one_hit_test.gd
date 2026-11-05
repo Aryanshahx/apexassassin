@@ -73,7 +73,7 @@ func _run() -> void:
 		map._build_grass()
 		check(first == map.grass_rects, "level %d grass is repeatable" % n)
 		map.free()
-	check(layouts.size() >= 3, "connected grass uses a variety of complete-tile layouts")
+	check(layouts.size() >= 2, "grass uses compact open and prop-edge square layouts")
 	check(is_equal_approx(Level.GRASS_TILE * 2.0, 64.0), "four complete grass tiles form a 64-unit crate-sized block")
 	check(full_tiles >= 1000, "two or three compact grass spots remain in every level")
 	print("GROUPED GRASS: ", grouped_patches, " groups, ", full_tiles, " complete tiles in 100 levels; layouts ", layouts)

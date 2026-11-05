@@ -82,8 +82,7 @@ func _run() -> void:
 	check(gs.superior_unlocks.size() == 10 and Choice.read_selection() == {"look":"warrior_monk","weapon":"dracula"}, "old slot unlocks, final selection and weapon survive reload")
 	check(gs.gems == 987 and gs.cash == 654 and gs.current_level == 37 and gs.keys_collected == 1 and gs.upgrades.health == 3, "roster replacement never resets money, level, keys or upgrades")
 
-	# Every group is filled and connected: two/three box-area strips, or a
-	# 3x3 square covering approximately two box areas. Collision checks remain.
+	# Every group is a filled, complete 2x2 or 3x3 tile square.
 	var Level = load("res://scripts/game/level.gd")
 	var group_total := 0; var tile_total := 0
 	for n in range(1,101):
@@ -93,8 +92,8 @@ func _run() -> void:
 			group_total += 1; tile_total += g.tiles.size()
 			var bounds: Rect2 = g.bounds
 			var x := roundi(bounds.size.x / 32.0); var y := roundi(bounds.size.y / 32.0)
-			var valid_shape := (x == 2 and y in [4,6]) or (y == 2 and x in [4,6]) or (x == 3 and y == 3)
-			check(valid_shape and g.tiles.size() == x*y and g.tiles.size() in [8,9,12], "level %d patch is a connected strip or square of two to three box areas" % n)
+			var valid_shape := x == y and x in [2,3]
+			check(valid_shape and g.tiles.size() == x*y and g.tiles.size() in [4,9], "level %d patch is exactly a 2x2 or 3x3 tile square" % n)
 			var occupied := {}
 			for tile: Rect2 in g.tiles:
 				var offset := (tile.position - bounds.position) / 32.0
@@ -145,23 +144,22 @@ func _run() -> void:
 	home._close_overlay(); home.queue_free(); await process_frame
 	check(Choice.save_selection("warrior_monk", "dracula"), "restore the synthetic selected save slot for the locker test")
 
-	# A live reference-image board must resume the same rewards after reload.
+	# An unfinished legacy Elite board must retain its real rewards after reload.
 	gs.locker_board = {"character_slot":8, "amounts":[5,6,7,8,9,10,11,12,13], "opened":[], "eligible":true}
 	gs.save_game()
 	var Locker = load("res://scripts/ui/locker_rewards.gd")
 	var board = Locker.new(); root.add_child(board); await process_frame; await process_frame
-	var art := board.stage.get_node("SpecialRewardsReference") as TextureRect
-	check(art.texture.resource_path == "res://assets/ui/special-rewards-v2/board-reference.webp" and art.texture.get_size() == Vector2(1109,1419), "locker displays the supplied Special Rewards picture")
+	check(board.stage.get_node_or_null("SpecialRewardsReference") == null and board.feature_art.texture.resource_path == "res://assets/actors/v72/players/elite.png", "legacy board uses real controls and shows the actual Elite reward, not a pasted board")
 	check(board.buttons.size() == 9 and board.used_key_overlays.size() == 3 and board.remaining.text.begins_with("3"), "nine real crates and three available keys are shown")
 	for button in board.buttons:
 		check(button.visible and not button.disabled and ScreenUtil.safe_rect(root).encloses(button.get_global_rect()), button.name + " is a usable on-screen button")
 	var before: int = gs.gems
 	await tap(point(board.buttons[0]))
-	check(gs.locker_board.opened.size() == 1 and gs.gems == before + 5 and board.buttons[0].disabled, "actual touch awards and saves the first pictured crate")
+	check(gs.locker_board.opened.size() == 1 and gs.gems == before + 5 and board.buttons[0].disabled, "actual touch awards and saves the first real locker")
 	check(board.used_key_overlays[0].visible and not board.used_key_overlays[1].visible and board.remaining.text.begins_with("2"), "one used key is dimmed and two picks remain")
 	board.queue_free(); await process_frame; gs.load_game()
 	board = Locker.new(); root.add_child(board); await process_frame; await process_frame
-	check(board.buttons[0].disabled and board.buttons[0].get_node_or_null("RevealedPrize") != null and board.remaining.text.begins_with("2"), "a saved revealed prize and remaining keys resume on the reference board")
+	check(board.buttons[0].disabled and board.buttons[0].get_node_or_null("RevealedPrize") != null and board.remaining.text.begins_with("2"), "a saved revealed prize and remaining keys resume on the designed board")
 	await tap(point(board.buttons[8]))
 	check(gs.is_unlocked(gs.VAULT_CHARACTER) and gs.locker_board.opened.size() == 2, "the real elite prize remains obtainable")
 	await tap(point(board.buttons[1]))
