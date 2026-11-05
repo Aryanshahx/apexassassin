@@ -15,7 +15,7 @@ XDG_DATA_HOME="$TEST_TMP/import/data" XDG_CONFIG_HOME="$TEST_TMP/import/config" 
 # The old smoke/home/roster tests describe retired visuals. Adapted combat and
 # locker tests preserve their gameplay checks but expect the new preview artwork.
 # The randomized legacy traffic stress test is a separate optional diagnostic.
-tests=(depth_grass_polish_test superior_bonus_grass_test special_enemies_and_missions_test background_music_test ten_character_selection_test ten_character_grass_test grass_contact_one_hit_test world_effects_and_ui_test movement_test roaming_test transition_test red_scarf_combat_test
+tests=(build_verification_test depth_grass_polish_test superior_bonus_grass_test special_enemies_and_missions_test background_music_test ten_character_selection_test ten_character_grass_test grass_contact_one_hit_test world_effects_and_ui_test movement_test roaming_test transition_test red_scarf_combat_test
  collision_test splash_test layout_test gate_test ten_characters_enemies_test player_path_test
  loot_speed_test button_feedback_test tap_audio_import_test five_looks_locker_test
  v72_deferred_locker_test v72_progression_test v72_key_audio_import_test
@@ -25,13 +25,28 @@ for test in "${tests[@]}"; do
   [ -f "tests/$test.gd" ] || { echo "Required test is missing: tests/$test.gd" >&2; exit 1; }
   sandbox="$TEST_TMP/$test"; mkdir -p "$sandbox/data" "$sandbox/config" "$sandbox/cache"
   echo "--- $test (isolated user data)"
-  APEX_REDSCARF_TEST_ROOT="$sandbox/data" APEX_FIVE_TEST_ROOT="$sandbox/data" XDG_DATA_HOME="$sandbox/data" \
+  if APEX_REDSCARF_TEST_ROOT="$sandbox/data" APEX_FIVE_TEST_ROOT="$sandbox/data" XDG_DATA_HOME="$sandbox/data" \
     XDG_CONFIG_HOME="$sandbox/config" XDG_CACHE_HOME="$sandbox/cache" \
-    timeout 300 "$GODOT" --headless --path . --script "tests/$test.gd"
+    timeout 300 "$GODOT" --headless --path . --script "tests/$test.gd"; then
+    :
+  else
+    result=$?
+    echo "::error title=Godot regression test failed::$test exited with status $result"
+    exit "$result"
+  fi
 done
 for seed in 70000 71000 72000; do
   sandbox="$TEST_TMP/v71-start-$seed"; mkdir -p "$sandbox/data" "$sandbox/config" "$sandbox/cache"
-  APEX_SAFETY_SEED="$seed" XDG_DATA_HOME="$sandbox/data" XDG_CONFIG_HOME="$sandbox/config" \
-    XDG_CACHE_HOME="$sandbox/cache" timeout 120 "$GODOT" --headless --path . --script tests/v71_start_safety_test.gd
+  # Keep the original test and exit status, while surfacing the exact failed
+  # seed and spotted/damaged summary as a public Actions annotation.
+  if APEX_SAFETY_SEED="$seed" XDG_DATA_HOME="$sandbox/data" XDG_CONFIG_HOME="$sandbox/config" \
+    XDG_CACHE_HOME="$sandbox/cache" timeout 120 "$GODOT" --headless --path . --script tests/v71_start_safety_test.gd 2>&1 | tee "$sandbox/safety.log"; then
+    :
+  else
+    result=$?
+    summary="$(grep -F 'V71 START SAFETY' "$sandbox/safety.log" | tail -n 1 || true)"
+    echo "::error title=Start-safety test failed::seed $seed; status $result; $summary"
+    exit "$result"
+  fi
 done
 echo 'Twelve-enemy abilities, missions, ten-character, complete-tile grass, world effects, UI, collision, combat and preserved-gameplay suites completed using isolated synthetic saves.'

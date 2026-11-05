@@ -194,6 +194,9 @@ var hint: Label
 var player_health_anchor: Control
 var player_health_bar: ProgressBar
 var player_health_label: Label
+# During the first three seconds, patrol target selection keeps the idle
+# spawn clear; sight, damage and alert pursuit are never suppressed.
+var _opening_patrol_time := 0.0
 var rng := RandomNumberGenerator.new()
 var floor_details: Array[Dictionary] = []
 var shake := 0.0
@@ -1799,6 +1802,7 @@ func _guard_touches_player(g: Dictionary) -> bool:
 	return g.pos.distance_squared_to(player_pos) <= radius * radius and _los(g.pos, player_pos)
 
 func _update_guards(delta: float) -> void:
+	_opening_patrol_time += maxf(delta, 0.0)
 	_update_medic_support(delta)
 	var player_concealed := in_grass(player_pos)
 	for g in guards:
@@ -2075,10 +2079,19 @@ func _choose_roam_target(g: Dictionary) -> bool:
 	if cells.size() < 2:
 		return false
 	var home: Vector2 = g.get("home_pos", g.pos)
+	var protect_idle_spawn := false
+	var initial_spawn := Vector2(INF, INF)
+	if _opening_patrol_time < 3.0 and data.has("spawn"):
+		initial_spawn = _cell_center(int(data.spawn[0]), int(data.spawn[1]))
+		protect_idle_spawn = player_pos.distance_squared_to(initial_spawn) < 1.0
 	var candidates: Array[Dictionary] = []
 	for attempt in range(mini(60, cells.size() * 2)):
 		var cell: Vector2i = cells[rng.randi_range(0, cells.size() - 1)]
 		var point := _cell_center(cell.x, cell.y)
+		# A starting patrol may choose another destination for a few seconds,
+		# but it can still immediately see/attack a player who moves into view.
+		if protect_idle_spawn and point.distance_to(initial_spawn) < float(g.vision) + PLAYER_LIGHT_RADIUS + CELL:
+			continue
 		var distance: float = point.distance_to(g.pos)
 		if distance < CELL * 2.5:
 			continue
