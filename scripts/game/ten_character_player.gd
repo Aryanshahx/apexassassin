@@ -172,17 +172,15 @@ func _setup_repaired_guard() -> void:
 	visual.add_child(head_pivot)
 
 func _setup_superior() -> void:
-	# The supplied art faces left in a 1514x744 canvas. The legs are the same
-	# animated tapered reference legs as the original roster, under the body.
+	# The new supplied roster shows whole upper bodies, not separable limb
+	# frames. Keep each pose coherent rather than inventing hidden pixels.
+	# The independently equipped weapon still pivots behind the gripping fist.
 	centre = Vector2(970.0, 390.0)
-	hip_a = Vector2(1065.0, 370.0)
-	hip_b = Vector2(1065.0, 410.0)
+	hip_a = Vector2(1015.0, 370.0)
+	hip_b = Vector2(1015.0, 410.0)
 	var shoulder := Vector2(850.0, 135.0)
-	wrist_anchor = Vector2(455.0, 365.0)
+	wrist_anchor = Vector2(527.0, 367.0)
 	weapon_fist = wrist_anchor
-	var folder := "res://assets/characters/superior-update/" + current_look + "/"
-	var origins: Dictionary = SuperiorMeta.ORIGINS[current_look]
-	_body(load(folder + "body.png"), _v(origins.body), 2.0)
 	knife_shoulder = Node2D.new()
 	knife_shoulder.name = "KnifeShoulder"
 	knife_shoulder.position = shoulder - centre
@@ -191,24 +189,26 @@ func _setup_superior() -> void:
 	knife_elbow.name = "KnifeElbow"
 	knife_shoulder.add_child(knife_elbow)
 	wrist = Node2D.new()
-	wrist.name = "KnifeHandPivot"
+	wrist.name = "KnifeWrist"
 	wrist.position = wrist_anchor - shoulder
 	knife_elbow.add_child(wrist)
 	weapon_art = Sprite2D.new()
-	weapon_art.name = "SelectedMeleeWeapon"
+	weapon_art.name = "EquippedMeleeBehindHand"
 	weapon_art.centered = false
 	weapon_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	wrist.add_child(weapon_art)
-	# The arm is drawn after the weapon so the grip remains behind the fist.
-	var arm := Sprite2D.new()
-	arm.name = "UpperAndHandArt"
-	arm.centered = false
-	arm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	arm.texture = load(folder + "upper.png")
-	arm.position = _v(origins.upper) - shoulder
-	arm.scale = Vector2.ONE * 2.0
-	knife_shoulder.add_child(arm)
-	free_shoulder = _shoulder("FreeShoulder", load(folder + "free_arm.png"), Vector2(855.0, 630.0), _v(origins.free_arm), 2.0)
+	var sprite := Sprite2D.new()
+	sprite.name = "ReferenceBody"
+	sprite.texture = load("res://assets/characters/superior-roster-v2/%s.webp" % current_look)
+	sprite.centered = false
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	sprite.position = Vector2(350.0, 0.0) - shoulder
+	sprite.scale = Vector2.ONE * 3.4
+	# Add after the weapon so the original fist naturally covers its handle.
+	knife_shoulder.add_child(sprite)
+	free_shoulder = Node2D.new()
+	free_shoulder.name = "FreeShoulder"
+	visual.add_child(free_shoulder)
 	free_pivot = Node2D.new()
 	free_pivot.name = "FreeHandAnchor"
 	free_shoulder.add_child(free_pivot)

@@ -13,8 +13,9 @@ const LOOK_LABELS := {
 	"standard": "Standard", "shadow": "Shadow", "speed_10": "Violet Runner", "health_10": "Golden Guard",
 	"speed_20": "Wrapped Runner", "health_20": "Fox Guard", "speed_30": "Electric Runner", "health_30": "Flame Guard",
 	"speed_40": "Royal Runner", "health_40": "Straw Hat Guard",
-	"crimson_blade": "Crimson Blade", "frost_tech": "Frost Tech", "gold_knight": "Gold Knight", "yellow_goggles": "Yellow Goggles",
-	"green_ghillie": "Ghillie", "blue_swat": "SWAT", "purple_reaper": "Reaper", "red_samurai": "Samurai", "neon_cyber": "Neon", "warrior_monk": "Warrior Monk"
+	# IDs stay tied to the original save slots; only the visible names/art change.
+	"crimson_blade": "Mummy", "frost_tech": "Flame Fighter", "gold_knight": "Hazmat", "yellow_goggles": "Blue Brute",
+	"green_ghillie": "Neon Robot", "blue_swat": "Purple Assassin", "purple_reaper": "Hooded Clown", "red_samurai": "Jester", "neon_cyber": "Zombie", "warrior_monk": "Golden Fighter"
 }
 const WEAPON_LABELS := {"thor": "Thor", "aurora": "Aurora Fang", "wolverine": "Wolverine", "dracula": "Dracula", "leviathan": "Leviathan Axe"}
 const LOOK_NAMES := LOOK_LABELS
@@ -37,7 +38,7 @@ static func bonus_label(look: String) -> String:
 
 static func portrait_path(look: String) -> String:
 	if SUPERIOR_LOOKS.has(look):
-		return "res://assets/characters/superior-update/%s/portrait.png" % look
+		return "res://assets/characters/superior-roster-v2/%s.webp" % look
 	if look == "standard":
 		return "res://assets/characters/five-look-draft/red_scarf/portrait.png"
 	return "res://assets/characters/ten-character-update/%s/portrait.png" % look

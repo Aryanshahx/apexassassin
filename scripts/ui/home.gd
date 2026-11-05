@@ -386,7 +386,7 @@ func _build_missions() -> void:
 	mission_scroll.position = Vector2(12, 61)
 	mission_scroll.size = Vector2(628, 280)
 	mission_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	mission_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	mission_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	mission_scroll.follow_focus = true
 	mission_panel.add_child(mission_scroll)
 	mission_list = VBoxContainer.new()
@@ -598,7 +598,7 @@ func _refresh_card() -> void:
 		selected_name_label.text = String(FiveLooks.LOOK_NAMES[FiveLooks.read_selection().look]).to_upper()
 
 # ---------------- Full-screen collection screens ----------------
-func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
+func _screen_base(title: String, reference_palette := false, hide_scrollbar := false) -> VBoxContainer:
 	_close_overlay()
 	overlay = Control.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -643,7 +643,7 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 	scroll.name = "CollectionScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER if hide_scrollbar else ScrollContainer.SCROLL_MODE_AUTO
 	scroll.follow_focus = true
 	box.add_child(scroll)
 	collection_scroll = scroll
@@ -655,7 +655,7 @@ func _screen_base(title: String, reference_palette := false) -> VBoxContainer:
 
 func _open_assassins(category: String = "standard") -> void:
 	character_category = category if category in ["standard", "superior"] else "standard"
-	var box := _screen_base("Choose Character", character_category == "superior")
+	var box := _screen_base("Choose Character", character_category == "superior", true)
 	var tabs := HBoxContainer.new()
 	tabs.name = "CharacterCategories"
 	tabs.add_theme_constant_override("separation", 12)
@@ -894,7 +894,7 @@ func _open_settings() -> void:
 	# an older download without touching progress, data or signing settings.
 	var build_id := _font(18, 0)
 	build_id.name = "BuildIdentity"
-	build_id.text = "BUILD: DEPTH-2"
+	build_id.text = "BUILD: ROSTER-3"
 	build_id.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	build_id.add_theme_color_override("font_color", Color("c5d3db"))
 	box.add_child(build_id)

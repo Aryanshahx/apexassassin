@@ -85,7 +85,7 @@ func _run() -> void:
 			var prop: Rect2 = m.crate_rects[int(g.prop_index)]; var patch: Rect2 = g.bounds
 			check(touching(patch, prop), "level %d grass touches its real prop with no gap" % number)
 			check(not patch.intersects(prop, false), "level %d grass does not cover the prop" % number)
-			check(patch.size.x >= 64.0 and patch.size.y >= 64.0 and g.tiles.size() >= 4, "level %d has a filled compact patch, never a 1x3 row" % number)
+			check(patch.size.x >= 64.0 and patch.size.y >= 64.0 and g.tiles.size() in [8, 12], "level %d has two or three connected 2x2 grass-box sections" % number)
 			var guard_tile := false
 			for tile: Rect2 in g.tiles:
 				var cell: Vector2i = m._to_cell(tile.get_center())
@@ -94,7 +94,7 @@ func _run() -> void:
 			check(guard_can_approach(m,g), "level %d grass has a guard-clear entry and reachable search tile" % number)
 		check(m.blocking_rects == before and m.guard_blocking_rects == guard_before, "level %d adds no collision or blockers" % number)
 		m.free()
-	check(shape_counts.size() == 3 and group_count == 250, "2x2, 2x4 and 4x2 arrangements are varied across the catalogue")
+	check(shape_counts.size() == 4 and group_count >= 200 and group_count <= 300, "2x4, 4x2, 2x6 and 6x2 arrangements are varied across the catalogue")
 	print("PROP-ATTACHED GRASS: ", group_count, " spots and ",tile_count," tiles across 100 levels")
 
 	var world := World.new()
@@ -121,10 +121,9 @@ func _run() -> void:
 		check(not actor.leg_a.visible and not actor.leg_b.visible and not actor.ankle_a.visible and not actor.ankle_b.visible, id + " hides legs again when stopped")
 		actor.free()
 	for id in Choice.SUPERIOR_LOOKS:
-		for part in ["body", "upper", "free_arm"]:
-			var path := "res://assets/characters/superior-update/%s/%s.png" % [id,part]
-			var tex := load(path) as Texture2D
-			check(tex != null and main_component_fraction(tex) > 0.996, id + " has no detached spots in " + part)
+		var path := "res://assets/characters/superior-roster-v2/%s.webp" % id
+		var tex := load(path) as Texture2D
+		check(tex != null and main_component_fraction(tex) > 0.996, id + " has one clean connected supplied character silhouette")
 	for id in ["health_10","health_30"]:
 		for part in ["body", "upper", "free_arm"]:
 			var path := "res://assets/characters/character-repair/%s/%s.png" % [id,part]

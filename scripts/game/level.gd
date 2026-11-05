@@ -58,7 +58,7 @@ const GRASS_TILE := 32.0
 # Larger patches are connected mixes of those seamless four-tile blocks.
 # Each patch is a filled, compact rectangle; four 32-unit tiles are one
 # wooden-box-sized area. No one-tile-wide strips are generated.
-const GRASS_SHAPES := [Vector2i(4, 2), Vector2i(2, 4), Vector2i(2, 2)]
+const GRASS_SHAPES := [Vector2i(6, 2), Vector2i(2, 6), Vector2i(4, 2), Vector2i(2, 4)]
 const ActorRigScript := preload("res://scripts/game/six_enemy_rig.gd")
 # Ten selectable characters. Guards keep their approved gun rig.
 const FiveLookPlayerRig := preload("res://scripts/game/ten_character_player.gd")
